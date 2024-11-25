@@ -9,7 +9,7 @@ pub async fn check_update() -> Option<String> {
         .ok()?;
         
     let res = client
-        .get("https://api.xiu2.xyz/ver/cloudflarespeedtest.txt")
+        .get("https://ver.797874.xyz")
         .send()
         .await
         .ok()?;
