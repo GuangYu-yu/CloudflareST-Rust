@@ -1,22 +1,48 @@
 use indicatif::{ProgressBar, ProgressStyle};
+use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Bar {
-    progress_bar: ProgressBar,
+    progress_bar: Arc<ProgressBar>,
 }
 
 impl Bar {
     pub fn new(count: u64, prefix: &str, suffix: &str) -> Self {
-        // ... 实现进度条初始化逻辑
+        // 创建进度条模板
+        let template = format!(
+            "{{counts}} {{bar}} {} {{msg}} {}", 
+            prefix, suffix
+        );
+
+        let pb = ProgressBar::new(count);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(&template)
+                .unwrap()
+                .progress_chars("_")  // 未完成部分用 "_" 填充
+                .tick_chars("↖↗↘↙")  // 动画字符
+                .with_key("bar", |state, w| {
+                    write!(w, "[{:-<width$}]", "", width = 30).unwrap()
+                })
+        );
+
         Self {
-            progress_bar: ProgressBar::new(count),
+            progress_bar: Arc::new(pb),
         }
     }
 
     pub fn grow(&self, num: u64, msg: &str) {
-        // ... 实现进度更新逻辑
+        self.progress_bar.set_message(msg.to_string());
+        self.progress_bar.inc(num);
     }
 
     pub fn done(&self) {
-        // ... 实现进度条完成逻辑
+        self.progress_bar.finish_and_clear();
+    }
+}
+
+impl Drop for Bar {
+    fn drop(&mut self) {
+        self.done();
     }
 } 

@@ -1,8 +1,8 @@
 use std::net::IpAddr;
 use std::time::Duration;
+use std::cmp::Ordering;
 use anyhow::{Result, Context};
 use clap::ArgMatches;
-use std::cmp::Ordering;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -55,10 +55,6 @@ impl PingData {
         }
         (self.sended - self.received) as f32 / self.sended as f32
     }
-
-    pub fn compare_delay(&self, other: &Self) -> Ordering {
-        self.delay.cmp(&other.delay)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +62,7 @@ pub struct CloudflareIPData {
     pub ping_data: PingData,
     pub loss_rate: f32,
     pub download_speed: f64,
+    pub config: Config,
 }
 
 impl CloudflareIPData {
@@ -75,11 +72,8 @@ impl CloudflareIPData {
             ping_data,
             loss_rate,
             download_speed: 0.0,
+            config: Config::default(),
         }
-    }
-
-    pub fn set_download_speed(&mut self, speed: f64) {
-        self.download_speed = speed;
     }
 
     pub fn to_string_vec(&self) -> Vec<String> {
@@ -106,7 +100,7 @@ impl Ord for CloudflareIPData {
         self.download_speed.partial_cmp(&other.download_speed)
             .unwrap_or(Ordering::Equal)
             .reverse()
-            .then_with(|| self.ping_data.compare_delay(&other.ping_data))
+            .then_with(|| self.ping_data.delay.cmp(&other.ping_data.delay))
     }
 }
 
@@ -130,17 +124,31 @@ pub type DownloadSpeedSet = Vec<CloudflareIPData>;
 
 impl Config {
     pub fn from_matches(matches: &ArgMatches) -> Result<Self> {
+        let mut routines: u32 = matches.value_of("n")
+            .context("Missing n parameter")?
+            .parse()
+            .context("Invalid n parameter")?;
+            
+        // 处理线程数范围
+        if routines == 0 {
+            routines = 1;
+        } else if routines > 1000 {
+            routines = 1000;
+        }
+
+        let mut ping_times: u32 = matches.value_of("t")
+            .context("Missing t parameter")?
+            .parse()
+            .context("Invalid t parameter")?;
+            
+        // 处理测速次数
+        if ping_times == 0 {
+            ping_times = 1;
+        }
+
         Ok(Self {
-            routines: matches.value_of("n")
-                .context("Missing n parameter")?
-                .parse()
-                .context("Invalid n parameter")?,
-                
-            ping_times: matches.value_of("t")
-                .context("Missing t parameter")?
-                .parse()
-                .context("Invalid t parameter")?,
-                
+            routines,
+            ping_times,
             test_count: matches.value_of("dn")
                 .context("Missing dn parameter")?
                 .parse()

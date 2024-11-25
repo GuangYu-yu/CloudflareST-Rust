@@ -5,57 +5,60 @@ mod ip;
 mod tcping;
 mod progress;
 mod csv;
+mod version;
 
 use anyhow::{Result, Context};
 use clap::{App, Arg};
 use std::{time::Duration, process};
 use crate::types::{Config, PingDelaySet};
+use crate::csv::PrintResult;
 
-const VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const NAME: &str = "CloudflareST-rust";
 const HELP_TEXT: &str = r#"
 CloudflareST-rust
 
 参数：
     -n 200
-        延迟测速线程；越多延迟测速越快，性能弱的设备 (如路由器) 请勿太高；(默认 200 最多 1000)
+        延迟测速线程数 (默认 200, 最大 1000)
     -t 4
-        延迟测速次数；单个 IP 延迟测速的次数；(默认 4 次)
+        延迟测速次数 (默认 4)
     -dn 10
-        下载测速数量；延迟测速并排序后，从最低延迟起下载测速的数量；(默认 10 个)
+        下载测速数量 (默认 10)
     -dt 10
-        下载测速时间；单个 IP 下载测速最长时间，不能太短；(默认 10 秒)
+        下载测速时间 (默认 10秒)
     -tp 443
-        指定测速端口；延迟测速/下载测速时使用的端口；(默认 443 端口)
+        测速端口 (默认 443)
     -url URL
-        指定测速地址；延迟测速(HTTPing)/下载测速时使用的地址
+        测速URL (必需参数)
     -httping
-        切换测速模式；延迟测速模式改为 HTTP 协议
+        使用HTTP测速模式
     -tl 200
-        平均延迟上限；只输出低于指定平均延迟的 IP；(��认 9999 ms)
+        平均延迟上限 (默认 9999ms)
     -tll 40
-        平均延迟下限；只输出高于指定平均延迟的 IP；(默认 0 ms)
+        平均延迟下限 (默认 0ms)
     -tlr 0.2
-        丢包几率上限；只输出低于/等于指定丢包率的 IP；(默认 1.00)
+        丢包率上限 (默认 1.00)
     -sl 5
-        下载速度下限；只输出高于指定下载速度的 IP；(默认 0.00 MB/s)
+        下载速度下限 (默认 0.00 MB/s)
     -p 10
-        显示结果数量；(默认 10 个)
+        显示结果数量 (默认 10)
     -f ip.txt
-        IP段数据文件；(默认 ip.txt)
+        IP段数据文件 (默认 ip.txt)
     -ip IP段数据
-        指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔
+        指定IP段数据 (英文逗号分隔)
     -o result.csv
-        写入结果文件；(默认 result.csv)
+        输出文件 (默认 result.csv)
     -dd
-        禁用下载测速；禁用后测速结果会按延迟排序
+        禁用下载测速
     -allip
-        测速全部的IP；对 IP 段中的每个 IP 进行测速
+        测试所有IP
 "#;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     if let Err(e) = run().await {
-        eprintln!("Error: {}", e);
+        eprintln!("错误: {}", e);
         process::exit(1);
     }
     Ok(())
@@ -63,16 +66,24 @@ async fn main() -> Result<()> {
 
 async fn run() -> Result<()> {
     let matches = create_app().get_matches();
-    let config = Config::from_matches(&matches)
-        .context("Failed to parse command line arguments")?;
     
+    // 先检查版本参数
     if matches.is_present("version") {
         print_version();
+        println!("检查版本更新中...");
+        if let Some(new_version) = version::check_update().await {
+            println!("*** 发现新版本 [{}]！请前往 [https://github.com/yourusername/CloudflareST-rust] 更新！ ***", new_version);
+        } else {
+            println!("当前为最新版本 [{}]！", VERSION);
+        }
         return Ok(());
     }
 
-    println!("CloudflareST-rust {}\n", VERSION);
+    let config = Config::from_matches(&matches)
+        .context("解析命令行参数失败")?;
 
+    println!("CloudflareST-rust {}\n", VERSION);
+    
     // 初始化随机数种子
     ip::init_rand_seed();
 
@@ -82,22 +93,8 @@ async fn run() -> Result<()> {
     // 开始延迟测速
     let ping_data = tcping::new_ping(&config)
         .run()
-        .await?
-        .filter_delay()
-        .filter_loss_rate();
+        .await?;
 
-    // 提示信息
-    print_test_info(&config, &ping_data);
-
-    // 开始下载测速
-    if !config.disable_download {
-        println!(
-            "开始下载测速（下限：{:.2} MB/s, 数量：{}, 队列：{}）",
-            config.min_speed,
-            config.test_count,
-            ping_data.len().min(config.test_count as usize)
-        );
-    }
 
     let speed_data = download::test_download_speed(&config, ping_data).await?;
 
@@ -117,13 +114,7 @@ fn create_app() -> App<'static, 'static> {
             .short("n")
             .takes_value(true)
             .default_value("200")
-            .validator(|v| v.parse::<u32>()
-                .map(|n| if n > 1000 { 
-                    Err("线程数不能超过1000".to_string())
-                } else {
-                    Ok(())
-                })
-                .map_err(|e| e.to_string())?)
+            .validator(|v| v.parse::<u32>().map(|_| ()).map_err(|e| e.to_string()))
             .help("延迟测速线程数"))
         .arg(Arg::with_name("t")
             .short("t")
@@ -152,7 +143,15 @@ fn create_app() -> App<'static, 'static> {
         .arg(Arg::with_name("url")
             .long("url")
             .takes_value(true)
-            .help("测速URL"))
+            .required(true)
+            .validator(|v| {
+                if v.starts_with("http://") || v.starts_with("https://") {
+                    Ok(())
+                } else {
+                    Err("URL必须以http://或https://开头".to_string())
+                }
+            })
+            .help("测速URL(必需)"))
         .arg(Arg::with_name("httping")
             .long("httping")
             .help("切换HTTP测速模式"))
@@ -221,7 +220,7 @@ fn create_app() -> App<'static, 'static> {
             .help("禁用下载测速"))
         .arg(Arg::with_name("allip")
             .long("allip")
-            .help("测速全部的IP"))
+            .help("测试所有IP"))
         .arg(Arg::with_name("version")
             .short("v")
             .help("显示版本信息"))
@@ -229,42 +228,18 @@ fn create_app() -> App<'static, 'static> {
 
 fn check_config(config: &Config) {
     if config.min_speed > 0.0 && config.max_delay == Duration::from_millis(9999) {
-        println!("[小提示] 在使用 [-sl] 参数时，建议搭配 [-tl] 参数，以避免因凑不够 [-dn] 数量而一直测速...");
+        println!("[提示] 使用下载速度下限时，建议同时设置延迟上限，避免测速时间过长");
     }
 }
 
 fn print_version() {
-    println!("CloudflareST-rust v{}", VERSION);
+    println!("{} v{}", NAME, VERSION);
     
     #[cfg(debug_assertions)]
     println!("Debug Build");
     
     #[cfg(not(debug_assertions))]
     println!("Release Build");
-}
-
-fn print_test_info(config: &Config, ping_data: &PingDelaySet) {
-    if config.httping {
-        println!(
-            "开始延迟测速（模式：HTTP, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2}）",
-            config.tcp_port,
-            config.min_delay.as_millis(),
-            config.max_delay.as_millis(),
-            config.max_loss_rate
-        );
-    } else {
-        println!(
-            "开始延迟测速（模式：TCP, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2}）",
-            config.tcp_port,
-            config.min_delay.as_millis(),
-            config.max_delay.as_millis(),
-            config.max_loss_rate
-        );
-    }
-
-    if ping_data.is_empty() {
-        println!("\n[信息] 延迟测速结果 IP 数量为 0，跳过下载测速。");
-    }
 }
 
 fn end_print(config: &Config) {
