@@ -1,0 +1,44 @@
+[package]
+name = "cloudflarest-rust"
+version = "0.1.0"
+description = "A Rust implementation of CloudflareSpeedTest"
+
+[dependencies]
+# 命令行参数解析
+clap = "2.33"
+
+# 异步运行时和网络请求
+tokio = { version = "1.0", features = ["full", "io-util", "net", "time"] }
+reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"] }
+tokio-util = { version = "0.7", features = ["full"] }
+futures = "0.3"
+
+# 错误处理
+anyhow = "1.0"
+thiserror = "1.0"
+
+# 进度条和显示
+indicatif = "0.17"
+colored = "2.0"     # 命令行颜色
+prettytable-rs = "0.10"  # 表格输出
+
+# 文件处理
+csv = "1.2"
+
+# 网络相关
+ipnet = "2.7"    # IP网段处理
+trust-dns-resolver = "0.22"  # DNS解析
+socket2 = { version = "0.5", features = ["all"] }  # 底层socket操作
+
+# 工具
+rand = "0.8"     # 随机数
+regex = "1.5"    # 正则表达式
+num_cpus = "1.0" # CPU核心数检测
+ewma = "0.1.1"   # 指数加权移动平均
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true     # 自动剥离符号信息
