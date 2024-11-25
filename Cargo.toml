@@ -2,13 +2,14 @@
 name = "cloudflarest-rust"
 version = "0.1.0"
 description = "A Rust implementation of CloudflareSpeedTest"
+edition = "2021 edition"
 
 [dependencies]
 # 命令行参数解析
-clap = "2.33"
+clap = { version = "4.4", features = ["derive"] }
 
 # 异步运行时和网络请求
-tokio = { version = "1.0", features = ["full", "io-util", "net", "time"] }
+tokio = { version = "1.0", features = ["full", "macros"] }
 reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"] }
 tokio-util = { version = "0.7", features = ["full"] }
 futures = "0.3"
@@ -35,6 +36,7 @@ rand = "0.8"     # 随机数
 regex = "1.5"    # 正则表达式
 num_cpus = "1.0" # CPU核心数检测
 ewma = "0.1.1"   # 指数加权移动平均
+lazy_static = "1.4"
 
 [profile.release]
 opt-level = 3
