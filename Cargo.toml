@@ -2,7 +2,7 @@
 name = "cloudflarest-rust"
 version = "0.1.0"
 description = "A Rust implementation of CloudflareSpeedTest"
-edition = "2021 edition"
+edition = "2021"
 
 [dependencies]
 # 命令行参数解析
