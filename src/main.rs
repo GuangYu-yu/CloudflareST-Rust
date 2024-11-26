@@ -61,10 +61,16 @@ CloudflareST-rust
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    if let Err(e) = run().await {
+    let result = run().await;
+    
+    // 无论是否出错，都显示错误信息并等待用户输入
+    if let Err(e) = result {
         eprintln!("错误: {}", e);
+        end_print();
         process::exit(1);
     }
+    
+    end_print();
     Ok(())
 }
 
@@ -114,7 +120,7 @@ async fn run() -> Result<()> {
     csv::export_csv(&speed_data, &config)?;
     speed_data.print();
 
-    end_print(&config);
+    end_print();
     Ok(())
 }
 
@@ -149,7 +155,7 @@ fn create_app() -> Command {
             .help("测速端口"))
         .arg(Arg::new("url")
             .long("url")
-            .required(true)
+            .required(false)
             .value_parser(|s: &str| {
                 if s.starts_with("http://") || s.starts_with("https://") {
                     Ok(s.to_string())
@@ -157,7 +163,8 @@ fn create_app() -> Command {
                     Err(String::from("URL必须以http://或https://开头"))
                 }
             })
-            .help("测速URL(必需)"))
+            .default_value("https://cf.xiu2.xyz/url")
+            .help("测速URL"))
         .arg(Arg::new("httping")
             .long("httping")
             .help("切换HTTP测速模式"))
@@ -236,15 +243,11 @@ fn print_version() {
     println!("Release Build");
 }
 
-fn end_print(config: &Config) {
-    if config.print_num == 0 {
-        return;
-    }
-    
+fn end_print() {
     #[cfg(target_os = "windows")]
     {
         use std::io::Write;
-        println!("按任意键退出...");
+        println!("\n按任意键退出...");
         std::io::stdout().flush().unwrap();
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
