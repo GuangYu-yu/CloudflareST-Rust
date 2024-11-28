@@ -1,5 +1,5 @@
 [package]
-name = "cloudflarest-rust"
+name = "CloudflareST-Rust"
 version = "0.1.0"
 description = "A Rust implementation of CloudflareSpeedTest"
 edition = "2021"
@@ -7,6 +7,7 @@ edition = "2021"
 [dependencies]
 # 命令行参数解析
 clap = { version = "4.4", features = ["derive"] }
+terminal_size = "0.2"
 
 # 异步运行时和网络请求
 tokio = { version = "1.0", features = ["full", "macros"] }
