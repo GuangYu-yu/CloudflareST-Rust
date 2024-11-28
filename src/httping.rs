@@ -1,187 +1,182 @@
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use reqwest::header::HeaderMap;
 use regex::Regex;
-use reqwest::{Client, redirect, header::HeaderMap};
-use crate::types::Config;
 use lazy_static::lazy_static;
-use std::collections::HashSet;
+use crate::types::{Config, PingData};
+use crate::download::build_client;
+use futures::StreamExt;
+use tokio::io::AsyncWriteExt;
+use std::collections::HashMap;
 
 lazy_static! {
     static ref COLO_REGEX: Regex = Regex::new(r"[A-Z]{3}").unwrap();
 }
 
+const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36";
+
 pub struct HttpPing {
-    allowed_colos: Option<HashSet<String>>,
     config: Config,
+    colo_filter: Option<String>,
+    colo_map: Option<Arc<HashMap<String, String>>>,
 }
 
 impl HttpPing {
-    pub fn new(config: Config, colo_list: Option<&str>) -> Self {
-        let allowed_colos = colo_list.and_then(Self::map_colo_map);
-        
-        Self { 
-            allowed_colos,
+    pub fn new(config: Config, colo_filter: Option<&str>) -> Self {
+        let colo_map = colo_filter.map(|filter| {
+            let map = filter
+                .split(',')
+                .map(|s| {
+                    let s = s.trim().to_uppercase();
+                    (s.clone(), s)
+                })
+                .collect();
+            Arc::new(map)
+        });
+
+        Self {
             config,
+            colo_filter: colo_filter.map(|s| s.to_string()),
+            colo_map,
         }
     }
 
-    fn get_colo(&self, headers: &HeaderMap) -> Option<String> {
-        let cf_ray = if headers.get("Server")?.as_bytes() == b"cloudflare" {
-            headers.get("CF-RAY")?.to_str().ok()?
+    pub async fn check_connection(&self, client: &reqwest::Client, url: &str) -> Option<bool> {
+        let resp = match client
+            .head(url)
+            .header("User-Agent", USER_AGENT)
+            .send()
+            .await {
+                Ok(r) => r,
+                Err(_) => return None,
+            };
+
+        let status = resp.status().as_u16();
+        let headers = resp.headers().clone();
+
+        // 显式处理响应体
+        let mut body = resp.bytes_stream();
+        let mut sink = tokio::io::sink();
+        while let Some(chunk) = body.next().await {
+            if chunk.is_err() || sink.write(&chunk.unwrap()).await.is_err() {
+                return None;
+            }
+        }
+
+        let valid_status = if self.config.httping_status_code == 0 
+            || self.config.httping_status_code < 100 
+            || self.config.httping_status_code > 599 
+        {
+            status == 200 || status == 301 || status == 302
         } else {
-            headers.get("x-amz-cf-pop")?.to_str().ok()?
+            status == self.config.httping_status_code
         };
 
-        let colo = COLO_REGEX.find(cf_ray)?.as_str().to_string();
-        
-        // 如果指定了允许的地区，检查是否匹配
-        if let Some(allowed) = &self.allowed_colos {
-            if !allowed.contains(&colo) {
-                return None;
-            }
+        if !valid_status {
+            return Some(false);
         }
 
-        Some(colo)
-    }
-
-    pub async fn check_connection(&self, client: &Client, url: &str) -> Option<bool> {
-        let resp = client.head(url).send().await.ok()?;
-        
-        // 检查状态码
-        let status = resp.status();
-        if self.config.httping_status_code != 0 
-            && (self.config.httping_status_code < 100 || self.config.httping_status_code > 599) {
-            if status != 200 && status != 301 && status != 302 {
-                return None;
-            }
-        } else if status != self.config.httping_status_code {
-            return None;
-        }
-
-        // 检查 Colo
         if !self.config.httping_cf_colo.is_empty() {
-            if self.get_colo(resp.headers()).is_none() {
-                return None;
+            if let Some(colo) = self.get_colo(&headers) {
+                if !self.match_colo(&colo) {
+                    return Some(false);
+                }
+            } else {
+                return Some(false);
             }
         }
 
         Some(true)
     }
 
-    pub fn map_colo_map(colo: &str) -> Option<HashSet<String>> {
-        if colo.is_empty() {
-            return None;
-        }
-        
-        // 将参数指定的地区三字码转为大写并格式化
-        Some(
-            colo.split(',')
-                .map(|s| s.trim().to_uppercase())
-                .collect()
-        )
-    }
-}
-
-pub async fn http_ping(config: &Config, ip: IpAddr) -> Option<(u32, Duration)> {
-    let client = build_client(ip, config.tcp_port)?;
-    
-    // 先访问一次获得 HTTP 状态码 及 Cloudflare Colo
-    if !check_initial_connection(&client, config).await? {
-        return None;
-    }
-
-    // 循环测速计算延迟
-    let mut success = 0;
-    let mut total_delay = Duration::ZERO;
-
-    for i in 0..config.ping_times {
-        let mut req = reqwest::Request::new(
-            reqwest::Method::HEAD,
-            config.url.parse().ok()?
-        );
-        
-        req.headers_mut().insert(
-            "User-Agent",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36".parse().unwrap()
-        );
-
-        if i == config.ping_times - 1 {
-            req.headers_mut().insert("Connection", "close".parse().unwrap());
-        }
-
-        let start = Instant::now();
-        match client.execute(req).await {
-            Ok(resp) => {
-                success += 1;
-                let _ = resp.bytes().await;
-                total_delay += start.elapsed();
-            }
-            Err(_) => continue,
-        }
-    }
-
-    if success > 0 {
-        Some((success, total_delay))
-    } else {
-        None
-    }
-}
-
-fn build_client(ip: IpAddr, _port: u16) -> Option<Client> {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "User-Agent",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36"
-            .parse()
-            .unwrap(),
-    );
-
-    Client::builder()
-        .timeout(Duration::from_secs(2))
-        .local_address(Some(ip))
-        .default_headers(headers)
-        .redirect(redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(1))
-        .build()
-        .ok()
-}
-
-async fn check_initial_connection(client: &Client, config: &Config) -> Option<bool> {
-    let resp = client.head(&config.url).send().await.ok()?;
-    
-    // 检查状态码
-    let status = resp.status().as_u16();
-    if config.httping_status_code != 0 
-        && (config.httping_status_code < 100 || config.httping_status_code > 599) {
-        if status != 200 && status != 301 && status != 302 {
-            return None;
-        }
-    } else if status != config.httping_status_code {
-        return None;
-    }
-
-    // 只有指定了地区才匹配机场三字码
-    if !config.httping_cf_colo.is_empty() {
-        let cf_ray = if resp.headers().get("Server").map(|v| v.as_bytes()) == Some(b"cloudflare") {
-            resp.headers().get("CF-RAY").and_then(|v| v.to_str().ok())
+    pub fn get_colo(&self, headers: &HeaderMap) -> Option<String> {
+        let server = headers.get("Server")?;
+        let cf_ray = if server.as_bytes() == b"cloudflare" {
+            headers.get("CF-RAY")?.to_str().ok()?
+        } else if server.as_bytes() == b"cloudfront" {
+            headers.get("x-amz-cf-pop")?.to_str().ok()?
         } else {
-            resp.headers().get("x-amz-cf-pop").and_then(|v| v.to_str().ok())
+            return None;
         };
 
-        if let Some(colo) = cf_ray.and_then(get_colo) {
-            if !config.httping_cf_colo.split(',')
-                .any(|allowed| allowed.trim().eq_ignore_ascii_case(&colo)) {
-                return None;
-            }
+        COLO_REGEX.find(cf_ray).map(|m| m.as_str().to_string())
+    }
+
+    pub fn match_colo(&self, colo: &str) -> bool {
+        if let Some(filter) = &self.colo_filter {
+            filter.contains(colo)
+        } else if let Some(map) = &self.colo_map {
+            map.contains_key(colo)
         } else {
-            return None;
+            true
         }
     }
 
-    Some(true)
+    pub async fn http_ping(&self, config: &Config, ip: IpAddr) -> Option<PingData> {
+        let client = build_client(&ip, config).await?;
+
+        if let Some(false) = self.check_connection(&client, &config.url).await {
+            return None;
+        }
+
+        let mut received = 0;
+        let mut total_delay = Duration::ZERO;
+
+        for i in 0..config.ping_times {
+            let start = Instant::now();
+            let result = client
+                .head(&config.url)
+                .header("User-Agent", USER_AGENT)
+                .header(
+                    "Connection",
+                    if i == config.ping_times - 1 { "close" } else { "keep-alive" },
+                )
+                .send()
+                .await;
+
+            match result {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if !status.is_success() && !status.is_redirection() {
+                        continue;
+                    }
+
+                    // 显式处理响应体
+                    let mut body = resp.bytes_stream();
+                    let mut sink = tokio::io::sink();
+                    let mut success = true;
+                    
+                    while let Some(chunk) = body.next().await {
+                        if chunk.is_err() || sink.write(&chunk.unwrap()).await.is_err() {
+                            success = false;
+                            break;
+                        }
+                    }
+
+                    if success {
+                        received += 1;
+                        total_delay += start.elapsed();
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+
+        if received == 0 {
+            return None;
+        }
+
+        Some(PingData::new(
+            ip,
+            config.ping_times,
+            received,
+            total_delay / received as u32,
+        ))
+    }
 }
 
-fn get_colo(cf_ray: &str) -> Option<String> {
-    COLO_REGEX.find(cf_ray)
-        .map(|m| m.as_str().to_string())
-} 
+pub async fn http_ping(config: &Config, ip: IpAddr) -> Option<PingData> {
+    let http_ping = HttpPing::new(config.clone(), Some(&config.httping_cf_colo));
+    http_ping.http_ping(config, ip).await
+}

@@ -1,36 +1,14 @@
 use std::net::IpAddr;
 use std::time::Duration;
 use std::cmp::Ordering;
-use anyhow::Context;
 use clap::ArgMatches;
 use thiserror::Error;
 use tokio::sync::AcquireError;
 
 #[derive(Error, Debug)]
 pub enum SpeedTestError {
-    #[error("IP parse error: {0}")]
-    IPParseError(String),
-    
-    #[error("Network error: {0}")]
-    NetworkError(#[from] std::io::Error),
-    
-    #[error("HTTP error: {0}")]
-    HttpError(#[from] reqwest::Error),
-    
-    #[error("Invalid configuration: {0}")]
-    ConfigError(String),
-    
-    #[error("Download error: {0}")]
-    DownloadError(String),
-    
-    #[error("CSV write error: {0}")]
-    CsvError(#[from] csv::Error),
-
-    #[error("Other error: {0}")]
-    Other(#[from] anyhow::Error),
-
-    #[error("Semaphore acquire error: {0}")]
-    AcquireError(String),
+    #[error("{0}")]
+    Error(String),
 }
 
 pub type SpeedTestResult<T> = std::result::Result<T, SpeedTestError>;
@@ -60,6 +38,9 @@ pub struct Config {
     
     pub disable_download: bool, // 禁用下载测速
     pub test_all: bool,        // 测试全部IP
+    pub ipv4_amount: Option<u32>,  // IPv4 测试数量
+    pub ipv6_amount: Option<u32>,  // IPv6 测试数量
+    pub ipv6_num_mode: Option<String>, // IPv6 数量模式
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +75,7 @@ pub struct CloudflareIPData {
     pub loss_rate: f32,
     pub download_speed: f64,
     pub config: Config,
+    pub colo: String,
 }
 
 impl CloudflareIPData {
@@ -104,6 +86,7 @@ impl CloudflareIPData {
             loss_rate,
             download_speed: 0.0,
             config: Config::default(),
+            colo: String::new(),
         }
     }
 
@@ -115,6 +98,7 @@ impl CloudflareIPData {
             format!("{:.2}", self.loss_rate),
             format!("{:.2}", self.ping_data.delay.as_secs_f64() * 1000.0),
             format!("{:.2}", self.download_speed / 1024.0 / 1024.0),
+            self.colo.clone(),
         ]
     }
 }
@@ -164,56 +148,100 @@ impl Config {
     }
 
     pub fn from_matches(matches: &ArgMatches) -> SpeedTestResult<Self> {
-        let config = Self {
-            routines: Self::validate_routines(*matches.get_one::<u32>("n")
-                .context("Missing n parameter")?),
-            ping_times: *matches.get_one::<u32>("t")
-                .context("Missing t parameter")?,
-            test_count: *matches.get_one::<u32>("dn")
-                .context("Missing dn parameter")?,
-            download_time: Duration::from_secs(
-                *matches.get_one::<u64>("dt")
-                    .context("Missing dt parameter")?
-            ),
-            tcp_port: *matches.get_one::<u16>("tp")
-                .context("Missing tp parameter")?,
-            url: matches.get_one::<String>("url")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "https://cf.xiu2.xyz/url".to_string()),
-            httping: matches.contains_id("httping"),
-            httping_status_code: *matches.get_one::<u16>("httping-code")
-                .context("Missing httping-code parameter")?,
-            httping_cf_colo: matches.get_one::<String>("cfcolo")
-                .map(|s| s.to_string())
-                .unwrap_or_default(),
-            max_delay: Duration::from_millis(
-                *matches.get_one::<u64>("tl")
-                    .context("Missing tl parameter")?
-            ),
-            min_delay: Duration::from_millis(
-                *matches.get_one::<u64>("tll")
-                    .context("Missing tll parameter")?
-            ),
-            max_loss_rate: *matches.get_one::<f32>("tlr")
-                .context("Missing tlr parameter")?,
-            min_speed: *matches.get_one::<f64>("sl")
-                .context("Missing sl parameter")?,
-            print_num: *matches.get_one::<u32>("p")
-                .context("Missing p parameter")?,
-            ip_file: matches.get_one::<String>("f")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "ip.txt".to_string()),
-            ip_text: matches.get_one::<String>("ip")
-                .map(|s| s.to_string())
-                .unwrap_or_default(),
-            output: matches.get_one::<String>("o")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "result.csv".to_string()),
-            disable_download: matches.contains_id("dd"),
-            test_all: matches.contains_id("allip"),
-        };
-        
-        validate_config(&config)?;
+        let mut config = Self::default();  // 先获取默认值
+
+        // 使用 get_one 获取用户输入的值，如果没有就使用默认值
+        if let Some(n) = matches.get_one::<u32>("n") {
+            config.routines = Self::validate_routines(*n);
+        }
+        if let Some(t) = matches.get_one::<u32>("t") {
+            config.ping_times = *t;
+        }
+        if let Some(dn) = matches.get_one::<u32>("dn") {
+            config.test_count = *dn;
+        }
+        if let Some(dt) = matches.get_one::<u64>("dt") {
+            config.download_time = Duration::from_secs(*dt);
+        }
+        if let Some(tp) = matches.get_one::<u16>("tp") {
+            config.tcp_port = *tp;
+        }
+        if let Some(url) = matches.get_one::<String>("url") {
+            config.url = url.clone();
+        }
+        if let Some(code) = matches.get_one::<u16>("httping-code") {
+            config.httping_status_code = *code;
+        }
+        if let Some(colo) = matches.get_one::<String>("cfcolo") {
+            config.httping_cf_colo = colo.clone();
+        }
+        if let Some(tl) = matches.get_one::<u64>("tl") {
+            config.max_delay = Duration::from_millis(*tl);
+        }
+        if let Some(tll) = matches.get_one::<u64>("tll") {
+            config.min_delay = Duration::from_millis(*tll);
+        }
+        if let Some(tlr) = matches.get_one::<f32>("tlr") {
+            config.max_loss_rate = *tlr;
+        }
+        if let Some(sl) = matches.get_one::<f64>("sl") {
+            config.min_speed = *sl;
+        }
+        if let Some(p) = matches.get_one::<u32>("p") {
+            config.print_num = *p;
+        }
+        if let Some(f) = matches.get_one::<String>("f") {
+            config.ip_file = f.clone();
+        }
+        if let Some(ip) = matches.get_one::<String>("ip") {
+            config.ip_text = ip.clone();
+        }
+        if let Some(o) = matches.get_one::<String>("o") {
+            config.output = o.clone();
+        }
+
+        config.httping = matches.contains_id("httping");
+        config.disable_download = matches.contains_id("dd");
+        config.test_all = matches.contains_id("all4");
+
+        // 处理 IPv6 测试模式
+        if matches.contains_id("more6") {
+            config.ipv6_amount = Some(262144); // 2^18
+        } else if matches.contains_id("lots6") {
+            config.ipv6_amount = Some(65536);  // 2^16
+        } else if matches.contains_id("many6") {
+            config.ipv6_amount = Some(4096);   // 2^12
+        } else if matches.contains_id("some6") {
+            config.ipv6_amount = Some(256);    // 2^8
+        }
+
+        // 处理 IPv4 测试数量
+        if matches.contains_id("many4") {
+            config.ipv4_amount = Some(4096);   // 2^12
+        }
+
+        // 处理自定义测试数量
+        if let Some(v4) = matches.get_one::<String>("v4") {
+            let amount = parse_test_amount(v4, true);
+            config.ipv4_amount = Some(amount);
+        }
+
+        if let Some(v6) = matches.get_one::<String>("v6") {
+            let amount = parse_test_amount(v6, false);
+            config.ipv6_amount = Some(amount);
+        }
+
+        // 处理 IPv6 测试模式
+        if matches.contains_id("more6") {
+            config.ipv6_num_mode = Some("more".to_string());
+        } else if matches.contains_id("lots6") {
+            config.ipv6_num_mode = Some("lots".to_string());
+        } else if matches.contains_id("many6") {
+            config.ipv6_num_mode = Some("many".to_string());
+        } else if matches.contains_id("some6") {
+            config.ipv6_num_mode = Some("some".to_string());
+        }
+
         Ok(config)
     }
 
@@ -225,12 +253,12 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            routines: 200,
-            ping_times: 4,
-            test_count: 10,
-            download_time: Duration::from_secs(10),
-            tcp_port: 443,
-            url: String::from("https://cf.xiu2.xyz/url"),
+            routines: 200,          // 默认200线程
+            ping_times: 4,          // 默认测试4次
+            test_count: 10,         // 默认下载测试10个
+            download_time: Duration::from_secs(10),  // 默认10秒
+            tcp_port: 443,          // 默认443端口
+            url: String::from("https://cf.xiu2.xyz/url"),  // 默认URL
             httping: false,
             httping_status_code: 200,
             httping_cf_colo: String::new(),
@@ -244,6 +272,9 @@ impl Default for Config {
             output: String::from("result.csv"),
             disable_download: false,
             test_all: false,
+            ipv4_amount: None,
+            ipv6_amount: None,
+            ipv6_num_mode: None,
         }
     }
 }
@@ -306,27 +337,62 @@ pub static mut INPUT_MAX_DELAY: Duration = MAX_DELAY;
 pub static mut INPUT_MIN_DELAY: Duration = MIN_DELAY;
 pub static mut INPUT_MAX_LOSS_RATE: f32 = MAX_LOSS_RATE;
 
-impl From<std::net::AddrParseError> for SpeedTestError {
-    fn from(err: std::net::AddrParseError) -> Self {
-        SpeedTestError::IPParseError(err.to_string())
-    }
-}
-
-// 在配置验证失败时使用
-pub fn validate_config(config: &Config) -> Result<(), SpeedTestError> {
-    if config.tcp_port == 0 {
-        return Err(SpeedTestError::ConfigError("Invalid TCP port".into()));
-    }
-    Ok(())
-}
-
-// 在下载失败时使用
-pub fn handle_download_error(err: std::io::Error) -> SpeedTestError {
-    SpeedTestError::DownloadError(err.to_string())
-}
-
 impl From<AcquireError> for SpeedTestError {
     fn from(err: AcquireError) -> Self {
-        SpeedTestError::AcquireError(err.to_string())
+        SpeedTestError::Error(format!("线程控制失败: {}", err))
+    }
+} 
+
+// 解析测试数量表达式 (2^n±m)，并进行自适应范围处理
+pub fn parse_test_amount(expr: &str, is_v4: bool) -> u32 {
+    let max_amount = if is_v4 { 
+        2u32.pow(16) // IPv4 最大值 2^16
+    } else {
+        2u32.pow(20) // IPv6 最大值 2^20
+    };
+
+    let amount = {
+        let expr = expr.replace(" ", "");
+        if let Some(plus_pos) = expr.find('+') {
+            // 处理加法
+            let base = expr[..plus_pos].parse::<u32>().unwrap_or(0);
+            let add = expr[plus_pos+1..].parse::<u32>().unwrap_or(0);
+            2u32.pow(base) + add
+        } else if let Some(minus_pos) = expr.find('-') {
+            // 处理减法
+            let base = expr[..minus_pos].parse::<u32>().unwrap_or(0);
+            let sub = expr[minus_pos+1..].parse::<u32>().unwrap_or(0);
+            2u32.pow(base).saturating_sub(sub)
+        } else {
+            // 单个数字
+            expr.parse::<u32>().unwrap_or(0)
+        }
+    };
+
+    // 自适应范围处理
+    if amount <= 0 {
+        1 // 小于等于0时取1
+    } else if amount > max_amount {
+        max_amount // 超过最大限制时取最大值
+    } else {
+        amount
+    }
+} 
+
+impl From<std::io::Error> for SpeedTestError {
+    fn from(err: std::io::Error) -> Self {
+        SpeedTestError::Error(err.to_string())
+    }
+}
+
+impl From<reqwest::Error> for SpeedTestError {
+    fn from(err: reqwest::Error) -> Self {
+        SpeedTestError::Error(err.to_string()) 
+    }
+}
+
+impl From<csv::Error> for SpeedTestError {
+    fn from(err: csv::Error) -> Self {
+        SpeedTestError::Error(err.to_string())
     }
 } 

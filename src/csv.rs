@@ -1,14 +1,33 @@
 use std::fs::File;
 use anyhow::Result;
-use csv::Writer;
+use std::io::BufWriter;
 use crate::types::{Config, DownloadSpeedSet};
+use crate::httping::HttpPing;
+use crate::download::build_client;
 
-pub fn export_csv(data: &DownloadSpeedSet, config: &Config) -> Result<()> {
-    if config.output.is_empty() || data.is_empty() {
+pub async fn export_csv(data: &mut DownloadSpeedSet, config: &Config) -> Result<()> {
+    if data.is_empty() {
         return Ok(());
     }
 
-    let mut writer = Writer::from_writer(File::create(&config.output)?);
+    let http_ping = HttpPing::new(config.clone(), None);
+    for ip_data in data.iter_mut() {
+        if let Some(client) = build_client(&ip_data.ping_data.ip, config).await {
+            if let Ok(resp) = client.head(&config.url).send().await {
+                if let Some(colo) = http_ping.get_colo(resp.headers()) {
+                    ip_data.colo = colo;
+                }
+            }
+        }
+    }
+
+    if config.output.is_empty() {
+        return Ok(());
+    }
+
+    let file = File::create(&config.output)?;
+    let buf_writer = BufWriter::with_capacity(32 * 1024, file);
+    let mut writer = csv::Writer::from_writer(buf_writer);
 
     // 写入表头
     writer.write_record(&[
@@ -18,6 +37,7 @@ pub fn export_csv(data: &DownloadSpeedSet, config: &Config) -> Result<()> {
         "丢包率",
         "平均延迟",
         "下载速度 (MB/s)",
+        "数据中心",
     ])?;
 
     // 写入数据
@@ -47,39 +67,31 @@ impl PrintResult for DownloadSpeedSet {
         }
 
         // 确定格式化字符串
-        let use_long_format = self[..print_num]
-            .iter()
-            .any(|d| d.ping_data.ip.to_string().len() > 15);
+        let (head_format, data_format) = {
+            let has_ipv6 = self[..print_num]
+                .iter()
+                .any(|d| d.ping_data.ip.to_string().len() > 15);
 
-        let (ip_width, data_width) = if use_long_format {
-            (40, 42)
-        } else {
-            (16, 18)
+            if has_ipv6 {
+                ("%-40s%-5s%-5s%-5s%-6s%-11s%-8s\n", "%-42s%-8s%-8s%-8s%-10s%-15s%-8s\n")
+            } else {
+                ("%-16s%-5s%-5s%-5s%-6s%-11s%-8s\n", "%-18s%-8s%-8s%-8s%-10s%-15s%-8s\n")
+            }
         };
 
         // 打印表头
-        println!(
-            "{} {} {} {} {} {}",
-            format!("{:<width$}", "IP 地址", width = ip_width),
-            format!("{:<5}", "已发送"),
-            format!("{:<5}", "已接收"),
-            format!("{:<5}", "丢包率"),
-            format!("{:<6}", "平均延迟"),
-            format!("{:<11}", "下载速度 (MB/s)")
-        );
+        println!("{}", format!(
+            "{} {} {} {} {} {} {} {}", head_format,
+            "IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度 (MB/s)", "数据中心"
+        ));
 
         // 打印数据
         for ip_data in self.iter().take(print_num) {
             let data = ip_data.to_string_vec();
-            println!(
-                "{} {} {} {} {} {}",
-                format!("{:<width$}", data[0], width = data_width),
-                format!("{:<8}", data[1]),
-                format!("{:<8}", data[2]),
-                format!("{:<8}", data[3]),
-                format!("{:<10}", data[4]),
-                format!("{:<15}", data[5])
-            );
+            println!("{}", format!(
+                "{} {} {} {} {} {} {} {}", data_format,
+                &data[0], &data[1], &data[2], &data[3], &data[4], &data[5], &data[6]
+            ));
         }
 
         // 如果有输出文件，打印提示

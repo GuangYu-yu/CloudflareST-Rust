@@ -1,19 +1,112 @@
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use reqwest::{Client, redirect, header::HeaderMap};
-use crate::types::{Config, PingDelaySet, DownloadSpeedSet, SpeedTestError, handle_download_error};
+use crate::types::{Config, PingDelaySet, DownloadSpeedSet, SpeedTestError};
 use crate::progress::Bar;
 use futures::StreamExt;
 use ewma::EWMA;
-use std::io::Error as IoError;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Semaphore;
+use rand::seq::SliceRandom;
 
 const BUFFER_SIZE: usize = 1024;
 const DEFAULT_URL: &str = "https://cf.xiu2.xyz/url";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_TEST_NUM: u32 = 10;
 const DEFAULT_MIN_SPEED: f64 = 0.0;
+const DELAY_GROUP_INTERVAL: Duration = Duration::from_millis(2); // 2ms 分组间隔
+const MAX_RETRIES: u32 = 3; // 最大重试次数
+const CLIENT_POOL_SIZE: usize = 100; // 客户端连接池大小
+
+// 客户端连接池
+pub struct DownloadClient {
+    pool: Arc<Vec<Client>>,
+    index: Arc<Mutex<usize>>,
+}
+
+impl DownloadClient {
+    pub fn new() -> Self {
+        let mut clients = Vec::with_capacity(CLIENT_POOL_SIZE);
+        for _ in 0..CLIENT_POOL_SIZE {
+            clients.push(Client::new());
+        }
+        Self {
+            pool: Arc::new(clients),
+            index: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    pub fn get_client(&self) -> Client {
+        let mut index = self.index.lock().unwrap();
+        *index = (*index + 1) % CLIENT_POOL_SIZE;
+        self.pool[*index].clone()
+    }
+}
+
+// 将 IP 按延迟分组并打乱
+fn group_and_shuffle_ips(ip_set: PingDelaySet) -> PingDelaySet {
+    if ip_set.is_empty() {
+        return ip_set;
+    }
+
+    // 1. 按延迟分组
+    let mut delay_groups: Vec<Vec<_>> = Vec::new();
+    let mut current_group = Vec::new();
+    let mut current_delay = ip_set[0].ping_data.delay;
+
+    for ip_data in ip_set {
+        if ip_data.ping_data.delay > current_delay + DELAY_GROUP_INTERVAL {
+            // 如果延迟差距超过2ms，创建新组
+            if !current_group.is_empty() {
+                delay_groups.push(current_group);
+                current_group = Vec::new();
+            }
+            current_delay = ip_data.ping_data.delay;
+        }
+        current_group.push(ip_data);
+    }
+    
+    // 添加最后一组
+    if !current_group.is_empty() {
+        delay_groups.push(current_group);
+    }
+
+    // 2. 打乱每组内的 IP
+    let mut rng = rand::thread_rng();
+    for group in delay_groups.iter_mut() {
+        group.shuffle(&mut rng);
+    }
+
+    // 3. 合并所有组
+    delay_groups.into_iter().flatten().collect()
+}
+
+// 添加一个用于跟踪总带宽的结构
+struct TotalBandwidth {
+    bandwidth: Arc<Mutex<f64>>,
+}
+
+impl TotalBandwidth {
+    fn new() -> Self {
+        Self {
+            bandwidth: Arc::new(Mutex::new(0.0))
+        }
+    }
+
+    fn add(&self, speed: f64) {
+        let mut bandwidth = self.bandwidth.lock().unwrap();
+        *bandwidth += speed;
+    }
+
+    fn sub(&self, speed: f64) {
+        let mut bandwidth = self.bandwidth.lock().unwrap();
+        *bandwidth -= speed;
+    }
+
+    fn get(&self) -> f64 {
+        *self.bandwidth.lock().unwrap()
+    }
+}
 
 pub async fn test_download_speed(config: &mut Config, ip_set: PingDelaySet) -> Result<DownloadSpeedSet, SpeedTestError> {
     check_download_default(config);
@@ -26,6 +119,9 @@ pub async fn test_download_speed(config: &mut Config, ip_set: PingDelaySet) -> R
         println!("\n[信息] 延迟测速结果 IP 数量为 0，跳过下载测速。");
         return Ok(ip_set);
     }
+
+    // 在开始下载测速前对 IP 进行分组和打乱
+    let ip_set = group_and_shuffle_ips(ip_set);
 
     let mut test_num = config.test_count;
     if ip_set.len() < test_num as usize || config.min_speed > 0.0 {
@@ -45,30 +141,45 @@ pub async fn test_download_speed(config: &mut Config, ip_set: PingDelaySet) -> R
     let semaphore = Arc::new(Semaphore::new(test_num as usize));
     let results = Arc::new(Mutex::new(Vec::new()));
     let fallback_results = Arc::new(Mutex::new(Vec::new()));
+    let client_pool = Arc::new(DownloadClient::new());
+    let total_bandwidth = Arc::new(TotalBandwidth::new());
     
     let mut handles = Vec::new();
     
-    // 使用 stream 处理下载测速
     for ip_data in ip_set {
         let permit = semaphore.clone().acquire_owned().await?;
         let config = config.clone();
         let results = results.clone();
         let fallback_results = fallback_results.clone();
         let bar = bar.clone();
+        let client_pool = client_pool.clone();
+        let total_bandwidth = total_bandwidth.clone();
         
         let handle = tokio::spawn(async move {
-            let speed = download_handler(&ip_data.ping_data.ip, &config).await;
-            if let Ok(speed) = speed {
-                let mut ip_data = ip_data.clone();
-                ip_data.download_speed = speed;
-                
-                if speed >= config.min_speed * 1024.0 * 1024.0 {
-                    let mut results = results.lock().unwrap();
-                    results.push(ip_data);
-                    bar.grow(1, "");
-                } else {
-                    let mut fallback = fallback_results.lock().unwrap();
-                    fallback.push(ip_data);
+            let client = client_pool.get_client();
+            let result = download_with_retry(&ip_data.ping_data.ip, &config, &client).await;
+
+            match result {
+                Ok(0.0) => {
+                    bar.grow(1, &format!("{:.2} MB/s", total_bandwidth.get() / 1024.0 / 1024.0));
+                }
+                Ok(speed) => {
+                    total_bandwidth.add(speed);
+                    let mut ip_data = ip_data.clone();
+                    ip_data.download_speed = speed;
+                    
+                    if speed >= config.min_speed * 1024.0 * 1024.0 {
+                        let mut results = results.lock().unwrap();
+                        results.push(ip_data);
+                        bar.grow(1, &format!("{:.2} MB/s", total_bandwidth.get() / 1024.0 / 1024.0));
+                    } else {
+                        let mut fallback = fallback_results.lock().unwrap();
+                        fallback.push(ip_data);
+                    }
+                    total_bandwidth.sub(speed); // 下载完成后减去这个IP的带宽
+                }
+                Err(_) => {
+                    bar.grow(1, &format!("{:.2} MB/s", total_bandwidth.get() / 1024.0 / 1024.0));
                 }
             }
             drop(permit);
@@ -95,6 +206,25 @@ pub async fn test_download_speed(config: &mut Config, ip_set: PingDelaySet) -> R
     Ok(speed_set)
 }
 
+// 下载重试机制
+async fn download_with_retry(ip: &IpAddr, config: &Config, client: &Client) -> Result<f64, SpeedTestError> {
+    let mut retries = MAX_RETRIES;
+    
+    while retries > 0 {
+        match download_handler(ip, config, client).await {
+            Ok(speed) => return Ok(speed),
+            Err(_) => {
+                retries -= 1;
+                if retries > 0 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    Ok(0.0) // 失败时返回 0
+}
+
 fn check_download_default(config: &mut Config) {
     if config.url.is_empty() {
         config.url = DEFAULT_URL.to_string();
@@ -110,12 +240,7 @@ fn check_download_default(config: &mut Config) {
     }
 }
 
-async fn download_handler(ip: &IpAddr, config: &Config) -> Result<f64, SpeedTestError> {
-    let client = match build_client(ip, config).await {
-        Some(c) => c,
-        None => return Err(SpeedTestError::DownloadError("Failed to build client".into())),
-    };
-
+async fn download_handler(_ip: &IpAddr, config: &Config, client: &Client) -> Result<f64, SpeedTestError> {
     let mut headers = HeaderMap::new();
     headers.insert(
         "User-Agent",
@@ -132,21 +257,18 @@ async fn download_handler(ip: &IpAddr, config: &Config) -> Result<f64, SpeedTest
     let mut req = req;
     *req.headers_mut() = headers;
 
-    let response = client.execute(req).await
-        .map_err(|e| handle_download_error(IoError::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )))?;
+    let response = match client.execute(req).await {
+        Ok(resp) => resp,
+        Err(_) => return Ok(0.0),
+    };
 
     if response.status() != 200 {
-        return Err(SpeedTestError::DownloadError(
-            format!("HTTP status: {}", response.status())
-        ));
+        return Ok(0.0); // 非 200 状态码时返回 0
     }
 
     let time_start = Instant::now();
     let time_end = time_start + config.download_time;
-    let content_length = response.content_length().unwrap_or(u64::MAX);
+    let content_length = response.content_length();
     
     let mut content_read = 0u64;
     let time_slice = config.download_time / 100;
@@ -155,20 +277,29 @@ async fn download_handler(ip: &IpAddr, config: &Config) -> Result<f64, SpeedTest
     
     let mut next_time = time_start + time_slice * time_counter;
     let mut ewma = EWMA::new(0.5);
-    let mut speed_count = 0;
+    let mut last_time_slice = time_start;
 
+    // 创建固定大小的 buffer
+    let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut stream = response.bytes_stream();
-    let _buffer = vec![0u8; BUFFER_SIZE];
+
     while let Some(chunk) = stream.next().await {
         let current_time = Instant::now();
         
         if current_time >= next_time {
             time_counter += 1;
             next_time = time_start + time_slice * time_counter;
-            let speed = (content_read - last_content_read) as f64;
-            ewma.add(speed);
-            speed_count += 1;
+            
+            // 计算实际时间间隔内的速度
+            let duration = current_time.duration_since(last_time_slice);
+            if duration > Duration::ZERO {
+                let speed = (content_read - last_content_read) as f64 / 
+                           (duration.as_secs_f64() / time_slice.as_secs_f64());
+                ewma.add(speed);
+            }
+            
             last_content_read = content_read;
+            last_time_slice = current_time;
         }
 
         if current_time >= time_end {
@@ -177,32 +308,77 @@ async fn download_handler(ip: &IpAddr, config: &Config) -> Result<f64, SpeedTest
 
         match chunk {
             Ok(data) => {
-                content_read += data.len() as u64;
-                if content_length == u64::MAX && data.is_empty() {
+                // 使用 buffer 来读取数据
+                let mut pos = 0;
+                while pos < data.len() {
+                    let bytes_to_copy = (data.len() - pos).min(buffer.len());
+                    buffer[..bytes_to_copy].copy_from_slice(&data[pos..pos + bytes_to_copy]);
+                    content_read += bytes_to_copy as u64;
+                    pos += bytes_to_copy;
+
+                    // 每次读取后都计算速度
+                    let duration = current_time.duration_since(last_time_slice);
+                    if duration > Duration::ZERO {
+                        let speed = (content_read - last_content_read) as f64 / duration.as_secs_f64();
+                        ewma.add(speed);
+                        last_content_read = content_read;
+                        last_time_slice = current_time;
+                    }
+                }
+                
+                // 处理文件下载完成的情况
+                if let Some(total_size) = content_length {
+                    if content_read >= total_size {
+                        // 计算最后一个时间片的速度
+                        let duration = current_time.duration_since(last_time_slice);
+                        if duration > Duration::ZERO {
+                            let speed = (content_read - last_content_read) as f64 / 
+                                      (duration.as_secs_f64() / time_slice.as_secs_f64());
+                            ewma.add(speed);
+                        }
+                        break;
+                    }
+                } else if data.is_empty() {
+                    // 文件大小未知且下载完成
+                    let duration = current_time.duration_since(last_time_slice);
+                    if duration > Duration::ZERO {
+                        let speed = (content_read - last_content_read) as f64 / 
+                                  (duration.as_secs_f64() / time_slice.as_secs_f64());
+                        ewma.add(speed);
+                    }
                     break;
                 }
             }
             Err(e) => {
-                return Err(handle_download_error(IoError::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string()
-                )));
+                if content_length == Some(content_read) {
+                    // 如果已经下载完成，忽略错误
+                    break;
+                } else if content_length.is_none() && matches!(e.status(), None) {
+                    // 文件大小未知且连接已关闭
+                    let duration = current_time.duration_since(last_time_slice);
+                    if duration > Duration::ZERO {
+                        let speed = (content_read - last_content_read) as f64 / 
+                                  (duration.as_secs_f64() / time_slice.as_secs_f64());
+                        ewma.add(speed);
+                    }
+                    break;
+                }
+                return Ok(0.0);
             }
         }
     }
 
-    if speed_count > 0 {
-        Ok(ewma.value() / (config.download_time.as_secs_f64() / 120.0))
-    } else {
-        Ok(0.0)
-    }
+    Ok(ewma.value() / (config.download_time.as_secs_f64() / 120.0))
 }
 
 pub async fn build_client(ip: &IpAddr, config: &Config) -> Option<Client> {
     Client::builder()
         .timeout(config.download_time)
         .local_address(Some(*ip))
+        .pool_idle_timeout(Duration::from_secs(30))
+        .pool_max_idle_per_host(5)
         .redirect(redirect::Policy::custom(|attempt| {
+            // 限制最多重定向 10 次
             if attempt.previous().len() > 10 {
                 attempt.error("too many redirects")
             } else if attempt.previous().first().map(|u| u.as_str()) == Some(DEFAULT_URL) {

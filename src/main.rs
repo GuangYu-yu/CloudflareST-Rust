@@ -7,9 +7,9 @@ mod progress;
 mod csv;
 mod version;
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use clap::{Command, Arg};
-use std::{time::Duration, process};
+use std::time::Duration;
 use crate::types::{Config, DelayFilter};
 use crate::csv::PrintResult;
 
@@ -20,65 +20,96 @@ CloudflareST-rust
 
 参数：
     -n 200
-        延迟测速线程数 (默认 200, 最大 1000)
+        延迟测速线程；越多延迟测速越快，性能弱的设备 (如路由器) 请勿太高；(默认 200 最多 1000)
     -t 4
-        延迟测速次数 (默认 4)
+        延迟测速次数；单个 IP 延迟测速的次数；(默认 4 次)
     -dn 10
-        下载测速数量 (默认 10)
+        下载测速数量；延迟测速并排序后，从最低延迟起下载测速的数量；(默认 10 个)
     -dt 10
-        下载测速时间 (默认 10秒)
+        下载测速时间；单个 IP 下载测速最长时间，不能太短；(默认 10 秒)
     -tp 443
-        测速端口 (默认 443)
-    -url URL
-        测速URL (必需参数)
+        指定测速端口；延迟测速/下载测速时使用的端口；(默认 443 端口)
+    -url https://cf.xiu2.xyz/url
+        指定测速地址；延迟测速(HTTPing)/下载测速时使用的地址，默认地址不保证可用性，建议自建；
+
     -httping
-        使用HTTP测速模式
+        切换测速模式；延迟测速模式改为 HTTP 协议，所用测试地址为 [-url] 参数；(默认 TCPing)
+    -httping-code 200
+        有效状态代码；HTTPing 延迟测速时网页返回的有效 HTTP 状态码，仅限一个；(默认 200 301 302)
+    -cfcolo HKG,KHH,NRT,LAX,SEA,SJC,FRA,MAD
+        匹配指定地区；地区名为当地机场三字码，英文逗号分隔，仅 HTTPing 模式可用；(默认 所有地区)
+
     -tl 200
-        平均延迟上限 (默认 9999ms)
+        平均延迟上限；只输出低于指定平均延迟的 IP，各上下限条件可搭配使用；(默认 9999 ms)
     -tll 40
-        平均延迟下限 (默认 0ms)
+        平均延迟下限；只输出高于指定平均延迟的 IP；(默认 0 ms)
     -tlr 0.2
-        丢包率上限 (默认 1.00)
+        丢包几率上限；只输出低于/等于指定丢包率的 IP，范围 0.00~1.00，0 过滤掉任何丢包的 IP；(默认 1.00)
     -sl 5
-        下载速度下限 (默认 0.00 MB/s)
+        下载速度下限；只输出高于指定下载速度的 IP，凑够指定数量 [-dn] 才会停止测速；(默认 0.00 MB/s)
+
     -p 10
-        显示结果数量 (默认 10)
+        显示结果数量；测速后直接显示指定数量的结果，为 0 时不显示结果直接退出；(默认 10 个)
     -f ip.txt
-        IP段数据文件 (默认 ip.txt)
-    -ip IP段数据
-        指定IP段数据 (英文逗号分隔)
+        IP段数据文件；如路径含有空格请加上引号；支持其他 CDN IP段；(默认 ip.txt)
+    -ip 1.1.1.1,2.2.2.2/24,2606:4700::/32
+        指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔；(默认 空)
     -o result.csv
-        输出文件 (默认 result.csv)
+        写入结果文件；如路径含有空格请加上引号；值为空时不写入文件 [-o ""]；(默认 result.csv)
+
     -dd
-        禁用下载测速
-    -allip
-        测试所有IP
+        禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
+    -all4
+        测速全部的 IPv4；(IPv4 默认每 /24 段随机测速一个 IP)
+    -more6
+        测试更多 IPv6；(表示 -v6 18，即每个 CIDR 测速 2^18 即 262144 个)
+    -lots6
+        测试较多 IPv6；(表示 -v6 16，即每个 CIDR 测速 2^16 即 65536 个)
+    -many6
+        测试很多 IPv6；(表示 -v6 12，即每个 CIDR 测速 2^12 即 4096 个)
+    -some6
+        测试一些 IPv6；(表示 -v6 8，即每个 CIDR 测 2^8 即 256 个)
+    -many4
+        测试一点 IPv4；(表示 -v4 12，即每个 CIDR 测速 2^12 即 4096 个)
+
+    -v4
+        指定 IPv4 测试数量 (2^n±m，例如 -v4 0+12 表示 2^0+12 即每个 CIDR 测速 13 个)
+    -v6
+        指定 IPv6 测试数量 (2^n±m，例如 -v6 18-6 表示 2^18-6 即每个 CIDR 测速 262138 个)
+
     -v
-        显示版本信息
+        打印程序版本 + 检查版本更新
     -h
-        显示帮助信息
+        打印帮助说明
 "#;
 
+fn wait_for_input() {
+    println!("\n按回车键退出...");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap_or_default();
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
-    let result = run().await;
-    
-    // 无论是否出错，都显示错误信息并等待用户输入
-    if let Err(e) = result {
-        eprintln!("错误: {}", e);
-        end_print();
-        process::exit(1);
+async fn main() {
+    match run().await {
+        Ok(_) => {
+            println!("\n测试完成!");
+            wait_for_input();
+        }
+        Err(e) => {
+            eprintln!("\n错误: {}", e);
+            if let Some(source) = e.source() {
+                eprintln!("详细信息: {}", source);
+            }
+            wait_for_input();
+        }
     }
-    
-    end_print();
-    Ok(())
 }
 
 async fn run() -> Result<()> {
     let matches = create_app().get_matches();
     
-    // 先检查版本参数
-    if matches.contains_id("version") {
+    if matches.contains_id("v") {
         print_version();
         println!("检查版本更新中...");
         if let Some(new_version) = version::check_update().await {
@@ -89,8 +120,7 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
-    let mut config = Config::from_matches(&matches)
-        .context("解析命令行参数失败")?;
+    let mut config = Config::from_matches(&matches)?;
 
     // 设置全局延迟和丢包率限制
     unsafe {
@@ -101,130 +131,140 @@ async fn run() -> Result<()> {
 
     println!("CloudflareST-rust {}\n", VERSION);
     
-    // 初始化随机数种子
     ip::init_rand_seed();
-
-    // 检查参数
     check_config(&config);
 
-    // 开始延迟测速 + 过滤延迟/丢包
     let ping = tcping::new_ping(config.clone()).await?;
     let ping_data = ping.run()
         .await?
         .filter_delay()
         .filter_loss_rate();
 
-    let speed_data = download::test_download_speed(&mut config, ping_data).await?;
-
-    // 输出结果
-    csv::export_csv(&speed_data, &config)?;
+    let mut speed_data = download::test_download_speed(&mut config, ping_data).await?;
+    csv::export_csv(&mut speed_data, &config).await?;
     speed_data.print();
 
-    end_print();
     Ok(())
 }
 
 fn create_app() -> Command {
-    Command::new("CloudflareST-rust")
+    Command::new("CloudflareST-Rust")
         .version(VERSION)
         .about(HELP_TEXT)
+        .disable_version_flag(true)
         .arg(Arg::new("n")
-            .short('n')
+            .value_name("n")
             .value_parser(clap::value_parser!(u32))
             .default_value("200")
             .help("延迟测速线程数"))
         .arg(Arg::new("t")
-            .short('t')
+            .value_name("t")
             .value_parser(clap::value_parser!(u32))
             .default_value("4")
             .help("延迟测速次数"))
         .arg(Arg::new("dn")
-            .long("dn")
+            .value_name("dn")
             .value_parser(clap::value_parser!(u32))
             .default_value("10")
             .help("下载测速数量"))
         .arg(Arg::new("dt")
-            .long("dt")
+            .value_name("dt")
             .value_parser(clap::value_parser!(u64))
             .default_value("10")
             .help("下载测速时间(秒)"))
         .arg(Arg::new("tp")
-            .long("tp")
+            .value_name("tp")
             .value_parser(clap::value_parser!(u16))
             .default_value("443")
             .help("测速端口"))
         .arg(Arg::new("url")
-            .long("url")
-            .required(false)
-            .value_parser(|s: &str| {
-                if s.starts_with("http://") || s.starts_with("https://") {
-                    Ok(s.to_string())
-                } else {
-                    Err(String::from("URL必须以http://或https://开头"))
-                }
-            })
+            .value_name("url")
+            .value_parser(|s: &str| Ok::<String, String>(s.to_string()))
             .default_value("https://cf.xiu2.xyz/url")
             .help("测速URL"))
         .arg(Arg::new("httping")
-            .long("httping")
+            .id("httping")
             .help("切换HTTP测速模式"))
         .arg(Arg::new("httping-code")
-            .long("httping-code")
+            .value_name("httping-code")
             .value_parser(clap::value_parser!(u16))
             .default_value("200")
             .help("HTTP状态码"))
         .arg(Arg::new("cfcolo")
-            .long("cfcolo")
+            .value_name("cfcolo")
             .value_parser(clap::value_parser!(String))
             .help("匹配指定地区"))
         .arg(Arg::new("tl")
-            .long("tl")
+            .value_name("tl")
             .value_parser(clap::value_parser!(u64))
             .default_value("9999")
             .help("平均延迟上限(ms)"))
         .arg(Arg::new("tll")
-            .long("tll")
+            .value_name("tll")
             .value_parser(clap::value_parser!(u64))
             .default_value("0")
             .help("平均延迟下限(ms)"))
         .arg(Arg::new("tlr")
-            .long("tlr")
+            .value_name("tlr")
             .value_parser(clap::value_parser!(f32))
             .default_value("1.0")
             .help("丢包率上限"))
         .arg(Arg::new("sl")
-            .long("sl")
+            .value_name("sl")
             .value_parser(clap::value_parser!(f64))
             .default_value("0.0")
             .help("下载速度下限(MB/s)"))
         .arg(Arg::new("p")
-            .short('p')
+            .value_name("p")
             .value_parser(clap::value_parser!(u32))
             .default_value("10")
             .help("显示结果数量"))
         .arg(Arg::new("f")
-            .short('f')
+            .value_name("f")
             .value_parser(clap::value_parser!(String))
             .default_value("ip.txt")
             .help("IP段数据文件"))
         .arg(Arg::new("ip")
-            .long("ip")
+            .value_name("ip")
             .value_parser(clap::value_parser!(String))
             .help("指定IP段数据"))
         .arg(Arg::new("o")
-            .short('o')
+            .value_name("o")
             .value_parser(clap::value_parser!(String))
             .default_value("result.csv")
             .help("输出结果文件"))
         .arg(Arg::new("dd")
-            .long("dd")
+            .id("dd")
             .help("禁用下载测速"))
-        .arg(Arg::new("allip")
-            .long("allip")
-            .help("测试所有IP"))
-        .arg(Arg::new("version")
-            .short('v')
+        .arg(Arg::new("all4")
+            .id("all4")
+            .help("测速全部的 IPv4"))
+        .arg(Arg::new("v")
+            .id("v")
             .help("显示版本信息"))
+        .arg(Arg::new("more6")
+            .id("more6")
+            .help("测试更多 IPv6 (每个 CIDR 测速 2^18 即 262144 个)"))
+        .arg(Arg::new("lots6")
+            .id("lots6")
+            .help("测试较多 IPv6 (每个 CIDR 测速 2^16 即 65536 个)"))
+        .arg(Arg::new("many6")
+            .id("many6")
+            .help("测试很多 IPv6 (每个 CIDR 测速 2^12 即 4096 个)"))
+        .arg(Arg::new("some6")
+            .id("some6")
+            .help("测试一些 IPv6 (每个 CIDR 测速 2^8 即 256 个)"))
+        .arg(Arg::new("many4")
+            .id("many4")
+            .help("测试一点 IPv4 (每个 CIDR 测速 2^12 即 4096 个)"))
+        .arg(Arg::new("v4")
+            .value_name("v4")
+            .value_parser(clap::value_parser!(String))
+            .help("指定 IPv4 测试数量 (2^n±m)"))
+        .arg(Arg::new("v6")
+            .value_name("v6")
+            .value_parser(clap::value_parser!(String))
+            .help("指定 IPv6 测试数量 (2^n±m)"))
 }
 
 fn check_config(config: &Config) {
@@ -242,14 +282,3 @@ fn print_version() {
     #[cfg(not(debug_assertions))]
     println!("Release Build");
 }
-
-fn end_print() {
-    #[cfg(target_os = "windows")]
-    {
-        use std::io::Write;
-        println!("\n按任意键退出...");
-        std::io::stdout().flush().unwrap();
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
-    }
-} 
