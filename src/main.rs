@@ -6,21 +6,21 @@ mod tcping;
 mod progress;
 mod csv;
 mod version;
+mod threadpool;
 
 use anyhow::Result;
-use clap::{Command, Arg};
 use std::time::Duration;
-use crate::types::{Config, DelayFilter};
+use crate::types::{Config, DelayFilter, parse_test_amount};
 use crate::csv::PrintResult;
+use crate::httping::HttpPing;
+use tracing::debug;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const NAME: &str = "CloudflareST-rust";
+const NAME: &str = "CloudflareST-Rust";
 const HELP_TEXT: &str = r#"
-CloudflareST-rust
+CloudflareST-Rust
 
 参数：
-    -n 200
-        延迟测速线程；越多延迟测速越快，性能弱的设备 (如路由器) 请勿太高；(默认 200 最多 1000)
     -t 4
         延迟测速次数；单个 IP 延迟测速的次数；(默认 4 次)
     -dn 10
@@ -60,7 +60,7 @@ CloudflareST-rust
     -dd
         禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)；(默认 启用)
     -all4
-        测速全部的 IPv4；(IPv4 默认每 /24 段随机测速一个 IP)
+        测速全部的 IPv4；(IPv4 默认每 64 个随机测速 1 个 IP)
     -more6
         测试更多 IPv6；(表示 -v6 18，即每个 CIDR 测速 2^18 即 262144 个)
     -lots6
@@ -83,188 +83,231 @@ CloudflareST-rust
         打印帮助说明
 "#;
 
-fn wait_for_input() {
-    println!("\n按回车键退出...");
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).unwrap_or_default();
+// 新增参数解析结构体
+struct Args {
+    args: Vec<(String, Option<String>)>,
 }
 
-#[tokio::main]
-async fn main() {
-    match run().await {
-        Ok(_) => {
-            println!("\n测试完成!");
-            wait_for_input();
-        }
-        Err(e) => {
-            eprintln!("\n错误: {}", e);
-            if let Some(source) = e.source() {
-                eprintln!("详细信息: {}", source);
+impl Args {
+    fn new() -> Self {
+        Self { args: Vec::new() }
+    }
+
+    fn parse(args: Vec<String>) -> Self {
+        let mut parsed = Self::new();
+        let mut i = 1;  // 跳过程序名
+        
+        while i < args.len() {
+            let arg = &args[i];
+            
+            // 确保是参数标志
+            if !arg.starts_with('-') {
+                i += 1;
+                continue;
             }
+
+            let name = arg.trim_start_matches('-').to_string();
+            
+            // 检查是否是无值标志参数
+            match name.as_str() {
+                "v" | "h" | "httping" | "dd" | "all4" | "more6" | "lots6" | "many6" | "some6" | "many4" => {
+                    parsed.args.push((name, None));
+                    i += 1;
+                    continue;
+                }
+                _ => {}
+            }
+            
+            // 处理带值的参数
+            if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                parsed.args.push((name, Some(args[i + 1].clone())));
+                i += 2;  // 跳过参数名和值
+            } else {
+                i += 1;
+            }
+        }
+
+        parsed
+    }
+
+    fn get(&self, name: &str) -> Option<&str> {
+        self.args.iter()
+            .find(|(n, _)| n == name)
+            .and_then(|(_, v)| v.as_deref())
+    }
+
+    fn has(&self, name: &str) -> bool {
+        self.args.iter().any(|(n, _)| n == name)
+    }
+}
+
+fn init_tracing() {
+    if cfg!(feature = "debug") {
+        use tracing_subscriber::{fmt, EnvFilter};
+        
+        fmt()
+            .with_env_filter(EnvFilter::from_default_env()
+                .add_directive(tracing::Level::DEBUG.into()))
+            .with_target(false)
+            .with_thread_ids(true)
+            .with_thread_names(true)
+            .with_file(true)
+            .with_line_number(true)
+            .init();
+    }
+}
+
+fn main() -> Result<()> {
+    init_tracing();  // 初始化日志
+    
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            debug!("启动异步运行时");
+            let args = Args::parse(std::env::args().collect());
+
+            // 处理无值参数
+            if args.has("h") {
+                println!("{}", HELP_TEXT);
+                wait_for_input();
+                return Ok(());
+            }
+
+            if args.has("v") {
+                print_version();
+                println!("检查版本更新中...");
+                if let Some(new_version) = version::check_update().await {
+                    println!("*** 发现新版本 [{}]！请前往 [https://github.com/GuangYu-yu/CloudflareST-Rust] 更新！ ***", new_version);
+                } else {
+                    println!("当前为最新版本 [{}]！", VERSION);
+                }
+                wait_for_input();
+                return Ok(());
+            }
+
+            // 创建配置
+            let mut config = Config::default();
+
+            // 解析参数
+            if let Some(v) = args.get("t") {
+                config.ping_times = v.parse().unwrap_or(4);
+            }
+            if let Some(v) = args.get("dn") {
+                config.test_count = v.parse().unwrap_or(10);
+            }
+            if let Some(v) = args.get("dt") {
+                config.download_time = Duration::from_secs(v.parse().unwrap_or(10));
+            }
+            if let Some(v) = args.get("tp") {
+                config.tcp_port = v.parse().unwrap_or(443);
+            }
+            if let Some(v) = args.get("url") {
+                config.url = v.to_string();
+            }
+            if args.has("httping") {
+                config.httping = true;
+            }
+            if let Some(v) = args.get("httping-code") {
+                config.httping_status_code = v.parse().unwrap_or(200);
+            }
+            if let Some(v) = args.get("cfcolo") {
+                config.httping_cf_colo = v.to_string();
+            }
+            if let Some(v) = args.get("tl") {
+                config.max_delay = Duration::from_millis(v.parse().unwrap_or(9999));
+            }
+            if let Some(v) = args.get("tll") {
+                config.min_delay = Duration::from_millis(v.parse().unwrap_or(0));
+            }
+            if let Some(v) = args.get("tlr") {
+                config.max_loss_rate = v.parse().unwrap_or(1.0);
+            }
+            if let Some(v) = args.get("sl") {
+                config.min_speed = v.parse().unwrap_or(0.0);
+            }
+            if let Some(v) = args.get("p") {
+                config.print_num = v.parse().unwrap_or(10);
+            }
+            if let Some(v) = args.get("f") {
+                config.ip_file = v.to_string();
+            }
+            if let Some(v) = args.get("ip") {
+                config.ip_text = v.to_string();
+            }
+            if let Some(v) = args.get("o") {
+                config.output = v.to_string();
+            }
+            if args.has("dd") {
+                config.disable_download = true;
+            }
+            if args.has("all4") {
+                config.test_all = true;
+            }
+            if args.has("more6") {
+                config.ipv6_amount = Some(262144);
+            }
+            if args.has("lots6") {
+                config.ipv6_amount = Some(65536);
+            }
+            if args.has("many6") {
+                config.ipv6_amount = Some(4096);
+            }
+            if args.has("some6") {
+                config.ipv6_amount = Some(256);
+            }
+            if args.has("many4") {
+                config.ipv4_amount = Some(4096);
+            }
+            if args.has("many4") {
+                config.ipv4_num_mode = Some("many".to_string());
+            }
+            if args.has("more6") {
+                config.ipv6_num_mode = Some("more".to_string());
+            }
+            if args.has("lots6") {
+                config.ipv6_num_mode = Some("lots".to_string());
+            }
+            if args.has("many6") {
+                config.ipv6_num_mode = Some("many".to_string());
+            }
+            if args.has("some6") {
+                config.ipv6_num_mode = Some("some".to_string());
+            }
+            if let Some(v) = args.get("v4") {
+                config.ipv4_amount = Some(parse_test_amount(v, true));
+            }
+            if let Some(v) = args.get("v6") {
+                config.ipv6_amount = Some(parse_test_amount(v, false));
+            }
+
+            println!("CloudflareST-Rust {}\n", VERSION);
+            
+            ip::init_rand_seed();
+            check_config(&config);
+
+            // 执行测速
+            let ping_data = if config.httping {
+                // 使用 HTTP 测速
+                let http_ping = HttpPing::new(config.clone(), Some(&config.httping_cf_colo));
+                let ips = ip::load_ip_ranges_concurrent(&config).await?;
+                http_ping.http_ping_all(&config, &ips).await
+            } else {
+                // 使用 TCP 测速
+                let ping = tcping::new_ping(config.clone()).await?;
+                ping.run().await?
+            };
+
+            let ping_data = ping_data.filter_delay().filter_loss_rate();
+
+            let mut speed_data = download::test_download_speed(&mut config, ping_data).await?;
+            csv::export_csv(&mut speed_data, &config).await?;
+            speed_data.print();
+
             wait_for_input();
-        }
-    }
-}
-
-async fn run() -> Result<()> {
-    let matches = create_app().get_matches();
-    
-    if matches.contains_id("v") {
-        print_version();
-        println!("检查版本更新中...");
-        if let Some(new_version) = version::check_update().await {
-            println!("*** 发现新版本 [{}]！请前往 [https://github.com/yourusername/CloudflareST-rust] 更新！ ***", new_version);
-        } else {
-            println!("当前为最新版本 [{}]！", VERSION);
-        }
-        return Ok(());
-    }
-
-    let mut config = Config::from_matches(&matches)?;
-
-    // 设置全局延迟和丢包率限制
-    unsafe {
-        types::INPUT_MAX_DELAY = config.max_delay;
-        types::INPUT_MIN_DELAY = config.min_delay;
-        types::INPUT_MAX_LOSS_RATE = config.max_loss_rate;
-    }
-
-    println!("CloudflareST-rust {}\n", VERSION);
-    
-    ip::init_rand_seed();
-    check_config(&config);
-
-    let ping = tcping::new_ping(config.clone()).await?;
-    let ping_data = ping.run()
-        .await?
-        .filter_delay()
-        .filter_loss_rate();
-
-    let mut speed_data = download::test_download_speed(&mut config, ping_data).await?;
-    csv::export_csv(&mut speed_data, &config).await?;
-    speed_data.print();
-
-    Ok(())
-}
-
-fn create_app() -> Command {
-    Command::new("CloudflareST-Rust")
-        .version(VERSION)
-        .about(HELP_TEXT)
-        .disable_version_flag(true)
-        .arg(Arg::new("n")
-            .value_name("n")
-            .value_parser(clap::value_parser!(u32))
-            .default_value("200")
-            .help("延迟测速线程数"))
-        .arg(Arg::new("t")
-            .value_name("t")
-            .value_parser(clap::value_parser!(u32))
-            .default_value("4")
-            .help("延迟测速次数"))
-        .arg(Arg::new("dn")
-            .value_name("dn")
-            .value_parser(clap::value_parser!(u32))
-            .default_value("10")
-            .help("下载测速数量"))
-        .arg(Arg::new("dt")
-            .value_name("dt")
-            .value_parser(clap::value_parser!(u64))
-            .default_value("10")
-            .help("下载测速时间(秒)"))
-        .arg(Arg::new("tp")
-            .value_name("tp")
-            .value_parser(clap::value_parser!(u16))
-            .default_value("443")
-            .help("测速端口"))
-        .arg(Arg::new("url")
-            .value_name("url")
-            .value_parser(|s: &str| Ok::<String, String>(s.to_string()))
-            .default_value("https://cf.xiu2.xyz/url")
-            .help("测速URL"))
-        .arg(Arg::new("httping")
-            .id("httping")
-            .help("切换HTTP测速模式"))
-        .arg(Arg::new("httping-code")
-            .value_name("httping-code")
-            .value_parser(clap::value_parser!(u16))
-            .default_value("200")
-            .help("HTTP状态码"))
-        .arg(Arg::new("cfcolo")
-            .value_name("cfcolo")
-            .value_parser(clap::value_parser!(String))
-            .help("匹配指定地区"))
-        .arg(Arg::new("tl")
-            .value_name("tl")
-            .value_parser(clap::value_parser!(u64))
-            .default_value("9999")
-            .help("平均延迟上限(ms)"))
-        .arg(Arg::new("tll")
-            .value_name("tll")
-            .value_parser(clap::value_parser!(u64))
-            .default_value("0")
-            .help("平均延迟下限(ms)"))
-        .arg(Arg::new("tlr")
-            .value_name("tlr")
-            .value_parser(clap::value_parser!(f32))
-            .default_value("1.0")
-            .help("丢包率上限"))
-        .arg(Arg::new("sl")
-            .value_name("sl")
-            .value_parser(clap::value_parser!(f64))
-            .default_value("0.0")
-            .help("下载速度下限(MB/s)"))
-        .arg(Arg::new("p")
-            .value_name("p")
-            .value_parser(clap::value_parser!(u32))
-            .default_value("10")
-            .help("显示结果数量"))
-        .arg(Arg::new("f")
-            .value_name("f")
-            .value_parser(clap::value_parser!(String))
-            .default_value("ip.txt")
-            .help("IP段数据文件"))
-        .arg(Arg::new("ip")
-            .value_name("ip")
-            .value_parser(clap::value_parser!(String))
-            .help("指定IP段数据"))
-        .arg(Arg::new("o")
-            .value_name("o")
-            .value_parser(clap::value_parser!(String))
-            .default_value("result.csv")
-            .help("输出结果文件"))
-        .arg(Arg::new("dd")
-            .id("dd")
-            .help("禁用下载测速"))
-        .arg(Arg::new("all4")
-            .id("all4")
-            .help("测速全部的 IPv4"))
-        .arg(Arg::new("v")
-            .id("v")
-            .help("显示版本信息"))
-        .arg(Arg::new("more6")
-            .id("more6")
-            .help("测试更多 IPv6 (每个 CIDR 测速 2^18 即 262144 个)"))
-        .arg(Arg::new("lots6")
-            .id("lots6")
-            .help("测试较多 IPv6 (每个 CIDR 测速 2^16 即 65536 个)"))
-        .arg(Arg::new("many6")
-            .id("many6")
-            .help("测试很多 IPv6 (每个 CIDR 测速 2^12 即 4096 个)"))
-        .arg(Arg::new("some6")
-            .id("some6")
-            .help("测试一些 IPv6 (每个 CIDR 测速 2^8 即 256 个)"))
-        .arg(Arg::new("many4")
-            .id("many4")
-            .help("测试一点 IPv4 (每个 CIDR 测速 2^12 即 4096 个)"))
-        .arg(Arg::new("v4")
-            .value_name("v4")
-            .value_parser(clap::value_parser!(String))
-            .help("指定 IPv4 测试数量 (2^n±m)"))
-        .arg(Arg::new("v6")
-            .value_name("v6")
-            .value_parser(clap::value_parser!(String))
-            .help("指定 IPv6 测试数量 (2^n±m)"))
+            Ok(())
+        })
 }
 
 fn check_config(config: &Config) {
@@ -281,4 +324,10 @@ fn print_version() {
     
     #[cfg(not(debug_assertions))]
     println!("Release Build");
+}
+
+fn wait_for_input() {
+    println!("\n按回车键退出...");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap_or_default();
 }

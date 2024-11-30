@@ -4,6 +4,7 @@ use std::io::BufWriter;
 use crate::types::{Config, DownloadSpeedSet};
 use crate::httping::HttpPing;
 use crate::download::build_client;
+use prettytable::{Table, Row, Cell, format};
 
 pub async fn export_csv(data: &mut DownloadSpeedSet, config: &Config) -> Result<()> {
     if data.is_empty() {
@@ -60,39 +61,37 @@ impl PrintResult for DownloadSpeedSet {
             return;
         }
 
-        // 确定打印数量
-        let print_num = std::cmp::min(self.len(), self.first().unwrap().config.print_num as usize);
-        if print_num == 0 {
-            return;
+        let mut table = Table::new();
+        
+        // 设置表格样式
+        table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+        
+        // 添加表头，使用青色
+        table.add_row(Row::new(vec![
+            Cell::new("IP 地址").style_spec("Fc"),
+            Cell::new("已发送").style_spec("Fc"),
+            Cell::new("已接收").style_spec("Fc"),
+            Cell::new("丢包率").style_spec("Fc"),
+            Cell::new("平均延迟").style_spec("Fc"),
+            Cell::new("下载速度 (MB/s)").style_spec("Fc"),
+            Cell::new("数据中心").style_spec("Fc"),
+        ]));
+
+        // 添加数据行
+        for ip_data in self.iter().take(self[0].config.print_num.try_into().unwrap()) {
+            table.add_row(Row::new(vec![
+                Cell::new(&ip_data.ping_data.ip.to_string()),
+                Cell::new(&ip_data.ping_data.sended.to_string()),
+                Cell::new(&ip_data.ping_data.received.to_string()),
+                Cell::new(&format!("{:.2}", ip_data.loss_rate)),
+                Cell::new(&format!("{:.2}", ip_data.ping_data.delay.as_millis())),
+                Cell::new(&format!("{:.2}", ip_data.download_speed / 1024.0 / 1024.0)),
+                Cell::new(&ip_data.colo),
+            ]));
         }
 
-        // 确定格式化字符串
-        let (head_format, data_format) = {
-            let has_ipv6 = self[..print_num]
-                .iter()
-                .any(|d| d.ping_data.ip.to_string().len() > 15);
-
-            if has_ipv6 {
-                ("%-40s%-5s%-5s%-5s%-6s%-11s%-8s\n", "%-42s%-8s%-8s%-8s%-10s%-15s%-8s\n")
-            } else {
-                ("%-16s%-5s%-5s%-5s%-6s%-11s%-8s\n", "%-18s%-8s%-8s%-8s%-10s%-15s%-8s\n")
-            }
-        };
-
-        // 打印表头
-        println!("{}", format!(
-            "{} {} {} {} {} {} {} {}", head_format,
-            "IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度 (MB/s)", "数据中心"
-        ));
-
-        // 打印数据
-        for ip_data in self.iter().take(print_num) {
-            let data = ip_data.to_string_vec();
-            println!("{}", format!(
-                "{} {} {} {} {} {} {} {}", data_format,
-                &data[0], &data[1], &data[2], &data[3], &data[4], &data[5], &data[6]
-            ));
-        }
+        // 打印表格
+        table.printstd();
 
         // 如果有输出文件，打印提示
         if !self[0].config.output.is_empty() {

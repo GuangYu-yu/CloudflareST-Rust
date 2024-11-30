@@ -1,31 +1,27 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Semaphore;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use futures::StreamExt;
 use crate::types::{
-    Config, PingDelaySet, CloudflareIPData, PingData, SpeedTestError
+    Config, PingDelaySet, CloudflareIPData, PingData
 };
 use crate::httping::{self, HttpPing};
 use crate::progress::Bar;
 use crate::ip::{self, IPWithPort};
-use crate::download::build_client;
 use tokio::net::TcpStream;
 use std::sync::Mutex;
 use std::io;
+use crate::threadpool::GLOBAL_POOL;
+use hyper::{Client, Body};
+use hyper::client::HttpConnector;
+use hyper_tls::HttpsConnector;
 
-const fn default_routines() -> u32 { 200 }
-const fn default_port() -> u16 { 443 }
-const fn default_ping_times() -> u32 { 4 }
-const fn max_routines() -> u32 { 1000 }
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 
 type HandlerResult = Option<PingData>;
 
 #[derive(Debug)]
 pub struct Ping {
-    pool: Arc<Semaphore>,
     m: Arc<Mutex<()>>,
     ips: Vec<IpAddr>,
     csv: PingDelaySet,
@@ -36,17 +32,11 @@ pub struct Ping {
 
 impl Ping {
     fn check_ping_default(&mut self) {
-        if self.config.routines <= 0 {
-            self.config.routines = default_routines();
-        }
-        if self.config.routines > max_routines() {
-            self.config.routines = max_routines();
-        }
         if self.config.tcp_port <= 0 || self.config.tcp_port >= 65535 {
-            self.config.tcp_port = default_port();
+            self.config.tcp_port = Config::default().tcp_port;
         }
         if self.config.ping_times <= 0 {
-            self.config.ping_times = default_ping_times();
+            self.config.ping_times = Config::default().ping_times;
         }
     }
 
@@ -57,54 +47,60 @@ impl Ping {
             return Ok(self.csv);
         }
 
-        let mode = if self.config.httping { "HTTP" } else { "TCP" };
         println!(
             "开始延迟测速（模式：{}, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2}）",
-            mode,
+            if self.config.httping { "HTTP" } else { "TCP" },
             self.config.tcp_port,
             self.config.min_delay.as_millis(),
             self.config.max_delay.as_millis(),
             self.config.max_loss_rate
         );
 
-        let results = futures::stream::iter(self.ips)
-            .map(|ip| {
-                let config = self.config.clone();
-                let bar = self.bar.clone();
-                let available_count = self.available_count.clone();
-                let permit = self.pool.clone().acquire_owned();
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        
+        for ip in self.ips {
+            let config = self.config.clone();
+            let bar = self.bar.clone();
+            let available_count = self.available_count.clone();
+            let m = self.m.clone();
+            let results = Arc::clone(&results);
+            
+            let handle = tokio::spawn(async move {
+                // 使用 GLOBAL_POOL 控制并发
+                let permit = GLOBAL_POOL.acquire().await;
                 
-                async move {
-                    match permit.await {
-                        Ok(_permit) => {
-                            let result = Self::tcping_handler(ip, &config).await;
-                            if result.is_some() {
-                                available_count.fetch_add(1, Ordering::Relaxed);
-                            }
-                            Ok((result, bar, available_count.load(Ordering::Relaxed)))
-                        }
-                        Err(e) => Err(SpeedTestError::from(e))
-                    }
+                let result = Self::tcping_handler(ip, &config).await;
+                if result.is_some() {
+                    available_count.fetch_add(1, Ordering::Relaxed);
                 }
-            })
-            .buffer_unordered(self.config.routines as usize)
-            .collect::<Vec<_>>()
-            .await;
 
-        for result in results {
-            if let Ok((data, bar, _count)) = result {
-                if let Some(ping_data) = data {
-                    let _lock = self.m.lock().unwrap();
+                if let Some(ping_data) = result {
+                    let _lock = m.lock().unwrap();
                     let mut ip_data = CloudflareIPData::new(ping_data);
-                    ip_data.config = self.config.clone();
-                    self.csv.push(ip_data);
-                    let now_able = self.csv.len();
+                    ip_data.config = config;
+                    let mut results = results.lock().unwrap();
+                    results.push(ip_data);
+                    let now_able = results.len();
                     bar.grow(1, &now_able.to_string());
                 } else {
-                    bar.grow(1, &self.csv.len().to_string());
+                    let results = results.lock().unwrap();
+                    bar.grow(1, &results.len().to_string());
                 }
-            }
+                
+                drop(permit);
+            });
+
+            handles.push(handle);
         }
+
+        // 等待所有任务完成
+        futures::future::join_all(handles).await;
+
+        // 获取结果
+        let mut results = results.lock().unwrap();
+        self.csv = results.drain(..).collect();
+        drop(results);
 
         self.bar.done();
         self.csv.sort();
@@ -119,8 +115,12 @@ impl Ping {
 
         if config.httping {
             let http_ping = HttpPing::new(config.clone(), Some(&config.httping_cf_colo));
-            let client = build_client(&ip, config).await?;
-            if !http_ping.check_connection(&client, &config.url).await? {
+            let mut http = HttpConnector::new();
+            http.set_local_address(Some(ip));
+            let https = HttpsConnector::new_with_connector(http);
+            let _client = Client::builder().build::<_, Body>(https);
+            
+            if !http_ping.check_connection(&_client, &config.url).await? {
                 return None;
             }
             httping::http_ping(config, ip).await
@@ -129,14 +129,22 @@ impl Ping {
         }
     }
 
-    async fn check_connection(ip_with_port: &IPWithPort, config: &Config) -> Option<PingData> {
+    pub async fn check_connection(ip_with_port: &IPWithPort, config: &Config) -> Option<PingData> {
+        let mut http = HttpConnector::new();
+        http.set_local_address(Some(ip_with_port.ip));
+        let https = HttpsConnector::new_with_connector(http);
+        let _client = Client::builder().build::<_, Body>(https);
+
         let mut received = 0;
         let mut total_delay = Duration::ZERO;
+        let mut delays = Vec::with_capacity(config.ping_times as usize);
 
+        // 收集所有成功的延迟测量
         for _ in 0..config.ping_times {
             if let Some(delay) = tcping(ip_with_port, config).await {
                 received += 1;
                 total_delay += delay;
+                delays.push(delay);
             }
         }
 
@@ -144,11 +152,22 @@ impl Ping {
             return None;
         }
 
+        // 计算平均延迟，保持精确度
+        let avg_delay = if delays.len() > 2 {
+            // 去掉最高和最低值后取平均
+            delays.sort();
+            let valid_delays = &delays[1..delays.len()-1];
+            let sum: Duration = valid_delays.iter().sum();
+            sum / valid_delays.len() as u32
+        } else {
+            total_delay / received as u32
+        };
+
         Some(PingData::new(
             ip_with_port.ip,
             config.ping_times,
             received,
-            total_delay / received as u32,
+            avg_delay,
         ))
     }
 }
@@ -156,7 +175,6 @@ impl Ping {
 pub async fn new_ping(config: Config) -> io::Result<Ping> {
     let ips = ip::load_ip_ranges_concurrent(&config).await?;
     Ok(Ping {
-        pool: Arc::new(Semaphore::new(config.routines as usize)),
         m: Arc::new(Mutex::new(())),
         ips: ips.clone(),
         csv: Vec::new(),
@@ -167,6 +185,9 @@ pub async fn new_ping(config: Config) -> io::Result<Ping> {
 }
 
 pub async fn tcping(ip_with_port: &IPWithPort, config: &Config) -> Option<Duration> {
+    let task_id = rand::random::<usize>();
+    GLOBAL_POOL.start_task(task_id);
+
     let port = ip_with_port.get_port(config.tcp_port);
     let addr = if ip_with_port.ip.is_ipv4() {
         format!("{}:{}", ip_with_port.ip, port)
@@ -175,12 +196,22 @@ pub async fn tcping(ip_with_port: &IPWithPort, config: &Config) -> Option<Durati
     };
 
     let start = Instant::now();
-    match tokio::time::timeout(
+    
+    let result = match tokio::time::timeout(
         TCP_CONNECT_TIMEOUT,
         TcpStream::connect(&addr)
     ).await {
-        Ok(Ok(_)) => Some(start.elapsed()),
-        _ => None
-    }
+        Ok(Ok(stream)) => {
+            // 只有成功建立连接才记录进展
+            GLOBAL_POOL.record_progress(task_id);
+            let duration = start.elapsed();
+            drop(stream);
+            Some(duration)
+        },
+        Ok(Err(_)) | Err(_) => None
+    };
+
+    GLOBAL_POOL.end_task(task_id);
+    result
 }
 

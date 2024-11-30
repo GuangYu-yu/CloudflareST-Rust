@@ -1,23 +1,28 @@
 use std::net::IpAddr;
 use std::time::Duration;
 use std::cmp::Ordering;
-use clap::ArgMatches;
 use thiserror::Error;
 use tokio::sync::AcquireError;
 
 #[derive(Error, Debug)]
 pub enum SpeedTestError {
-    #[error("{0}")]
-    Error(String),
-}
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 
-pub type SpeedTestResult<T> = std::result::Result<T, SpeedTestError>;
+    #[error("Request error: {0}")]
+    RequestError(#[from] reqwest::Error),
+
+    #[error("CSV error: {0}")]
+    CsvError(#[from] csv::Error),
+
+    #[error("Thread control error: {0}")]
+    ThreadError(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub routines: u32,          // 延迟测速线程数
-    pub ping_times: u32,        // 延迟测速次数
-    pub test_count: u32,        // 下载测速数量
+    pub ping_times: u32,          // 延迟测速次数
+    pub test_count: u32,         // 下载测速数量
     pub download_time: Duration, // 下载测速时间
     pub tcp_port: u16,          // 测速端口
     pub url: String,            // 测速URL
@@ -41,6 +46,13 @@ pub struct Config {
     pub ipv4_amount: Option<u32>,  // IPv4 测试数量
     pub ipv6_amount: Option<u32>,  // IPv6 测试数量
     pub ipv6_num_mode: Option<String>, // IPv6 数量模式
+    pub ipv4_num_mode: Option<String>, // IPv4 数量模式
+}
+
+impl Config {
+    pub fn is_test_all(&self) -> bool {
+        self.test_all
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -136,150 +148,6 @@ impl Eq for CloudflareIPData {}
 pub type PingDelaySet = Vec<CloudflareIPData>;
 pub type DownloadSpeedSet = Vec<CloudflareIPData>;
 
-impl Config {
-    fn validate_routines(r: u32) -> u32 {
-        if r == 0 {
-            1
-        } else if r > 1000 {
-            1000
-        } else {
-            r
-        }
-    }
-
-    pub fn from_matches(matches: &ArgMatches) -> SpeedTestResult<Self> {
-        let mut config = Self::default();  // 先获取默认值
-
-        // 使用 get_one 获取用户输入的值，如果没有就使用默认值
-        if let Some(n) = matches.get_one::<u32>("n") {
-            config.routines = Self::validate_routines(*n);
-        }
-        if let Some(t) = matches.get_one::<u32>("t") {
-            config.ping_times = *t;
-        }
-        if let Some(dn) = matches.get_one::<u32>("dn") {
-            config.test_count = *dn;
-        }
-        if let Some(dt) = matches.get_one::<u64>("dt") {
-            config.download_time = Duration::from_secs(*dt);
-        }
-        if let Some(tp) = matches.get_one::<u16>("tp") {
-            config.tcp_port = *tp;
-        }
-        if let Some(url) = matches.get_one::<String>("url") {
-            config.url = url.clone();
-        }
-        if let Some(code) = matches.get_one::<u16>("httping-code") {
-            config.httping_status_code = *code;
-        }
-        if let Some(colo) = matches.get_one::<String>("cfcolo") {
-            config.httping_cf_colo = colo.clone();
-        }
-        if let Some(tl) = matches.get_one::<u64>("tl") {
-            config.max_delay = Duration::from_millis(*tl);
-        }
-        if let Some(tll) = matches.get_one::<u64>("tll") {
-            config.min_delay = Duration::from_millis(*tll);
-        }
-        if let Some(tlr) = matches.get_one::<f32>("tlr") {
-            config.max_loss_rate = *tlr;
-        }
-        if let Some(sl) = matches.get_one::<f64>("sl") {
-            config.min_speed = *sl;
-        }
-        if let Some(p) = matches.get_one::<u32>("p") {
-            config.print_num = *p;
-        }
-        if let Some(f) = matches.get_one::<String>("f") {
-            config.ip_file = f.clone();
-        }
-        if let Some(ip) = matches.get_one::<String>("ip") {
-            config.ip_text = ip.clone();
-        }
-        if let Some(o) = matches.get_one::<String>("o") {
-            config.output = o.clone();
-        }
-
-        config.httping = matches.contains_id("httping");
-        config.disable_download = matches.contains_id("dd");
-        config.test_all = matches.contains_id("all4");
-
-        // 处理 IPv6 测试模式
-        if matches.contains_id("more6") {
-            config.ipv6_amount = Some(262144); // 2^18
-        } else if matches.contains_id("lots6") {
-            config.ipv6_amount = Some(65536);  // 2^16
-        } else if matches.contains_id("many6") {
-            config.ipv6_amount = Some(4096);   // 2^12
-        } else if matches.contains_id("some6") {
-            config.ipv6_amount = Some(256);    // 2^8
-        }
-
-        // 处理 IPv4 测试数量
-        if matches.contains_id("many4") {
-            config.ipv4_amount = Some(4096);   // 2^12
-        }
-
-        // 处理自定义测试数量
-        if let Some(v4) = matches.get_one::<String>("v4") {
-            let amount = parse_test_amount(v4, true);
-            config.ipv4_amount = Some(amount);
-        }
-
-        if let Some(v6) = matches.get_one::<String>("v6") {
-            let amount = parse_test_amount(v6, false);
-            config.ipv6_amount = Some(amount);
-        }
-
-        // 处理 IPv6 测试模式
-        if matches.contains_id("more6") {
-            config.ipv6_num_mode = Some("more".to_string());
-        } else if matches.contains_id("lots6") {
-            config.ipv6_num_mode = Some("lots".to_string());
-        } else if matches.contains_id("many6") {
-            config.ipv6_num_mode = Some("many".to_string());
-        } else if matches.contains_id("some6") {
-            config.ipv6_num_mode = Some("some".to_string());
-        }
-
-        Ok(config)
-    }
-
-    pub fn is_test_all(&self) -> bool {
-        self.test_all
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            routines: 200,          // 默认200线程
-            ping_times: 4,          // 默认测试4次
-            test_count: 10,         // 默认下载测试10个
-            download_time: Duration::from_secs(10),  // 默认10秒
-            tcp_port: 443,          // 默认443端口
-            url: String::from("https://cf.xiu2.xyz/url"),  // 默认URL
-            httping: false,
-            httping_status_code: 200,
-            httping_cf_colo: String::new(),
-            max_delay: Duration::from_millis(9999),
-            min_delay: Duration::from_millis(0),
-            max_loss_rate: 1.0,
-            min_speed: 0.0,
-            print_num: 10,
-            ip_file: String::from("ip.txt"),
-            ip_text: String::new(),
-            output: String::from("result.csv"),
-            disable_download: false,
-            test_all: false,
-            ipv4_amount: None,
-            ipv6_amount: None,
-            ipv6_num_mode: None,
-        }
-    }
-}
-
-// 修改为 trait 实现
 pub trait DelayFilter {
     fn filter_delay(self) -> Self;
     fn filter_loss_rate(self) -> Self;
@@ -339,9 +207,38 @@ pub static mut INPUT_MAX_LOSS_RATE: f32 = MAX_LOSS_RATE;
 
 impl From<AcquireError> for SpeedTestError {
     fn from(err: AcquireError) -> Self {
-        SpeedTestError::Error(format!("线程控制失败: {}", err))
+        SpeedTestError::ThreadError(format!("线程控制失败: {}", err))
     }
 } 
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            ping_times: 4,          // -t 4
+            test_count: 10,         // -dn 10
+            download_time: Duration::from_secs(10),  // -dt 10
+            tcp_port: 443,          // -tp 443
+            url: String::from("https://cf.xiu2.xyz/url"),  // -url
+            httping: false,         // -httping
+            httping_status_code: 200,  // -httping-code
+            httping_cf_colo: String::new(),  // -cfcolo (默认空)
+            max_delay: Duration::from_millis(9999),  // -tl 9999
+            min_delay: Duration::from_millis(0),     // -tll 0
+            max_loss_rate: 1.0,     // -tlr 1.00
+            min_speed: 0.0,         // -sl 0.00
+            print_num: 10,          // -p 10
+            ip_file: String::from("ip.txt"),  // -f ip.txt
+            ip_text: String::new(),  // -ip (默认空)
+            output: String::from("result.csv"),  // -o result.csv
+            disable_download: false,  // -dd (默认启用)
+            test_all: false,         // -all4 (默认否)
+            ipv4_amount: None,       // -v4 (默认无)
+            ipv6_amount: None,       // -v6 (默认无)
+            ipv6_num_mode: None,     // -more6/-lots6/-many6/-some6 (默认无)
+            ipv4_num_mode: None,     // -many4 (默认无)
+        }
+    }
+}
 
 // 解析测试数量表达式 (2^n±m)，并进行自适应范围处理
 pub fn parse_test_amount(expr: &str, is_v4: bool) -> u32 {
@@ -351,48 +248,24 @@ pub fn parse_test_amount(expr: &str, is_v4: bool) -> u32 {
         2u32.pow(20) // IPv6 最大值 2^20
     };
 
-    let amount = {
-        let expr = expr.replace(" ", "");
-        if let Some(plus_pos) = expr.find('+') {
-            // 处理加法
-            let base = expr[..plus_pos].parse::<u32>().unwrap_or(0);
-            let add = expr[plus_pos+1..].parse::<u32>().unwrap_or(0);
-            2u32.pow(base) + add
-        } else if let Some(minus_pos) = expr.find('-') {
-            // 处理减法
-            let base = expr[..minus_pos].parse::<u32>().unwrap_or(0);
-            let sub = expr[minus_pos+1..].parse::<u32>().unwrap_or(0);
-            2u32.pow(base).saturating_sub(sub)
-        } else {
-            // 单个数字
-            expr.parse::<u32>().unwrap_or(0)
-        }
+    let amount = if let Some(plus_pos) = expr.find('+') {
+        // 处理加法 (如 0+12)
+        let base = expr[..plus_pos].parse::<u32>()
+            .unwrap_or(0);
+        let add = expr[plus_pos+1..].parse::<u32>()
+            .unwrap_or(0);
+        2u32.pow(base) + add
+    } else if let Some(minus_pos) = expr.find('-') {
+        // 处理减法 (如 18-6)
+        let base = expr[..minus_pos].parse::<u32>()
+            .unwrap_or(0);
+        let sub = expr[minus_pos+1..].parse::<u32>()
+            .unwrap_or(0);
+        2u32.pow(base).saturating_sub(sub)
+    } else {
+        // 单个数字
+        2u32.pow(expr.parse::<u32>().unwrap_or(0))
     };
 
-    // 自适应范围处理
-    if amount <= 0 {
-        1 // 小于等于0时取1
-    } else if amount > max_amount {
-        max_amount // 超过最大限制时取最大值
-    } else {
-        amount
-    }
-} 
-
-impl From<std::io::Error> for SpeedTestError {
-    fn from(err: std::io::Error) -> Self {
-        SpeedTestError::Error(err.to_string())
-    }
+    amount.min(max_amount)
 }
-
-impl From<reqwest::Error> for SpeedTestError {
-    fn from(err: reqwest::Error) -> Self {
-        SpeedTestError::Error(err.to_string()) 
-    }
-}
-
-impl From<csv::Error> for SpeedTestError {
-    fn from(err: csv::Error) -> Self {
-        SpeedTestError::Error(err.to_string())
-    }
-} 
