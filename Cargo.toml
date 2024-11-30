@@ -8,9 +8,14 @@ edition = "2021"
 # 命令行参数解析
 clap = { version = "4.4", features = ["derive"] }
 terminal_size = "0.2"
+sysinfo = "0.29"
+cidr-utils = "0.5.1"
+bit-vec = "0.6"
+num-bigint = "0.4"
+num-traits = "0.2"
 
 # 异步运行时和网络请求
-tokio = { version = "1.0", features = ["full", "macros"] }
+tokio = { version = "1.0", features = ["full", "macros", "rt-multi-thread"] }
 reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"] }
 tokio-util = { version = "0.7", features = ["full"] }
 futures = "0.3"
@@ -38,6 +43,15 @@ regex = "1.5"    # 正则表达式
 num_cpus = "1.0" # CPU核心数检测
 ewma = "0.1.1"   # 指数加权移动平均
 lazy_static = "1.4"
+structopt = "0.3"
+
+# Hyper
+hyper = { version = "0.14", features = ["full"] }
+hyper-tls = "0.5"
+
+# 日志相关
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 opt-level = 3
@@ -45,3 +59,6 @@ lto = true
 codegen-units = 1
 panic = 'abort'
 strip = true     # 自动剥离符号信息
+
+[features]
+debug = []  # 添加 debug feature
