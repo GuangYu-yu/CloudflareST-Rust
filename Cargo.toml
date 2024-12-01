@@ -13,6 +13,7 @@ cidr-utils = "0.5.1"
 bit-vec = "0.6"
 num-bigint = "0.4"
 num-traits = "0.2"
+sha3 = "0.10"
 
 # 异步运行时和网络请求
 tokio = { version = "1.0", features = ["full", "macros", "rt-multi-thread"] }
@@ -50,8 +51,8 @@ hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5"
 
 # 日志相关
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
 [profile.release]
 opt-level = 3
@@ -61,4 +62,5 @@ panic = 'abort'
 strip = true     # 自动剥离符号信息
 
 [features]
-debug = []  # 添加 debug feature
+default = []
+debug = ["tracing", "tracing-subscriber"] # debug feature
