@@ -7,13 +7,16 @@ mod progress;
 mod csv;
 mod version;
 mod threadpool;
+mod debug;
+
+#[cfg(feature = "debug")]
+use tracing;
 
 use anyhow::Result;
 use std::time::Duration;
 use crate::types::{Config, DelayFilter, parse_test_amount};
 use crate::csv::PrintResult;
 use crate::httping::HttpPing;
-use tracing::debug;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const NAME: &str = "CloudflareST-Rust";
@@ -68,19 +71,21 @@ CloudflareST-Rust
     -many6
         测试很多 IPv6；(表示 -v6 12，即每个 CIDR 测速 2^12 即 4096 个)
     -some6
-        测试一些 IPv6；(表示 -v6 8，即每个 CIDR 测 2^8 即 256 个)
+        测试一些 IPv6；(表示 -v6 10，即每个 CIDR 测 2^10 即 1024 个)
     -many4
         测试一点 IPv4；(表示 -v4 12，即每个 CIDR 测速 2^12 即 4096 个)
 
     -v4
-        指定 IPv4 测试数量 (2^n±m，例如 -v4 0+12 表示 2^0+12 即每个 CIDR 测速 13 个)
+        指定 IPv4 测试数量 (指定二的指数，如 -v4 8 表示测试 2^8=256 个 IP)
     -v6
-        指定 IPv6 测试数量 (2^n±m，例如 -v6 18-6 表示 2^18-6 即每个 CIDR 测速 262138 个)
+        指定 IPv6 测试数量 (指定二的指数，如 -v6 12 表示测试 2^12=4096 个 IP)
 
     -v
         打印程序版本 + 检查版本更新
     -h
         打印帮助说明
+    -max-ips 500000
+        IP总量上限；当IP数量超过此值时会随机丢弃已有IP；(默认 500000)
 "#;
 
 // 新增参数解析结构体
@@ -141,31 +146,19 @@ impl Args {
     }
 }
 
-fn init_tracing() {
-    if cfg!(feature = "debug") {
-        use tracing_subscriber::{fmt, EnvFilter};
-        
-        fmt()
-            .with_env_filter(EnvFilter::from_default_env()
-                .add_directive(tracing::Level::DEBUG.into()))
-            .with_target(false)
-            .with_thread_ids(true)
-            .with_thread_names(true)
-            .with_file(true)
-            .with_line_number(true)
-            .init();
-    }
+fn init() {
+    debug::init_debug();
 }
 
 fn main() -> Result<()> {
-    init_tracing();  // 初始化日志
+    init();  // 初始化debug
     
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
         .block_on(async {
-            debug!("启动异步运行时");
+            debug_log!("启动异步运行时");
             let args = Args::parse(std::env::args().collect());
 
             // 处理无值参数
@@ -245,21 +238,6 @@ fn main() -> Result<()> {
             if args.has("all4") {
                 config.test_all = true;
             }
-            if args.has("more6") {
-                config.ipv6_amount = Some(262144);
-            }
-            if args.has("lots6") {
-                config.ipv6_amount = Some(65536);
-            }
-            if args.has("many6") {
-                config.ipv6_amount = Some(4096);
-            }
-            if args.has("some6") {
-                config.ipv6_amount = Some(256);
-            }
-            if args.has("many4") {
-                config.ipv4_amount = Some(4096);
-            }
             if args.has("many4") {
                 config.ipv4_num_mode = Some("many".to_string());
             }
@@ -280,6 +258,9 @@ fn main() -> Result<()> {
             }
             if let Some(v) = args.get("v6") {
                 config.ipv6_amount = Some(parse_test_amount(v, false));
+            }
+            if let Some(v) = args.get("max-ips") {
+                config.max_ip_count = v.parse().unwrap_or(500_000);
             }
 
             println!("CloudflareST-Rust {}\n", VERSION);

@@ -10,7 +10,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rand::seq::SliceRandom;
 use crate::threadpool::GLOBAL_POOL;
 use std::collections::HashMap;
-use tracing::debug;
+use crate::debug_log;
+#[cfg(feature = "debug")]
+use tracing;
 
 const BUFFER_SIZE: usize = 1024;
 const DELAY_GROUP_INTERVAL: Duration = Duration::from_millis(2); // 2ms 分组间隔
@@ -293,7 +295,7 @@ async fn download_handler(
     let task_id = rand::random::<usize>();
     GLOBAL_POOL.start_task(task_id);
 
-    debug!("开始下载测速 IP: {}", ip);
+    debug_log!("开始下载测速 IP: {}", ip);
     
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -313,26 +315,26 @@ async fn download_handler(
 
     let response = match client.execute(req).await {
         Ok(resp) => {
-            debug!("收到响应: 状态码={}", resp.status());
+            debug_log!("收到响应: 状态码={}", resp.status());
             resp
         },
-        Err(e) => {
-            debug!("请求失败: {}", e);
+        Err(_e) => {
+            debug_log!("请求失败: {}", _e);
             return Ok(0.0);
         }
     };
 
     if response.status() != 200 {
-        debug!("非200状态码: {}", response.status());
+        debug_log!("非200状态码: {}", response.status());
         return Ok(0.0);
     }
 
     let time_start = Instant::now();
     let time_end = time_start + config.download_time;
     let content_length = response.content_length();
-    
-    if let Some(size) = content_length {
-        debug!("开始下载: 文件大小={} bytes", size);
+
+    if let Some(_size) = content_length {
+        debug_log!("开始下载: 文件大小={} bytes", _size);
     }
 
     let mut content_read = 0u64;
@@ -359,8 +361,8 @@ async fn download_handler(
         // 每次收到数据块就记录进展
         GLOBAL_POOL.record_progress(task_id);
         
-        let chunk_size = chunk.as_ref().map(|c| c.len()).unwrap_or(0);
-        debug!("接收数据块: {} bytes, 总计: {} bytes", chunk_size, content_read + chunk_size as u64);
+        let _chunk_size = chunk.as_ref().map(|c| c.len()).unwrap_or(0);
+        debug_log!("接收数据块: {} bytes, 总计: {} bytes", _chunk_size, content_read + _chunk_size as u64);
         
         // 检查总下载时间
         if current_time >= time_end {
@@ -440,11 +442,11 @@ async fn download_handler(
         }
     }
 
-    debug!("下载完成: IP={}, 总下载量={} bytes", ip, content_read);
+    debug_log!("下载完成: IP={}, 总下载量={} bytes", ip, content_read);
     GLOBAL_POOL.end_task(task_id);
 
     let final_speed = calculate_final_speed(&speed_samples, ewma.value());
-    debug!("最终速度: {:.2} MB/s", final_speed / 1024.0 / 1024.0);
+    debug_log!("最终速度: {:.2} MB/s", final_speed / 1024.0 / 1024.0);
     Ok(final_speed)
 }
 

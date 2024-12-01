@@ -1,8 +1,8 @@
+use crate::debug_log;
 use std::sync::Arc;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tracing::debug;
 use std::collections::HashMap;
 
 pub struct DynamicThreadPool {
@@ -24,7 +24,7 @@ impl DynamicThreadPool {
         let cpu_count = num_cpus::get();
         let initial_threads = cpu_count * 64;
         
-        debug!("初始化线程池: CPU核心数={}, 初始线程数={}", cpu_count, initial_threads);
+        debug_log!("初始化线程池: CPU核心数={}, 初始线程数={}", cpu_count, initial_threads);
         
         Self {
             semaphore: Arc::new(Semaphore::new(initial_threads)),
@@ -84,7 +84,7 @@ impl DynamicThreadPool {
 
         if active_tasks > 0 {
             let stall_ratio = stalled as f64 / active_tasks as f64;
-            debug!("线程状态: 活跃任务={}, 卡顿任务={}, 卡顿比例={:.2}%, 当前每核心线程数={}", 
+            debug_log!("线程状态: 活跃任务={}, 卡顿任务={}, 卡顿比例={:.2}%, 当前每核心线程数={}", 
                 active_tasks, stalled, stall_ratio * 100.0, current_threads);
 
             let mut stats = self.stats.lock().unwrap();
@@ -105,10 +105,10 @@ impl DynamicThreadPool {
                 let current_total = current_threads * self.cpu_count;
                 
                 if new_total > current_total {
-                    debug!("增加线程数: 每核心 {} -> {}", current_threads, new_threads_per_core);
+                    debug_log!("增加线程数: 每核心 {} -> {}", current_threads, new_threads_per_core);
                     self.semaphore.add_permits(new_total - current_total);
                 } else {
-                    debug!("减少线程数: 每核心 {} -> {}", current_threads, new_threads_per_core);
+                    debug_log!("减少线程数: 每核心 {} -> {}", current_threads, new_threads_per_core);
                 }
                 
                 let mut stats = self.stats.lock().unwrap();

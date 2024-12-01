@@ -1,8 +1,10 @@
+#[cfg(feature = "debug")]
+use tracing;
+use crate::debug_log;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::Arc;
 use std::time::Duration;
 use terminal_size::{terminal_size, Width};
-use tracing::debug;
 
 #[derive(Clone, Debug)]
 pub struct Bar {
@@ -49,7 +51,7 @@ impl Bar {
     }
 
     pub fn grow(&self, num: u64, msg: &str) {
-        debug!("进度更新: +{}, 消息: {}", num, msg);
+        debug_log!("进度更新: +{}, 消息: {}", num, msg);
         self.progress_bar.set_message(msg.to_string());
         self.progress_bar.inc(num);
     }

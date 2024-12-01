@@ -47,6 +47,7 @@ pub struct Config {
     pub ipv6_amount: Option<u32>,  // IPv6 测试数量
     pub ipv6_num_mode: Option<String>, // IPv6 数量模式
     pub ipv4_num_mode: Option<String>, // IPv4 数量模式
+    pub max_ip_count: usize,  // 添加 IP 总量上限参数
 }
 
 impl Config {
@@ -236,11 +237,12 @@ impl Default for Config {
             ipv6_amount: None,       // -v6 (默认无)
             ipv6_num_mode: None,     // -more6/-lots6/-many6/-some6 (默认无)
             ipv4_num_mode: None,     // -many4 (默认无)
+            max_ip_count: 500_000,  // 默认50万
         }
     }
 }
 
-// 解析测试数量表达式 (2^n±m)，并进行自适应范围处理
+// 解析测试数量，只接受单个数字
 pub fn parse_test_amount(expr: &str, is_v4: bool) -> u32 {
     let max_amount = if is_v4 { 
         2u32.pow(16) // IPv4 最大值 2^16
@@ -248,24 +250,9 @@ pub fn parse_test_amount(expr: &str, is_v4: bool) -> u32 {
         2u32.pow(20) // IPv6 最大值 2^20
     };
 
-    let amount = if let Some(plus_pos) = expr.find('+') {
-        // 处理加法 (如 0+12)
-        let base = expr[..plus_pos].parse::<u32>()
-            .unwrap_or(0);
-        let add = expr[plus_pos+1..].parse::<u32>()
-            .unwrap_or(0);
-        2u32.pow(base) + add
-    } else if let Some(minus_pos) = expr.find('-') {
-        // 处理减法 (如 18-6)
-        let base = expr[..minus_pos].parse::<u32>()
-            .unwrap_or(0);
-        let sub = expr[minus_pos+1..].parse::<u32>()
-            .unwrap_or(0);
-        2u32.pow(base).saturating_sub(sub)
-    } else {
-        // 单个数字
-        2u32.pow(expr.parse::<u32>().unwrap_or(0))
-    };
-
+    // 直接解析数字，解析失败返回0
+    let amount = expr.parse::<u32>().unwrap_or(0);
+    
+    // 确保不超过最大值
     amount.min(max_amount)
 }
