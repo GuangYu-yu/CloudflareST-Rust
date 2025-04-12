@@ -1,0 +1,105 @@
+mod args;
+mod tcping;
+mod httping;
+mod download;
+mod csv;
+mod progress;
+mod ip;
+mod pool;
+mod common;
+
+use std::thread;
+use rand::prelude::*;
+use crate::csv::PrintResult;
+use crate::common::PingData;
+
+// 将 main 函数修改为
+#[tokio::main]
+async fn main() {
+    // 解析命令行参数
+    let args = args::parse_args();
+    
+    // 设置全局超时
+    if let Some(timeout) = args.global_timeout_duration {
+        // 克隆 global_timeout 字符串
+        let timeout_str = args.global_timeout.clone();
+        thread::spawn(move || {
+            thread::sleep(timeout);
+            println!("\n程序已达到设定的超时时间 {}，自动退出", timeout_str);
+            std::process::exit(0);
+        });
+    }
+    
+    // 初始化随机数种子
+    init_rand_seed();
+    
+    println!("# CloudflareST-Rust\n");
+    
+    // 根据参数选择 TCP 或 HTTP 测速
+    let ping_result: Vec<PingResult> = if args.httping {
+        // 使用HTTP测速
+        match httping::Ping::new(&args).await {
+            Ok(ping) => match ping.run().await {
+                Ok(result) => result.into_iter().map(PingResult::Http).collect(),
+                Err(e) => {
+                    println!("HTTP测速失败: {:?}", e);
+                    Vec::new()
+                }
+            },
+            Err(e) => {
+                println!("创建HTTP Ping实例失败: {:?}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        // 使用TCP测速
+        match tcping::Ping::new(&args).await {
+            Ok(ping) => match ping.run().await {
+                Ok(result) => result.into_iter().map(PingResult::Tcp).collect(),
+                Err(e) => {
+                    println!("TCP测速失败: {:?}", e);
+                    Vec::new()
+                }
+            },
+            Err(e) => {
+                println!("创建TCP Ping实例失败: {:?}", e);
+                Vec::new()
+            }
+        }
+    };
+    
+    // 开始下载测速
+    let result = if args.disable_download || ping_result.is_empty() {
+        println!("\n[信息] {}", if args.disable_download { "已禁用下载测速" } else { "延迟测速结果为空，跳过下载测速" });
+        ping_result
+    } else {
+        // 创建下载测速实例
+        let download_test = download::DownloadTest::new(&args).await;
+        
+        // 执行下载测速
+        download_test.test_download_speed(ping_result).await
+    };
+    
+    // 输出文件
+    if let Err(e) = csv::export_csv(&result, &args) {
+        println!("导出CSV失败: {:?}", e);
+    }
+    
+    // 打印结果
+    result.print(&args);
+    
+    println!("程序执行完毕");
+}
+
+// 初始化随机数种子
+fn init_rand_seed() {
+    let mut rng = rand::rng();
+    let _: u32 = rng.random();
+}
+
+// 定义一个枚举来封装不同的 PingData 类型
+#[derive(Clone, Debug)]
+pub enum PingResult {
+    Tcp(PingData),
+    Http(PingData),
+}
