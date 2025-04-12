@@ -237,37 +237,37 @@ pub fn print_help() {
     
     // 基本参数
     println!("\n{}:", "基本参数".bold());
-    println!("  {:<10}   {}{}", "-url".green(), "测速地址 (https://example.com/file)".cyan(), "[默认: 未指定]".dimmed());
-    println!("  {:<10}   {}{}", "-urlist".green(), "从 URL 内读取测速地址列表 (https://example.com/url_list.txt)".cyan(), "[默认: 未指定]".dimmed());
-    println!("  {:<10}   {}{}", "-f".green(), "从文件或文件路径读取 IP 或 CIDR".cyan(), "[默认: ip.txt]".dimmed());
-    println!("  {:<10}   {}{}", "-ip".green(), "直接指定 IP 或 CIDR (多个用逗号分隔)".cyan(), "[默认: 未指定]".dimmed());
-    println!("  {:<10}   {}{}", "-ipurl".green(), "从URL读取 IP 或 CIDR (https://example.com/ip_list.txt)".cyan(), "[默认: 未指定]".dimmed());
-    println!("  {:<10}   {}{}", "-o".green(), "输出结果文件（文件名或文件路径）".cyan(), "[默认: result.csv]".dimmed());
-    println!("  {:<10}   {}{}", "-h".green(), "打印帮助说明".cyan(), "[默认: 否]".dimmed());
-    println!("  {:<10}   {}{}", "-timeout".green(), "程序超时退出时间（示例：1h3m6s）".cyan(), "[默认: 不限制]".dimmed());
+    println!("  {:<10}   {}{}", "-url".green(), "测速地址 (https://example.com/file)", "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-urlist".green(), "从 URL 内读取测速地址列表 (https://example.com/url_list.txt)", "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-f".green(), "从文件或文件路径读取 IP 或 CIDR", "[默认: ip.txt]".dimmed());
+    println!("  {:<10}   {}{}", "-ip".green(), "直接指定 IP 或 CIDR (多个用逗号分隔)", "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-ipurl".green(), "从URL读取 IP 或 CIDR (https://example.com/ip_list.txt)", "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-o".green(), "输出结果文件（文件名或文件路径）", "[默认: result.csv]".dimmed());
+    println!("  {:<10}   {}{}", "-h".green(), "打印帮助说明", "[默认: 否]".dimmed());
+    println!("  {:<10}   {}{}", "-timeout".green(), "程序超时退出时间（示例：1h3m6s）", "[默认: 不限制]".dimmed());
     
     // 测速参数
     println!("\n{}:", "测速参数".bold());
-    println!("  {:<10}   {}{}", "-t".green(), "延迟测速次数".cyan(), "[默认: 4]".dimmed());
-    println!("  {:<10}   {}{}", "-dn".green(), "下载测速数量".cyan(), "[默认: 10]".dimmed());
-    println!("  {:<10}   {}{}", "-dt".green(), "下载测速时间（秒）".cyan(), "[默认: 10]".dimmed());
-    println!("  {:<10}   {}{}", "-tp".green(), "测速端口".cyan(), "[默认: 443]".dimmed());
-    println!("  {:<10}   {}{}", "-dd".green(), "禁用下载测速".cyan(), "[默认: 否]".dimmed());
-    println!("  {:<10}   {}{}", "-all4".green(), "测速全部IPv4".cyan(), "[默认: 否]".dimmed());
+    println!("  {:<10}   {}{}", "-t".green(), "延迟测速次数", "[默认: 4]".dimmed());
+    println!("  {:<10}   {}{}", "-dn".green(), "下载测速数量", "[默认: 10]".dimmed());
+    println!("  {:<10}   {}{}", "-dt".green(), "下载测速时间（秒）", "[默认: 10]".dimmed());
+    println!("  {:<10}   {}{}", "-tp".green(), "测速端口", "[默认: 443]".dimmed());
+    println!("  {:<10}   {}{}", "-dd".green(), "禁用下载测速", "[默认: 否]".dimmed());
+    println!("  {:<10}   {}{}", "-all4".green(), "测速全部IPv4", "[默认: 否]".dimmed());
     
     // HTTP测速选项
     println!("\n{}:", "HTTP测速选项".bold());
-    println!("  {:<10}   {}{}", "-httping".green(), "Httping模式".cyan(), "[默认: 否]".dimmed());
-    println!("  {:<10}   {}{}", "-hc".green(), "有效状态码".cyan(), "[默认: 接受200/301/302]".dimmed());
-    println!("  {:<10}   {}{}", "-colo".green(), "匹配指定地区（示例：HKG,SJC）".cyan(), "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-httping".green(), "Httping模式", "[默认: 否]".dimmed());
+    println!("  {:<10}   {}{}", "-hc".green(), "有效状态码", "[默认: 接受200/301/302]".dimmed());
+    println!("  {:<10}   {}{}", "-colo".green(), "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]".dimmed());
     
     // 筛选参数
     println!("\n{}:", "筛选参数".bold());
-    println!("  {:<10}   {}{}", "-tl".green(), "延迟上限（毫秒）".cyan(), "[默认: 2000]".dimmed());
-    println!("  {:<10}   {}{}", "-tll".green(), "延迟下限（毫秒）".cyan(), "[默认: 0]".dimmed());
-    println!("  {:<10}   {}{}", "-tlr".green(), "丢包率上限".cyan(), "[默认: 1.00]".dimmed());
-    println!("  {:<10}   {}{}", "-sl".green(), "下载速度下限（MB/s）".cyan(), "[默认: 0.00]".dimmed());
-    println!("  {:<10}   {}{}", "-p".green(), "终端显示结果数量".cyan(), "[默认: 10]".dimmed());
+    println!("  {:<10}   {}{}", "-tl".green(), "延迟上限（毫秒）", "[默认: 2000]".dimmed());
+    println!("  {:<10}   {}{}", "-tll".green(), "延迟下限（毫秒）", "[默认: 0]".dimmed());
+    println!("  {:<10}   {}{}", "-tlr".green(), "丢包率上限", "[默认: 1.00]".dimmed());
+    println!("  {:<10}   {}{}", "-sl".green(), "下载速度下限（MB/s）", "[默认: 0.00]".dimmed());
+    println!("  {:<10}   {}{}", "-p".green(), "终端显示结果数量", "[默认: 10]".dimmed());
 }
 
 pub fn parse_args() -> Args {
