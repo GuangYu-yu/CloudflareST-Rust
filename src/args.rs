@@ -1,11 +1,3 @@
-macro_rules! print_table_row {
-    ($arg:expr, $type:expr, $desc:expr) => {
-        println!("  {:<10} {:<8} {}", 
-            $arg.green(), 
-            $type.dimmed(), 
-            $desc)
-    };
-}
 use std::env;
 use std::time::Duration;
 use colored::*;
@@ -241,42 +233,41 @@ fn parse_duration(duration_str: &str) -> Option<Duration> {
 }
 
 pub fn print_help() {
-    
     println!("{}", "CloudflareST-Rust".bold().blue());
     
     // 基本参数
     println!("\n{}:", "基本参数".bold());
-    print_table_row!("-url", "<URL>", "指定 Httping 或下载测速时使用的地址");
-    print_table_row!("-urlist", "<URL>", "指定 Httping 或下载测速时使用的地址列表，一行一个 URL ");
-    print_table_row!("-f", "<文件>", "IP段数据文件；如路径含有空格请加上引号；(默认 ip.txt)");
-    print_table_row!("-ip", "<IP段>", "指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔");
-    print_table_row!("-ipurl", "<URL>", "从URL获取数据；从指定URL读取CIDR或IP");
-    print_table_row!("-o", "<文件>", "写入结果文件；如路径含有空格请加上引号；(默认 result.csv)");
-    print_table_row!("-h", "", "打印帮助说明");
-    print_table_row!("-timeout", "<时间>", "全局超时时间；程序最长运行时间，例如 '1h3m5s'；(默认 不限制)");
+    println!("  {:<10}   {}{}", "-url".green(), "测速地址 (https://example.com/file)".cyan(), "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-urlist".green(), "从 URL 内读取测速地址列表 (https://example.com/url_list.txt)".cyan(), "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-f".green(), "从文件或文件路径读取 IP 或 CIDR".cyan(), "[默认: ip.txt]".dimmed());
+    println!("  {:<10}   {}{}", "-ip".green(), "直接指定 IP 或 CIDR (多个用逗号分隔)".cyan(), "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-ipurl".green(), "从URL读取 IP 或 CIDR (https://example.com/ip_list.txt)".cyan(), "[默认: 未指定]".dimmed());
+    println!("  {:<10}   {}{}", "-o".green(), "输出结果文件（文件名或文件路径）".cyan(), "[默认: result.csv]".dimmed());
+    println!("  {:<10}   {}{}", "-h".green(), "打印帮助说明".cyan(), "[默认: 否]".dimmed());
+    println!("  {:<10}   {}{}", "-timeout".green(), "程序超时退出时间（示例：1h3m6s）".cyan(), "[默认: 不限制]".dimmed());
     
     // 测速参数
     println!("\n{}:", "测速参数".bold());
-    print_table_row!("-t", "<数字>", "延迟测速次数；单个 IP 延迟测速的次数；(默认 4 次)");
-    print_table_row!("-dn", "<数字>", "下载测速数量；延迟测速并排序后，从最低延迟起下载测速的数量；(默认 10 个)");
-    print_table_row!("-dt", "<数字>", "下载测速时间；单个 IP 下载测速最长时间，不能太短；(默认 10 秒)");
-    print_table_row!("-tp", "<数字>", "指定测速端口；延迟测速/下载测速时使用的端口；(默认 443 端口)");
-    print_table_row!("-dd", "", "禁用下载测速；禁用后测速结果会按延迟排序 (默认按下载速度排序)");
-    print_table_row!("-all4", "", "测速全部的IP；对每个 IPv4 进行测速");
+    println!("  {:<10}   {}{}", "-t".green(), "延迟测速次数".cyan(), "[默认: 4]".dimmed());
+    println!("  {:<10}   {}{}", "-dn".green(), "下载测速数量".cyan(), "[默认: 10]".dimmed());
+    println!("  {:<10}   {}{}", "-dt".green(), "下载测速时间（秒）".cyan(), "[默认: 10]".dimmed());
+    println!("  {:<10}   {}{}", "-tp".green(), "测速端口".cyan(), "[默认: 443]".dimmed());
+    println!("  {:<10}   {}{}", "-dd".green(), "禁用下载测速".cyan(), "[默认: 否]".dimmed());
+    println!("  {:<10}   {}{}", "-all4".green(), "测速全部IPv4".cyan(), "[默认: 否]".dimmed());
     
     // HTTP测速选项
     println!("\n{}:", "HTTP测速选项".bold());
-    print_table_row!("-httping", "", "切换测速模式；延迟测速模式改为 HTTP 协议，所用测试地址为 [-url] 参数；(默认 TCPing)");
-    print_table_row!("-hc", "<数字>", "有效状态代码；HTTPing 延迟测速时网页返回的有效 HTTP 状态码，仅限一个；(默认接受 200、301、302 状态码)");
-    print_table_row!("-colo", "<机场码>", "匹配指定地区；地区名为当地机场三字码，英文逗号分隔，在 HTTPing 或下载测速时有效");
+    println!("  {:<10}   {}{}", "-httping".green(), "Httping模式".cyan(), "[默认: 否]".dimmed());
+    println!("  {:<10}   {}{}", "-hc".green(), "有效状态码".cyan(), "[默认: 接受200/301/302]".dimmed());
+    println!("  {:<10}   {}{}", "-colo".green(), "匹配指定地区（示例：HKG,SJC）".cyan(), "[默认: 未指定]".dimmed());
     
     // 筛选参数
     println!("\n{}:", "筛选参数".bold());
-    print_table_row!("-tl", "<数字>", "平均延迟上限；只输出低于指定平均延迟的 IP；(默认 2000 ms)");
-    print_table_row!("-tll", "<数字>", "平均延迟下限；只输出高于指定平均延迟的 IP；(默认 0 ms)");
-    print_table_row!("-tlr", "<数字>", "丢包几率上限；只输出低于/等于指定丢包率的 IP，范围 0.00~1.00；(默认 1.00)");
-    print_table_row!("-sl", "<数字>", "下载速度下限；只输出高于指定下载速度的 IP；(默认 0.00 MB/s)");
-    print_table_row!("-p", "<数字>", "显示结果数量；测速后直接显示指定数量的结果；(默认 10 个)");
+    println!("  {:<10}   {}{}", "-tl".green(), "延迟上限（毫秒）".cyan(), "[默认: 2000]".dimmed());
+    println!("  {:<10}   {}{}", "-tll".green(), "延迟下限（毫秒）".cyan(), "[默认: 0]".dimmed());
+    println!("  {:<10}   {}{}", "-tlr".green(), "丢包率上限".cyan(), "[默认: 1.00]".dimmed());
+    println!("  {:<10}   {}{}", "-sl".green(), "下载速度下限（MB/s）".cyan(), "[默认: 0.00]".dimmed());
+    println!("  {:<10}   {}{}", "-p".green(), "终端显示结果数量".cyan(), "[默认: 10]".dimmed());
 }
 
 pub fn parse_args() -> Args {
@@ -290,7 +281,6 @@ pub fn parse_args() -> Args {
     // 检查测速地址是否为空（当需要下载测速或使用HTTP测速时）
     if args.url.is_empty() && args.urlist.is_empty() && (!args.disable_download || args.httping) {
         println!("错误: 未设置测速地址，在使用 -httping 或没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定测速地址");
-        println!("示例: -url https://example.com/file 或 -urlist https://example.com/url_list.txt");
         println!("{}", "使用 -h 参数查看帮助".red());
         std::process::exit(1);
     }
