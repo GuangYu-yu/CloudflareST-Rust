@@ -141,8 +141,14 @@ impl DownloadTest {
     pub async fn test_download_speed(&self, mut ping_results: Vec<PingResult>) -> Vec<PingResult> {
         // 获取测试数量，不超过结果集大小
         let test_num = min(self.test_count, ping_results.len());
-        println!("开始下载测速（下限：{:.2} MB/s, 数量：{}, 队列：{}）", 
-                 self.min_speed, self.test_count, test_num);
+        
+        // 队列数量不足
+        if self.test_count > ping_results.len() {
+            println!("\n[信息] {}", "队列数量不足所需数量！");
+        }
+        
+        println!("\n开始下载测速（下限：{:.2} MB/s, 数量：{}, 队列：{}）", 
+                 self.min_speed, test_num, ping_results.len());
     
         // 更新进度条总数
         self.bar.as_ref().set_max(test_num as u64);
