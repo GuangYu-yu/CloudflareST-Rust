@@ -81,6 +81,9 @@ jobs:
       - name: 构建 Linux AMD64
         run: |
           mkdir -p build/linux-amd64
+          # 安装 musl 工具链
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          # 使用 musl 目标构建
           cross build --release --target x86_64-unknown-linux-musl
           cp target/x86_64-unknown-linux-musl/release/CloudflareST-Rust build/linux-amd64/Cloudflare-Rust_linux_amd64
 
@@ -103,6 +106,9 @@ jobs:
       - name: 构建 Linux ARM64
         run: |
           mkdir -p build/linux-arm64
+          # 安装 musl 工具链
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          # 使用 musl 目标构建
           cross build --release --target aarch64-unknown-linux-musl
           cp target/aarch64-unknown-linux-musl/release/CloudflareST-Rust build/linux-arm64/Cloudflare-Rust_linux_arm64
 
