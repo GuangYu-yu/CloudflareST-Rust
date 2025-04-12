@@ -189,7 +189,7 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
         with:
-          ref: rust
+          ref: main
 
       - name: 创建打包目录
         run: |
