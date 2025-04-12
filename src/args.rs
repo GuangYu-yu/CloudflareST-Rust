@@ -246,8 +246,8 @@ pub fn print_help() {
     
     // 基本参数
     println!("\n{}:", "基本参数".bold());
-    print_table_row!("-url", "<URL>", "指定下载测速时使用的地址");
-    print_table_row!("-urlist", "<URL>", "指定下载测速时使用的地址列表，一行一个URL");
+    print_table_row!("-url", "<URL>", "指定 Httping 或下载测速时使用的地址");
+    print_table_row!("-urlist", "<URL>", "指定 Httping 或下载测速时使用的地址列表，一行一个 URL ");
     print_table_row!("-f", "<文件>", "IP段数据文件；如路径含有空格请加上引号；(默认 ip.txt)");
     print_table_row!("-ip", "<IP段>", "指定IP段数据；直接通过参数指定要测速的 IP 段数据，英文逗号分隔");
     print_table_row!("-ipurl", "<URL>", "从URL获取数据；从指定URL读取CIDR或IP");
