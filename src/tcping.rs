@@ -159,31 +159,38 @@ async fn tcping_handler(
     // 执行连接测试
     let (recv, avg_delay_ms) = check_connection(ip, args).await;
     
-    // 获取当前可用IP数量
-    let now_able = {
+    // 根据测试结果更新数据和进度条
+    if recv == 0 {
+        // 连接失败，获取当前可用IP数量并更新进度条
+        let now_able = {
+            let csv_guard = csv.lock().unwrap();
+            csv_guard.len()
+        };
+        
+        // 更新进度条
+        bar.grow(1, now_able.to_string());
+        return;
+    }
+    
+    // 连接成功，创建测试数据
+    let ping_times = common::get_ping_times(args);
+    let data = PingData::new(ip, ping_times, recv, avg_delay_ms);
+    
+    // 应用筛选条件并更新进度条
+    let now_able = if common::should_keep_result(&data, args) {
+        // 符合条件，添加到结果集
+        let mut csv_guard = csv.lock().unwrap();
+        csv_guard.push(data);
+        let count = csv_guard.len();
+        count
+    } else {
+        // 不符合条件，获取当前数量
         let csv_guard = csv.lock().unwrap();
         csv_guard.len()
     };
     
     // 更新进度条
     bar.grow(1, now_able.to_string());
-    
-    // 如果没有成功连接，直接返回（IP会被自动回收）
-    if recv == 0 {
-        return;
-    }
-    
-    // 创建测试数据
-    let ping_times = common::get_ping_times(args);
-    let data = PingData::new(ip, ping_times, recv, avg_delay_ms);
-    
-    // 应用筛选条件
-    if common::should_keep_result(&data, args) {
-        // 添加到结果集
-        let mut csv_guard = csv.lock().unwrap();
-        csv_guard.push(data);
-    }
-    // 如果不符合筛选条件，IP会被自动回收
 }
 
 // 执行连接测试
