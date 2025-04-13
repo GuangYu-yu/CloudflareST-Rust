@@ -2,9 +2,8 @@ use std::sync::Arc;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use num_cpus;
-use rand::{rng, Rng};
 
 pub struct DynamicThreadPool {
     semaphore: Arc<Semaphore>,
@@ -18,12 +17,18 @@ struct ThreadStats {
     active_tasks: usize,
     last_adjust: Instant,
     last_progress: Arc<Mutex<HashMap<usize, Instant>>>,
+    // 添加可用ID队列
+    available_ids: VecDeque<usize>,
+    next_id: usize, // 下一个未使用的ID
 }
 
 impl DynamicThreadPool {
     pub fn new() -> Self {
         let cpu_count = num_cpus::get();
         let initial_threads = cpu_count * 64;
+        
+        // 创建一个空的可用ID队列
+        let available_ids = VecDeque::new();
         
         Self {
             semaphore: Arc::new(Semaphore::new(initial_threads)),
@@ -33,9 +38,34 @@ impl DynamicThreadPool {
                 active_tasks: 0,
                 last_adjust: Instant::now(),
                 last_progress: Arc::new(Mutex::new(HashMap::new())),
+                available_ids,
+                next_id: 1, // 从1开始分配ID
             })),
             cpu_count,
         }
+    }
+
+    // 获取任务ID的新方法
+    pub fn get_task_id(&self) -> usize {
+        let mut stats = self.stats.lock().unwrap();
+        
+        // 优先从可用ID队列中获取
+        if let Some(id) = stats.available_ids.pop_front() {
+            return id;
+        }
+        
+        // 如果没有可用ID，则分配新ID
+        let id = stats.next_id;
+        stats.next_id += 1;
+        
+        // 确保ID不超过一个较大的值
+        if stats.next_id > 10_000 {
+            // 如果所有ID都已分配，则从1重新开始
+            // 这种情况应该很少发生，因为我们会回收ID
+            stats.next_id = 1;
+        }
+        
+        id
     }
 
     pub async fn acquire(&self) -> OwnedSemaphorePermit {
@@ -58,6 +88,9 @@ impl DynamicThreadPool {
         let mut stats = self.stats.lock().unwrap();
         stats.active_tasks -= 1;
         stats.last_progress.lock().unwrap().remove(&task_id);
+        
+        // 回收任务ID
+        stats.available_ids.push_back(task_id);
     }
 
     fn adjust_threads(&self) {
@@ -136,8 +169,8 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
 {
-    // 生成唯一的任务ID
-    let task_id = rng().random_range(0..usize::MAX);
+    // 使用池分配的任务ID，而不是随机生成
+    let task_id = GLOBAL_POOL.get_task_id();
     
     // 开始任务
     GLOBAL_POOL.start_task(task_id);

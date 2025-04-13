@@ -3,8 +3,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use std::io;
-use std::sync::atomic::{AtomicUsize, Ordering};
-static TASK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -103,8 +101,8 @@ impl Ping {
 }
 
 pub async fn tcping(ip: IpAddr, args: &Args) -> Option<f64> {
-    // 1. 生成唯一任务标识并记录任务开始
-    let task_id = TASK_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+    // 使用GLOBAL_POOL获取任务ID
+    let task_id = GLOBAL_POOL.get_task_id();
     GLOBAL_POOL.start_task(task_id);
     
     // 2. 记录开始连接时间
