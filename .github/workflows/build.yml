@@ -64,7 +64,7 @@ jobs:
             }
 
   build_windows:
-    name: 构建 Windows
+    name: 构建 Windows x86_64
     needs: cleanup_releases
     if: ${{ github.event.inputs.build_windows_x86_64 == 'true' }}
     runs-on: ubuntu-latest  
@@ -81,7 +81,7 @@ jobs:
         run: |
           cargo install cross
 
-      - name: 构建 Windows
+      - name: Windows x86_64
         run: |
           mkdir -p build/windows binaries/windows_x86_64
           cross build --release --target x86_64-pc-windows-gnu
@@ -91,14 +91,14 @@ jobs:
           mkdir -p releases
           tar -czf releases/CloudflareST-Rust_windows_x86_64.tar.gz -C temp_windows CloudflareST-Rust.exe
 
-      - name: 上传 Windows 发布包
+      - name: 上传 Windows x86_64 发布包
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
           path: releases/CloudflareST-Rust_windows_x86_64.tar.gz
           retention-days: 1
 
-      - name: 上传 Windows 二进制文件
+      - name: 上传 Windows x86_64 二进制文件
         uses: actions/upload-artifact@v4
         with:
           name: windows-binary
