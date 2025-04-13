@@ -5,7 +5,7 @@ on:
       build_windows_x86_64:
         description: '构建 Windows x86_64'
         type: boolean
-        default: true
+        default: false
       build_windows_arm64:
         description: '构建 Windows ARM64'
         type: boolean
@@ -13,23 +13,23 @@ on:
       build_linux_amd64:
         description: '构建 Linux AMD64'
         type: boolean
-        default: true
+        default: false
       build_linux_arm64:
         description: '构建 Linux ARM64'
         type: boolean
-        default: true
+        default: false
       build_macos_x86_64:
         description: '构建 macOS x86_64'
         type: boolean
-        default: true
+        default: false
       build_macos_arm64:
         description: '构建 macOS ARM64'
         type: boolean
-        default: true
+        default: false
       upload_to_repo:
         description: '上传二进制文件到项目仓库'
         type: boolean
-        default: true
+        default: false
       create_release:
         description: '创建发布版本'
         type: boolean
@@ -439,3 +439,4 @@ jobs:
             ${{ github.event.inputs.build_macos_arm64 == 'true' && '- macOS ARM64' || '' }}
           files: releases/*.tar.gz
           token: ${{ secrets.GITHUB_TOKEN }}
+
