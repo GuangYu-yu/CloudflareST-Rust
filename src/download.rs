@@ -147,7 +147,7 @@ impl DownloadTest {
             println!("\n[信息] {}", "队列数量不足所需数量！");
         }
         
-        println!("开始下载测速（下限：{:.2} MB/s, 数量：{}, 队列：{}）", 
+        println!("开始下载测速（下限：{:.2} MB/s, 所需：{}, 队列：{}）", 
                  self.min_speed, test_num, ping_results.len());
     
         // 更新进度条总数
