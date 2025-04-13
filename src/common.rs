@@ -18,7 +18,6 @@ pub struct PingData {
     pub sent: usize,
     pub received: usize,
     pub delay: f64,  // 改为f64类型，表示毫秒
-    pub delay_ms: f64, // 可以保留或移除，因为delay已经是毫秒值
     pub download_speed: f64,
     pub data_center: String,
 }
@@ -30,7 +29,6 @@ impl PingData {
             sent,
             received,
             delay,
-            delay_ms: delay,
             download_speed: 0.0,
             data_center: String::new(),
         }
