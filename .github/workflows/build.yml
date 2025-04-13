@@ -1,6 +1,31 @@
 name: 构建 CloudflareST-Rust
 on:  
   workflow_dispatch:   # 允许手动触发
+    inputs:
+      build_windows_x86_64:
+        description: '构建 Windows x86_64'
+        type: boolean
+        default: true
+      build_windows_arm64:
+        description: '构建 Windows ARM64'
+        type: boolean
+        default: false
+      build_linux_amd64:
+        description: '构建 Linux AMD64'
+        type: boolean
+        default: true
+      build_linux_arm64:
+        description: '构建 Linux ARM64'
+        type: boolean
+        default: true
+      build_macos_x86_64:
+        description: '构建 macOS x86_64'
+        type: boolean
+        default: true
+      build_macos_arm64:
+        description: '构建 macOS ARM64'
+        type: boolean
+        default: true
 
 jobs:
   cleanup_releases:
@@ -41,6 +66,7 @@ jobs:
   build_windows:
     name: 构建 Windows
     needs: cleanup_releases
+    if: ${{ github.event.inputs.build_windows_x86_64 == 'true' }}
     runs-on: ubuntu-latest  
     steps:  
       - name: 检出代码  
@@ -82,6 +108,7 @@ jobs:
   build_windows_arm64:
       name: 构建 Windows ARM64
       needs: cleanup_releases
+      if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
       runs-on: windows-latest  # 改用 Windows 运行器
       steps:  
         - name: 检出代码  
@@ -124,6 +151,7 @@ jobs:
   build_linux:
     name: 构建 Linux
     needs: cleanup_releases
+    if: ${{ github.event.inputs.build_linux_amd64 == 'true' || github.event.inputs.build_linux_arm64 == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -134,57 +162,112 @@ jobs:
         with:
           toolchain: '1.82.0'
 
-      - name: 构建 Linux AMD64
-        run: |
-          mkdir -p build/linux-amd64 binaries/linux_amd64
-          docker run --rm -v $(pwd):/app -w /app \
-            rust:1.82.0-slim \
-            sh -c "apt-get update && \
-                  apt-get install -y musl-tools && \
-                  rustup target add x86_64-unknown-linux-musl && \
-                  cargo build --release --target x86_64-unknown-linux-musl"
-          cp target/x86_64-unknown-linux-musl/release/CloudflareST-Rust binaries/linux_amd64/CloudflareST-Rust
-          mkdir -p temp_linux_amd64
-          cp target/x86_64-unknown-linux-musl/release/CloudflareST-Rust temp_linux_amd64/CloudflareST-Rust
-          mkdir -p releases
-          tar -czf releases/CloudflareST-Rust_linux_amd64.tar.gz -C temp_linux_amd64 CloudflareST-Rust
-
-      - name: 构建 Linux ARM64
-        run: |
-          mkdir -p build/linux-arm64 binaries/linux_arm64
-          docker run --rm -v $(pwd):/app -w /app \
-            rust:1.82.0-slim \
-            sh -c "apt-get update && \
-                  apt-get install -y musl-tools gcc-aarch64-linux-gnu libc6-dev-arm64-cross && \
-                  ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-musl-gcc && \
-                  rustup target add aarch64-unknown-linux-musl && \
-                  export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc && \
-                  cargo build --release --target aarch64-unknown-linux-musl"
-          cp target/aarch64-unknown-linux-musl/release/CloudflareST-Rust binaries/linux_arm64/CloudflareST-Rust
-          mkdir -p temp_linux_arm64
-          cp target/aarch64-unknown-linux-musl/release/CloudflareST-Rust temp_linux_arm64/CloudflareST-Rust
-          mkdir -p releases
-          tar -czf releases/CloudflareST-Rust_linux_arm64.tar.gz -C temp_linux_arm64 CloudflareST-Rust
-
-      - name: 上传 Linux 发布包
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-release
-          path: releases/CloudflareST-Rust_linux_*.tar.gz
-          retention-days: 1
-
-      - name: 上传 Linux 二进制文件
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-binary
-          path: |
-            binaries/linux_amd64
-            binaries/linux_arm64
-          retention-days: 1
+      build_linux_amd64:
+          name: 构建 Linux AMD64
+          needs: cleanup_releases
+          if: ${{ github.event.inputs.build_linux_amd64 == 'true' }}
+          runs-on: ubuntu-latest
+          steps:
+            - name: 检出代码
+              uses: actions/checkout@v4
+      
+            - name: 设置 Rust 环境
+              uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
+              with:
+                toolchain: '1.82.0'
+      
+            - name: 构建 Linux AMD64
+              run: |
+                mkdir -p build/linux-amd64 binaries/linux_amd64
+                docker run --rm -v $(pwd):/app -w /app \
+                  rust:1.82.0-slim \
+                  sh -c "apt-get update && \
+                        apt-get install -y musl-tools && \
+                        rustup target add x86_64-unknown-linux-musl && \
+                        cargo build --release --target x86_64-unknown-linux-musl"
+                  cp target/x86_64-unknown-linux-musl/release/CloudflareST-Rust binaries/linux_amd64/CloudflareST-Rust
+                  mkdir -p temp_linux_amd64
+                  cp target/x86_64-unknown-linux-musl/release/CloudflareST-Rust temp_linux_amd64/CloudflareST-Rust
+                  mkdir -p releases
+                  tar -czf releases/CloudflareST-Rust_linux_amd64.tar.gz -C temp_linux_amd64 CloudflareST-Rust
+      
+            - name: 下载 Linux AMD64 发布包
+              if: ${{ github.event.inputs.build_linux_amd64 == 'true' && contains(needs.*.result, 'success') }}
+              uses: actions/download-artifact@v4
+              with:
+                name: linux-amd64-release
+                path: releases
+      
+            - name: 下载 Linux ARM64 发布包
+              if: ${{ github.event.inputs.build_linux_arm64 == 'true' && contains(needs.*.result, 'success') }}
+              uses: actions/download-artifact@v4
+              with:
+                name: linux-arm64-release
+                path: releases
+      
+            - name: 上传 Linux AMD64 二进制文件
+              uses: actions/upload-artifact@v4
+              with:
+                name: linux-amd64-binary
+                path: binaries/linux_amd64
+                retention-days: 1
+      
+            - name: 上传 Linux AMD64 二进制文件
+              uses: actions/upload-artifact@v4
+              with:
+                name: linux-amd64-binary
+                path: binaries/linux_amd64
+                retention-days: 1
+      
+      build_linux_arm64:
+          name: 构建 Linux ARM64
+          needs: cleanup_releases
+          if: ${{ github.event.inputs.build_linux_arm64 == 'true' }}
+          runs-on: ubuntu-latest
+          steps:
+            - name: 检出代码
+              uses: actions/checkout@v4
+      
+            - name: 设置 Rust 环境
+              uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
+              with:
+                toolchain: '1.82.0'
+      
+            - name: 构建 Linux ARM64
+              run: |
+                mkdir -p build/linux-arm64 binaries/linux_arm64
+                docker run --rm -v $(pwd):/app -w /app \
+                  rust:1.82.0-slim \
+                  sh -c "apt-get update && \
+                        apt-get install -y musl-tools gcc-aarch64-linux-gnu libc6-dev-arm64-cross && \
+                        ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-musl-gcc && \
+                        rustup target add aarch64-unknown-linux-musl && \
+                        export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc && \
+                        cargo build --release --target aarch64-unknown-linux-musl"
+                  cp target/aarch64-unknown-linux-musl/release/CloudflareST-Rust binaries/linux_arm64/CloudflareST-Rust
+                  mkdir -p temp_linux_arm64
+                  cp target/aarch64-unknown-linux-musl/release/CloudflareST-Rust temp_linux_arm64/CloudflareST-Rust
+                  mkdir -p releases
+                  tar -czf releases/CloudflareST-Rust_linux_arm64.tar.gz -C temp_linux_arm64 CloudflareST-Rust
+      
+            - name: 上传 Linux ARM64 发布包
+              uses: actions/upload-artifact@v4
+              with:
+                name: linux-arm64-release
+                path: releases/CloudflareST-Rust_linux_arm64.tar.gz
+                retention-days: 1
+      
+            - name: 上传 Linux ARM64 二进制文件
+              uses: actions/upload-artifact@v4
+              with:
+                name: linux-arm64-binary
+                path: binaries/linux_arm64
+                retention-days: 1
 
   build_macos:
     name: 构建 macOS
     needs: cleanup_releases
+    if: ${{ github.event.inputs.build_macos_x86_64 == 'true' || github.event.inputs.build_macos_arm64 == 'true' }}
     runs-on: macos-latest
     steps:
       - name: 检出代码
@@ -196,6 +279,7 @@ jobs:
           toolchain: '1.82.0'
 
       - name: 构建 macOS AMD64
+        if: ${{ github.event.inputs.build_macos_x86_64 == 'true' }}
         run: |
           mkdir -p build/macos binaries/macos_x86_64
           rustup target add x86_64-apple-darwin
@@ -207,6 +291,7 @@ jobs:
           tar -czf releases/CloudflareST-Rust_macos_x86_64.tar.gz -C temp_macos_x86_64 CloudflareST-Rust
 
       - name: 构建 macOS ARM64
+        if: ${{ github.event.inputs.build_macos_arm64 == 'true' }}
         run: |
           mkdir -p build/macos-arm64 binaries/macos_arm64
           rustup target add aarch64-apple-darwin
@@ -234,7 +319,8 @@ jobs:
 
   commit_binaries:
     name: 提交所有二进制文件
-    needs: [build_windows, build_windows_arm64, build_linux, build_macos]
+    needs: [build_windows, build_windows_arm64, build_linux_amd64, build_linux_arm64, build_macos]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -247,15 +333,31 @@ jobs:
 
       # 下载所有构建产物
       - name: 下载 Windows 二进制文件
+        if: ${{ github.event.inputs.build_windows_x86_64 == 'true' && needs.build_windows.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: windows-binary
           path: binaries
 
       - name: 下载 Windows ARM64 二进制文件
+        if: ${{ github.event.inputs.build_windows_arm64 == 'true' && needs.build_windows_arm64.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: windows-arm64-binary
+          path: binaries
+
+      - name: 下载 Linux AMD64 二进制文件
+        if: ${{ github.event.inputs.build_linux_amd64 == 'true' && needs.build_linux_amd64.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binary
+          path: binaries
+
+      - name: 下载 Linux ARM64 二进制文件
+        if: ${{ github.event.inputs.build_linux_arm64 == 'true' && needs.build_linux_arm64.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64-binary
           path: binaries
 
       - name: 下载 Linux 二进制文件
@@ -286,12 +388,14 @@ jobs:
   create_release:
     name: 创建发布版本
     needs: commit_binaries
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: 创建发布目录
         run: mkdir -p releases
 
       - name: 下载 Windows 发布包
+        if: ${{ github.event.inputs.build_windows_x86_64 == 'true' && contains(needs.*.result, 'success') }}
         uses: actions/download-artifact@v4
         with:
           name: windows-release
@@ -318,12 +422,12 @@ jobs:
             CloudflareST-Rust 自动构建版本
             
             包含以下平台的二进制文件：
-            - Windows x86_64
-            - Windows ARM64
-            - Linux AMD64
-            - Linux ARM64
-            - macOS x86_64
-            - macOS ARM64
+            ${{ github.event.inputs.build_windows_x86_64 == 'true' && '- Windows x86_64' || '' }}
+            ${{ github.event.inputs.build_windows_arm64 == 'true' && '- Windows ARM64' || '' }}
+            ${{ github.event.inputs.build_linux_amd64 == 'true' && '- Linux AMD64' || '' }}
+            ${{ github.event.inputs.build_linux_arm64 == 'true' && '- Linux ARM64' || '' }}
+            ${{ github.event.inputs.build_macos_x86_64 == 'true' && '- macOS x86_64' || '' }}
+            ${{ github.event.inputs.build_macos_arm64 == 'true' && '- macOS ARM64' || '' }}
           files: releases/*.tar.gz
           token: ${{ secrets.GITHUB_TOKEN }}
 
