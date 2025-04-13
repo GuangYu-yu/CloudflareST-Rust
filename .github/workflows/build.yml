@@ -26,10 +26,30 @@ on:
         description: '构建 macOS ARM64'
         type: boolean
         default: true
+      upload_to_repo:
+        description: '上传二进制文件到项目仓库'
+        type: boolean
+        default: true
+      create_release:
+        description: '创建发布版本'
+        type: boolean
+        default: true
 
 jobs:
+  validate_inputs:
+    name: 验证输入选项
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查选项
+        if: ${{ github.event.inputs.upload_to_repo != 'true' && github.event.inputs.create_release != 'true' }}
+        run: |
+          echo "错误：必须选择'上传二进制文件到项目仓库'或'创建发布版本'中的至少一个选项"
+          exit 1
+
   cleanup_releases:
     name: 清理旧版本发布
+    needs: validate_inputs
+    if: ${{ github.event.inputs.create_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: 删除旧版本
@@ -65,7 +85,7 @@ jobs:
 
   build_windows:
     name: 构建 Windows x86_64
-    needs: cleanup_releases
+    needs: validate_inputs
     if: ${{ github.event.inputs.build_windows_x86_64 == 'true' }}
     runs-on: ubuntu-latest  
     steps:  
@@ -107,7 +127,7 @@ jobs:
           
   build_windows_arm64:
       name: 构建 Windows ARM64
-      needs: cleanup_releases
+      needs: validate_inputs
       if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
       runs-on: windows-latest  # 改用 Windows 运行器
       steps:  
@@ -150,7 +170,7 @@ jobs:
 
   build_linux_amd64:
     name: 构建 Linux AMD64
-    needs: cleanup_releases
+    needs: validate_inputs
     if: ${{ github.event.inputs.build_linux_amd64 == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -193,7 +213,7 @@ jobs:
   
   build_linux_arm64:
     name: 构建 Linux ARM64
-    needs: cleanup_releases
+    needs: validate_inputs
     if: ${{ github.event.inputs.build_linux_arm64 == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -238,7 +258,7 @@ jobs:
 
   build_macos:
     name: 构建 macOS
-    needs: cleanup_releases
+    needs: validate_inputs
     if: ${{ github.event.inputs.build_macos_x86_64 == 'true' || github.event.inputs.build_macos_arm64 == 'true' }}
     runs-on: macos-latest
     steps:
@@ -292,7 +312,7 @@ jobs:
   commit_binaries:
     name: 提交所有二进制文件
     needs: [build_windows, build_windows_arm64, build_linux_amd64, build_linux_arm64, build_macos]
-    if: always()
+    if: ${{ github.event.inputs.upload_to_repo == 'true' && always() }}
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -301,38 +321,45 @@ jobs:
           ref: main
 
       - name: 创建二进制文件目录
-        run: mkdir -p binaries
+        run: |
+          mkdir -p binaries/windows_x86_64
+          mkdir -p binaries/windows_arm64
+          mkdir -p binaries/linux_amd64
+          mkdir -p binaries/linux_arm64
+          mkdir -p binaries/macos_x86_64
+          mkdir -p binaries/macos_arm64
 
       # 下载所有构建产物
-      - name: 下载 Windows 二进制文件
+      - name: 下载 Windows x86_64 二进制文件
         if: ${{ github.event.inputs.build_windows_x86_64 == 'true' && needs.build_windows.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: windows-binary
-          path: binaries
+          path: binaries/windows_x86_64
 
       - name: 下载 Windows ARM64 二进制文件
         if: ${{ github.event.inputs.build_windows_arm64 == 'true' && needs.build_windows_arm64.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: windows-arm64-binary
-          path: binaries
+          path: binaries/windows_arm64
 
       - name: 下载 Linux AMD64 二进制文件
         if: ${{ github.event.inputs.build_linux_amd64 == 'true' && needs.build_linux_amd64.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: linux-amd64-binary
-          path: binaries
+          path: binaries/linux_amd64
 
       - name: 下载 Linux ARM64 二进制文件
         if: ${{ github.event.inputs.build_linux_arm64 == 'true' && needs.build_linux_arm64.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: linux-arm64-binary
-          path: binaries
+          path: binaries/linux_arm64
 
       - name: 下载 macOS 二进制文件
+        if: ${{ (github.event.inputs.build_macos_x86_64 == 'true' || github.event.inputs.build_macos_arm64 == 'true') && needs.build_macos.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: macos-binary
@@ -353,8 +380,8 @@ jobs:
 
   create_release:
     name: 创建发布版本
-    needs: commit_binaries
-    if: always()
+    needs: [build_windows, build_windows_arm64, build_linux_amd64, build_linux_arm64, build_macos, commit_binaries]
+    if: ${{ github.event.inputs.create_release == 'true' && always() }}
     runs-on: ubuntu-latest
     steps:
       - name: 创建发布目录
@@ -412,4 +439,3 @@ jobs:
             ${{ github.event.inputs.build_macos_arm64 == 'true' && '- macOS ARM64' || '' }}
           files: releases/*.tar.gz
           token: ${{ secrets.GITHUB_TOKEN }}
-
