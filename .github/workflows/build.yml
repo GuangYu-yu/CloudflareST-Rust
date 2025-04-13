@@ -439,4 +439,3 @@ jobs:
             ${{ github.event.inputs.build_macos_arm64 == 'true' && '- macOS ARM64' || '' }}
           files: releases/*.tar.gz
           token: ${{ secrets.GITHUB_TOKEN }}
-
