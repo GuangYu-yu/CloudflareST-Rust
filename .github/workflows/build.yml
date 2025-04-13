@@ -42,7 +42,6 @@ jobs:
     name: 构建 Windows
     needs: cleanup_releases
     runs-on: ubuntu-latest  
-
     steps:  
       - name: 检出代码  
         uses: actions/checkout@v4  
@@ -60,23 +59,17 @@ jobs:
         run: |
           mkdir -p build/windows
           cross build --release --target x86_64-pc-windows-gnu
-          cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe build/windows/CloudflareST-Rust_windows_x86_64.exe
+          mkdir -p temp_windows
+          cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe temp_windows/CloudflareST-Rust.exe
+          mkdir -p releases
+          tar -czf releases/CloudflareST-Rust_windows_x86_64.tar.gz -C temp_windows CloudflareST-Rust.exe
 
-      - name: 提交并推送 Windows 可执行文件
-        if: success()
-        run: |
-          mkdir -p binaries
-          cp build/windows/CloudflareST-Rust_windows_x86_64.exe binaries/
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git pull origin main --no-rebase || git pull origin main --no-rebase
-          git add binaries/
-          current_time=$(date '+%Y/%m/%d %H:%M:%S')
-          if ! git diff --staged --quiet; then
-            git commit -m "更新 Windows 二进制文件 ${current_time}"
-            git push origin main
-          fi
+      - name: 上传 Windows 发布包
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: releases/CloudflareST-Rust_windows_x86_64.tar.gz
+          retention-days: 1
 
   build_linux:
     name: 构建 Linux
@@ -91,7 +84,7 @@ jobs:
         with:
           toolchain: '1.82.0'
 
-      - name: 构建 Linux AMD64 (静态)
+      - name: 构建 Linux AMD64
         run: |
           mkdir -p build/linux-amd64
           docker run --rm -v $(pwd):/app -w /app \
@@ -100,25 +93,12 @@ jobs:
                   apt-get install -y musl-tools && \
                   rustup target add x86_64-unknown-linux-musl && \
                   cargo build --release --target x86_64-unknown-linux-musl"
-          cp target/x86_64-unknown-linux-musl/release/CloudflareST-Rust build/linux-amd64/CloudflareST-Rust_linux_amd64
+          mkdir -p temp_linux_amd64
+          cp target/x86_64-unknown-linux-musl/release/CloudflareST-Rust temp_linux_amd64/CloudflareST-Rust
+          mkdir -p releases
+          tar -czf releases/CloudflareST-Rust_linux_amd64.tar.gz -C temp_linux_amd64 CloudflareST-Rust
 
-      - name: 提交并推送 Linux AMD64 可执行文件
-        if: success()
-        run: |
-          mkdir -p binaries
-          cp build/linux-amd64/CloudflareST-Rust_linux_amd64 binaries/
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git pull origin main --no-rebase || git pull origin main --no-rebase
-          git add binaries/
-          current_time=$(date '+%Y/%m/%d %H:%M:%S')
-          if ! git diff --staged --quiet; then
-            git commit -m "更新 Linux AMD64 二进制文件 ${current_time}"
-            git push origin main
-          fi
-
-      - name: 构建 Linux ARM64 (静态)
+      - name: 构建 Linux ARM64
         run: |
           mkdir -p build/linux-arm64
           docker run --rm -v $(pwd):/app -w /app \
@@ -129,23 +109,16 @@ jobs:
                   rustup target add aarch64-unknown-linux-musl && \
                   export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc && \
                   cargo build --release --target aarch64-unknown-linux-musl"
-          cp target/aarch64-unknown-linux-musl/release/CloudflareST-Rust build/linux-arm64/CloudflareST-Rust_linux_arm64
+          mkdir -p temp_linux_arm64
+          cp target/aarch64-unknown-linux-musl/release/CloudflareST-Rust temp_linux_arm64/CloudflareST-Rust
+          tar -czf releases/CloudflareST-Rust_linux_arm64.tar.gz -C temp_linux_arm64 CloudflareST-Rust
 
-      - name: 提交并推送 Linux ARM64 可执行文件
-        if: success()
-        run: |
-          mkdir -p binaries
-          cp build/linux-arm64/CloudflareST-Rust_linux_arm64 binaries/
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git pull origin main --no-rebase || git pull origin main --no-rebase
-          git add binaries/
-          current_time=$(date '+%Y/%m/%d %H:%M:%S')
-          if ! git diff --staged --quiet; then
-            git commit -m "更新 Linux ARM64 二进制文件 ${current_time}"
-            git push origin main
-          fi
+      - name: 上传 Linux 发布包
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: releases/CloudflareST-Rust_linux_*.tar.gz
+          retention-days: 1
 
   build_macos:
     name: 构建 macOS
@@ -165,82 +138,58 @@ jobs:
           mkdir -p build/macos
           rustup target add x86_64-apple-darwin
           cargo build --release --target x86_64-apple-darwin
-          cp target/x86_64-apple-darwin/release/CloudflareST-Rust build/macos/CloudflareST-Rust_macos_x86_64
-
-      - name: 提交并推送 macOS AMD64 可执行文件
-        if: success()
-        run: |
-          mkdir -p binaries
-          cp build/macos/CloudflareST-Rust_macos_x86_64 binaries/
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git pull origin main --no-rebase || git pull origin main --no-rebase
-          git add binaries/
-          current_time=$(date '+%Y/%m/%d %H:%M:%S')
-          if ! git diff --staged --quiet; then
-            git commit -m "更新 macOS AMD64 二进制文件 ${current_time}"
-            git push origin main
-          fi
+          mkdir -p temp_macos_x86_64
+          cp target/x86_64-apple-darwin/release/CloudflareST-Rust temp_macos_x86_64/CloudflareST-Rust
+          mkdir -p releases
+          tar -czf releases/CloudflareST-Rust_macos_x86_64.tar.gz -C temp_macos_x86_64 CloudflareST-Rust
 
       - name: 构建 macOS ARM64
         run: |
           mkdir -p build/macos-arm64
           rustup target add aarch64-apple-darwin
           cargo build --release --target aarch64-apple-darwin
-          cp target/aarch64-apple-darwin/release/CloudflareST-Rust build/macos-arm64/CloudflareST-Rust_macos_arm64
+          mkdir -p temp_macos_arm64
+          cp target/aarch64-apple-darwin/release/CloudflareST-Rust temp_macos_arm64/CloudflareST-Rust
+          tar -czf releases/CloudflareST-Rust_macos_arm64.tar.gz -C temp_macos_arm64 CloudflareST-Rust
 
-      - name: 提交并推送 macOS ARM64 可执行文件
-        if: success()
-        run: |
-          mkdir -p binaries
-          cp build/macos-arm64/CloudflareST-Rust_macos_arm64 binaries/
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git pull origin main --no-rebase || git pull origin main --no-rebase
-          git add binaries/
-          current_time=$(date '+%Y/%m/%d %H:%M:%S')
-          if ! git diff --staged --quiet; then
-            git commit -m "更新 macOS ARM64 二进制文件 ${current_time}"
-            git push origin main
-          fi
+      - name: 上传 macOS 发布包
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: releases/CloudflareST-Rust_macos_*.tar.gz
+          retention-days: 1
 
-  package_and_release:
-    name: 打包和发布
+  create_release:
+    name: 创建发布版本
     needs: [build_windows, build_linux, build_macos]
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - name: 创建发布目录
+        run: mkdir -p releases
+
+      - name: 下载 Windows 发布包
+        uses: actions/download-artifact@v4
         with:
-          ref: main
+          name: windows-release
+          path: releases
 
-      - name: 创建打包目录
-        run: |
-          mkdir -p releases
+      - name: 下载 Linux 发布包
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-release
+          path: releases
 
-      - name: 打包所有二进制文件
-        run: |
-          # Windows
-          tar -czf releases/CloudflareST-Rust_windows_x86_64.tar.gz -C binaries CloudflareST-Rust_windows_x86_64.exe
-          
-          # Linux
-          tar -czf releases/CloudflareST-Rust_linux_amd64.tar.gz -C binaries CloudflareST-Rust_linux_amd64
-          tar -czf releases/CloudflareST-Rust_linux_arm64.tar.gz -C binaries CloudflareST-Rust_linux_arm64
-          
-          # macOS
-          tar -czf releases/CloudflareST-Rust_macos_x86_64.tar.gz -C binaries CloudflareST-Rust_macos_x86_64
-          tar -czf releases/CloudflareST-Rust_macos_arm64.tar.gz -C binaries CloudflareST-Rust_macos_arm64
+      - name: 下载 macOS 发布包
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: releases
 
       - name: 创建发布版本
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.0-${{ github.run_number }}
-          release_name: CloudflareST-Rust v1.0.0-${{ github.run_number }}
+          name: CloudflareST-Rust v1.0.0-${{ github.run_number }}
           body: |
             CloudflareST-Rust 自动构建版本
             
@@ -250,55 +199,5 @@ jobs:
             - Linux ARM64
             - macOS x86_64
             - macOS ARM64
-          draft: false
-          prerelease: false
-
-      - name: 上传 Windows 二进制文件
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./releases/CloudflareST-Rust_windows_x86_64.tar.gz
-          asset_name: CloudflareST-Rust_windows_x86_64.tar.gz
-          asset_content_type: application/gzip
-
-      - name: 上传 Linux AMD64 二进制文件
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./releases/CloudflareST-Rust_linux_amd64.tar.gz
-          asset_name: CloudflareST-Rust_linux_amd64.tar.gz
-          asset_content_type: application/gzip
-
-      - name: 上传 Linux ARM64 二进制文件
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./releases/CloudflareST-Rust_linux_arm64.tar.gz
-          asset_name: CloudflareST-Rust_linux_arm64.tar.gz
-          asset_content_type: application/gzip
-
-      - name: 上传 macOS x86_64 二进制文件
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./releases/CloudflareST-Rust_macos_x86_64.tar.gz
-          asset_name: CloudflareST-Rust_macos_x86_64.tar.gz
-          asset_content_type: application/gzip
-
-      - name: 上传 macOS ARM64 二进制文件
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./releases/CloudflareST-Rust_macos_arm64.tar.gz
-          asset_name: CloudflareST-Rust_macos_arm64.tar.gz
-          asset_content_type: application/gzip
+          files: releases/*.tar.gz
+          token: ${{ secrets.GITHUB_TOKEN }}
