@@ -249,7 +249,7 @@ pub fn print_help() {
     // 测速参数
     println!("\n{}:", "测速参数".bold());
     println!("  {:<10}   {}{}", "-t".green(), "延迟测速次数", "[默认: 4]".dimmed());
-    println!("  {:<10}   {}{}", "-dn".green(), "下载测速数量", "[默认: 10]".dimmed());
+    println!("  {:<10}   {}{}", "-dn".green(), "所需下载测速结果数量", "[默认: 10]".dimmed());
     println!("  {:<10}   {}{}", "-dt".green(), "下载测速时间（秒）", "[默认: 10]".dimmed());
     println!("  {:<10}   {}{}", "-tp".green(), "测速端口", "[默认: 443]".dimmed());
     println!("  {:<10}   {}{}", "-dd".green(), "禁用下载测速", "[默认: 否]".dimmed());
