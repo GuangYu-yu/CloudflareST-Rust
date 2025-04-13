@@ -40,10 +40,16 @@ jobs:
     name: 验证输入选项
     runs-on: ubuntu-latest
     steps:
-      - name: 检查选项
+      - name: 检查上传和发布选项
         if: ${{ github.event.inputs.upload_to_repo != 'true' && github.event.inputs.create_release != 'true' }}
         run: |
           echo "错误：必须选择'上传二进制文件到项目仓库'或'创建发布版本'中的至少一个选项"
+          exit 1
+          
+      - name: 检查构建选项
+        if: ${{ github.event.inputs.build_windows_x86_64 != 'true' && github.event.inputs.build_windows_arm64 != 'true' && github.event.inputs.build_linux_amd64 != 'true' && github.event.inputs.build_linux_arm64 != 'true' && github.event.inputs.build_macos_x86_64 != 'true' && github.event.inputs.build_macos_arm64 != 'true' }}
+        run: |
+          echo "错误：必须至少选择一种构建选项"
           exit 1
 
   cleanup_releases:
