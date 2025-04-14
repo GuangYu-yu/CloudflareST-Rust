@@ -39,7 +39,7 @@ impl Bar {
                         "{}{}{}",
                         "=".repeat(pos.saturating_sub(1)),
                         ["↖", "↗", "↘", "↙"][tick_idx as usize],
-                        "-".repeat(bar_length.saturating_sub(pos)),
+                        "_".repeat(bar_length.saturating_sub(pos)),
                     )
                     .unwrap()
                 })
@@ -56,10 +56,6 @@ impl Bar {
     pub fn grow(&self, num: u64, msg: String) {
         self.progress_bar.set_message(msg);
         self.progress_bar.inc(num);
-    }
-    
-    pub fn set_max(&self, count: u64) {
-        self.progress_bar.set_length(count);
     }
     
     pub fn set_suffix(&self, suffix: String) {
