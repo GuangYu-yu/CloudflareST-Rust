@@ -73,11 +73,11 @@ async fn main() {
         println!("\n[信息] {}", if args.disable_download { "已禁用下载测速" } else { "延迟测速结果为空，跳过下载测速" });
         ping_result
     } else {
-        // 创建下载测速实例
-        let download_test = download::DownloadTest::new(&args).await;
+        // 创建可变下载测速实例
+        let mut download_test = download::DownloadTest::new(&args, ping_result).await;
         
         // 执行下载测速
-        download_test.test_download_speed(ping_result).await
+        download_test.test_download_speed().await
     };
     
     // 输出文件
@@ -102,4 +102,5 @@ fn init_rand_seed() {
 pub enum PingResult {
     Tcp(PingData),
     Http(PingData),
+    NoQualified,
 }

@@ -22,7 +22,6 @@ struct DownloadHandler {
     next_slice: Instant,
     last_content_read: u64,
     time_counter: u32,
-    // 用于计算速度
     last_bytes: u64,
     last_time: Instant,
 }
@@ -40,7 +39,6 @@ impl DownloadHandler {
             next_slice: now + Duration::from_millis(100),
             last_content_read: 0,
             time_counter: 1,
-            // 初始化新字段
             last_bytes: 0,
             last_time: now,
         }
@@ -99,19 +97,21 @@ impl DownloadHandler {
 
 pub struct DownloadTest {
     url: String,
-    urlist: Vec<String>,  // Vec<String> 存储多个 URL
+    urlist: Vec<String>,
     timeout: Option<Duration>,
     test_count: usize,
+    test_num: usize,
     min_speed: f64,
     tcp_port: u16,
     bar: Arc<Bar>,
-    current_speed: Arc<Mutex<f64>>, // 跟踪当前速度
+    current_speed: Arc<Mutex<f64>>,
     httping: bool,
     colo_filter: String,
+    ping_results: Vec<PingResult>,
 }
 
 impl DownloadTest {
-    pub async fn new(args: &Args) -> Self {
+    pub async fn new(args: &Args, ping_results: Vec<PingResult>) -> Self {
         let url = args.url.clone();
         let urlist = args.urlist.clone();
         let timeout = args.timeout_duration;
@@ -123,32 +123,34 @@ impl DownloadTest {
         
         // 使用 common 模块获取 URL 列表
         let urlist_vec = common::get_url_list(&url, &urlist).await;
+
+        // 计算实际需要测试的数量
+        let test_num = min(test_count, ping_results.len());
         
         Self {
             url,
             urlist: urlist_vec,
             timeout,
             test_count,
+            test_num,
             min_speed,
             tcp_port,
-            bar: Arc::new(Bar::new(test_count as u64, "", "")),
+            bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
             httping,
             colo_filter,
+            ping_results,
         }
     }
 
-    pub async fn test_download_speed(&self, mut ping_results: Vec<PingResult>) -> Vec<PingResult> {
-        // 获取测试数量，不超过结果集大小
-        let test_num = min(self.test_count, ping_results.len());
-        
-        // 队列数量不足
-        if self.test_count > ping_results.len() {
+    pub async fn test_download_speed(&mut self) -> Vec<PingResult> {
+        // 先检查队列数量是否足够
+        if self.test_count > self.ping_results.len() {
             println!("\n[信息] {}", "队列数量不足所需数量！");
         }
-        
+
         println!("开始下载测速（下限：{:.2} MB/s, 所需：{}, 队列：{}）", 
-                 self.min_speed, test_num, ping_results.len());
+                self.min_speed, self.test_count, self.ping_results.len());
         
         // 记录符合要求的结果索引
         let mut qualified_indices = Vec::new();
@@ -157,8 +159,8 @@ impl DownloadTest {
         let colo_filters = common::parse_colo_filters(&self.colo_filter);
         
         // 创建一个任务来更新进度条的速度显示
-        let current_speed = Arc::clone(&self.current_speed);
-        let bar = Arc::clone(&self.bar);
+        let current_speed: Arc<Mutex<f64>> = Arc::clone(&self.current_speed);
+        let bar: Arc<Bar> = Arc::clone(&self.bar);
         let speed_update_handle = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -170,9 +172,9 @@ impl DownloadTest {
         });
     
         // 逐个IP进行测速（单线程）
-        for i in 0..test_num {
+        for i in 0..self.test_num {
             // 使用引用
-            let ping_result = &mut ping_results[i];
+            let ping_result = &mut self.ping_results[i];
             
             // 获取IP地址和检查是否需要获取 colo
             let (ip, need_colo) = if self.httping {
@@ -289,14 +291,15 @@ impl DownloadTest {
         
         // 如果没有符合速度要求的结果，返回原始集合
         if qualified_indices.is_empty() {
-            println!("没有符合要求的 IP，返回全部结果");
-            return ping_results;
+            // 设置标记表示没有合格结果
+            self.ping_results.push(PingResult::NoQualified);
+            return std::mem::take(&mut self.ping_results);
         }
         
         // 筛选出合格的结果
         let mut qualified_results = Vec::new();
         for &idx in &qualified_indices {
-            qualified_results.push(ping_results[idx].clone());
+            qualified_results.push(self.ping_results[idx].clone());
         }
         
         // 按下载速度（降序）、丢包率（升序）、延迟（升序）排序
@@ -319,10 +322,11 @@ impl DownloadTest {
                 other => other,
             }
         });
-        
         qualified_results
     }
 }
+
+
 
 // 构建reqwest客户端
 async fn build_reqwest_client(ip: IpAddr, url: &str, port: u16, timeout: Duration) -> Option<Client> {

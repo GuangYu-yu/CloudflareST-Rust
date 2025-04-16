@@ -49,8 +49,13 @@ impl PrintResult for Vec<PingResult> {
     /// 实现结果打印功能
     fn print(&self, args: &Args) {
         if self.is_empty() {
-            println!("\n[信息] 完整测速结果 IP 数量为 0，跳过输出结果。");
+            println!("\n[信息] 完整测速结果 IP 数量为 0，跳过输出结果");
             return;
+        }
+
+        // 检查是否有NoQualified标记
+        if self.iter().any(|r| matches!(r, PingResult::NoQualified)) {
+            println!("\n[信息] 没有符合要求的 IP，返回全部测速结果");
         }
 
         let mut table = Table::new();
