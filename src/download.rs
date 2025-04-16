@@ -131,7 +131,7 @@ impl DownloadTest {
             test_count,
             min_speed,
             tcp_port,
-            bar: Arc::new(Bar::new(0, "", "")),
+            bar: Arc::new(Bar::new(test_count as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
             httping,
             colo_filter,
