@@ -11,6 +11,36 @@ use crate::args::Args;
 use crate::PingResult;
 use crate::common;
 
+// 指数加权移动平均
+struct Ewma {
+    value: f64,
+    alpha: f64,
+    initialized: bool,
+}
+
+impl Ewma {
+    fn new(alpha: f64) -> Self {
+        Self {
+            value: 0.0,
+            alpha,
+            initialized: false,
+        }
+    }
+
+    fn add(&mut self, value: f64) {
+        if !self.initialized {
+            self.value = value;
+            self.initialized = true;
+        } else {
+            self.value = self.alpha * value + (1.0 - self.alpha) * self.value;
+        }
+    }
+
+    fn value(&self) -> f64 {
+        self.value
+    }
+}
+
 // 定义下载处理器来处理下载数据
 struct DownloadHandler {
     data_received: u64,
@@ -24,6 +54,7 @@ struct DownloadHandler {
     time_counter: u32,
     last_bytes: u64,
     last_time: Instant,
+    ewma: Ewma,
 }
 
 impl DownloadHandler {
@@ -41,6 +72,7 @@ impl DownloadHandler {
             time_counter: 1,
             last_bytes: 0,
             last_time: now,
+            ewma: Ewma::new(0.3),
         }
     }
 
@@ -72,18 +104,21 @@ impl DownloadHandler {
             self.last_update = now;
         }
         
-        // 时间片计算
+        // 时间片计算 - 使用EWMA计算平均速度
         let current_time = Instant::now();
         
         if current_time >= self.next_slice {
+            // 计算这个时间片内的下载量
+            let content_diff = self.data_received - self.last_content_read;
+            
+            // 添加到EWMA中
+            self.ewma.add(content_diff as f64);
+            
+            // 更新计数器和下一个时间片
             self.time_counter += 1;
             self.next_slice = self.start_time + self.time_slice * self.time_counter;
             self.last_content_read = self.data_received;
         }
-    }
-
-    fn get_data_received(&self) -> u64 {
-        self.data_received
     }
 
     fn update_headers(&mut self, headers: &reqwest::header::HeaderMap) {
@@ -363,9 +398,6 @@ async fn download_handler(
     // 创建下载处理器
     let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
     
-    // 记录开始时间
-    let start_time = Instant::now();
-    
     // 使用公共模块发送请求
     let response = common::send_request(&client, is_https, host, tcp_port, path, "GET").await;
     
@@ -400,13 +432,41 @@ async fn download_handler(
                 _ => break, // 出错或超时
             }
         }
+
+        let now = Instant::now();
+        // 确保 time_counter > 0 避免 usize 减法溢出
+        if handler.time_counter > 0 {
+            // 计算上一个完整时间片的结束时间点
+            let last_slice_end_time = handler.start_time + handler.time_slice * (handler.time_counter - 1);
+            // 计算最后一个不完整时间片的实际持续时间
+            let last_slice_duration = now.duration_since(last_slice_end_time);
+            // 计算最后一个不完整时间片下载的数据量
+            let last_content_diff = handler.data_received - handler.last_content_read;
+
+            if last_content_diff > 0 && last_slice_duration.as_secs_f64() > 0.0 {
+                // 计算实际持续时间与标准时间片的比例
+                let time_ratio = last_slice_duration.as_secs_f64() / handler.time_slice.as_secs_f64();
+                if time_ratio > 0.0 {
+                    // 根据比例调整数据量并添加到EWMA
+                    handler.ewma.add(last_content_diff as f64 / time_ratio);
+                } else {
+                     // 如果时间比例过小或为0，直接添加原始数据量
+                     handler.ewma.add(last_content_diff as f64);
+                }
+            } else if last_content_diff > 0 {
+                 // 如果时间差为0但有数据，直接添加
+                 handler.ewma.add(last_content_diff as f64);
+            }
+        }
         
-        // 计算平均速度
-        let elapsed = start_time.elapsed();
-        if elapsed.as_secs_f64() > 0.0 {
-            handler.get_data_received() as f64 / elapsed.as_secs_f64()
+        // 使用EWMA计算的平均速度
+        let final_ewma_value = handler.ewma.value();
+        let time_factor = download_duration.as_secs_f64() / 120.0;
+
+        if time_factor > 0.0 {
+             final_ewma_value / time_factor
         } else {
-            0.0
+             0.0 // 避免除以零
         }
     } else {
         0.0
