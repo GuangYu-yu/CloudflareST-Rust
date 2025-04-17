@@ -100,7 +100,6 @@ pub struct DownloadTest {
     urlist: Vec<String>,
     timeout: Option<Duration>,
     test_count: usize,
-    test_num: usize,
     min_speed: f64,
     tcp_port: u16,
     bar: Arc<Bar>,
@@ -108,6 +107,25 @@ pub struct DownloadTest {
     httping: bool,
     colo_filter: String,
     ping_results: Vec<PingResult>,
+}
+
+// 按下载速度（降序）、丢包率（升序）、延迟（升序）排序
+fn sort_ping_results(results: &mut Vec<PingResult>) {
+    results.sort_by(|a, b| {
+        let (a_speed, a_loss, a_delay) = common::extract_ping_metrics(a);
+        let (b_speed, b_loss, b_delay) = common::extract_ping_metrics(b);
+        match b_speed.partial_cmp(&a_speed).unwrap() {
+            std::cmp::Ordering::Equal => {
+                match a_loss.partial_cmp(&b_loss).unwrap() {
+                    std::cmp::Ordering::Equal => {
+                        a_delay.partial_cmp(&b_delay).unwrap()
+                    },
+                    other => other,
+                }
+            },
+            other => other,
+        }
+    });
 }
 
 impl DownloadTest {
@@ -132,7 +150,6 @@ impl DownloadTest {
             urlist: urlist_vec,
             timeout,
             test_count,
-            test_num,
             min_speed,
             tcp_port,
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
@@ -143,7 +160,7 @@ impl DownloadTest {
         }
     }
 
-    pub async fn test_download_speed(&mut self) -> Vec<PingResult> {
+    pub async fn test_download_speed(&mut self) -> (Vec<PingResult>, bool) {
         // 先检查队列数量是否足够
         if self.test_count > self.ping_results.len() {
             println!("\n[信息] {}", "队列数量不足所需数量！");
@@ -172,7 +189,7 @@ impl DownloadTest {
         });
     
         // 逐个IP进行测速（单线程）
-        for i in 0..self.test_num {
+        for i in 0..self.ping_results.len() {
             // 使用引用
             let ping_result = &mut self.ping_results[i];
             
@@ -289,40 +306,19 @@ impl DownloadTest {
         // 完成进度条
         self.bar.done();
         
-        // 如果没有符合速度要求的结果，返回原始集合
+        // 返回排序后的原始集合
         if qualified_indices.is_empty() {
-            // 设置标记表示没有合格结果
-            self.ping_results.push(PingResult::NoQualified);
-            return std::mem::take(&mut self.ping_results);
+            sort_ping_results(&mut self.ping_results);
+            return (std::mem::take(&mut self.ping_results), true);
         }
-        
+
         // 筛选出合格的结果
         let mut qualified_results = Vec::new();
         for &idx in &qualified_indices {
             qualified_results.push(self.ping_results[idx].clone());
         }
-        
-        // 按下载速度（降序）、丢包率（升序）、延迟（升序）排序
-        qualified_results.sort_by(|a, b| {
-            let (a_speed, a_loss, a_delay) = common::extract_ping_metrics(a);
-            let (b_speed, b_loss, b_delay) = common::extract_ping_metrics(b);
-            
-            // 先按下载速度降序排序
-            match b_speed.partial_cmp(&a_speed).unwrap() {
-                std::cmp::Ordering::Equal => {
-                    // 如果下载速度相同，按丢包率升序排序
-                    match a_loss.partial_cmp(&b_loss).unwrap() {
-                        std::cmp::Ordering::Equal => {
-                            // 如果丢包率也相同，按延迟升序排序
-                            a_delay.partial_cmp(&b_delay).unwrap()
-                        },
-                        other => other,
-                    }
-                },
-                other => other,
-            }
-        });
-        qualified_results
+        sort_ping_results(&mut qualified_results);
+        (qualified_results, false) // false 表示有合格结果
     }
 }
 

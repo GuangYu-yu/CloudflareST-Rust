@@ -69,9 +69,9 @@ async fn main() {
     };
     
     // 开始下载测速
-    let result = if args.disable_download || ping_result.is_empty() {
+    let (result, no_qualified) = if args.disable_download || ping_result.is_empty() {
         println!("\n[信息] {}", if args.disable_download { "已禁用下载测速" } else { "延迟测速结果为空，跳过下载测速" });
-        ping_result
+        (ping_result, false)
     } else {
         // 创建可变下载测速实例
         let mut download_test = download::DownloadTest::new(&args, ping_result).await;
@@ -82,11 +82,11 @@ async fn main() {
     
     // 输出文件
     if let Err(e) = csv::export_csv(&result, &args) {
-        println!("导出CSV失败: {:?}", e);
+        println!("\n[信息] 导出CSV失败: {:?}", e);
     }
     
     // 打印结果
-    result.print(&args);
+    result.print(&args, no_qualified);
     
     println!("程序执行完毕");
 }
@@ -102,5 +102,4 @@ fn init_rand_seed() {
 pub enum PingResult {
     Tcp(PingData),
     Http(PingData),
-    NoQualified,
 }
