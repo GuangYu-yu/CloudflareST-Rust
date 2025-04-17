@@ -263,68 +263,31 @@ impl DownloadTest {
                 ).await
             };
             
-            // 更新进度条
-            self.bar.as_ref().grow(1, "".to_string());
-            
             // 无论速度如何，都更新下载速度和可能的数据中心信息
             if self.httping {
                 if let PingResult::Http(data) = ping_result {
-                    data.download_speed = speed;
-                    // 如果数据中心为空且获取到了新的数据中心信息，则更新
-                    if data.data_center.is_empty() {
-                        if let Some(colo) = maybe_colo {
-                            data.data_center = colo;
-                        }
-                    }
-                    
-                    // 检查速度是否符合要求
-                    let speed_match = speed >= self.min_speed * 1024.0 * 1024.0;
-                    
-                    // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
-                    if !colo_filters.is_empty() {
-                        // 检查数据中心是否符合过滤条件
-                        let colo_match = !data.data_center.is_empty() && 
-                        (colo_filters.is_empty() || colo_filters.iter().any(|filter| data.data_center.to_uppercase() == *filter));
-                        
-                        // 同时满足速度和数据中心要求才添加到合格索引
-                        if speed_match && colo_match {
-                            qualified_indices.push(i);
-                        }
-                    } else {
-                        // 如果没有设置 colo 过滤条件，只需要满足速度要求
-                        if speed_match {
-                            qualified_indices.push(i);
-                        }
+                    if common::process_download_result(
+                        data, 
+                        speed, 
+                        maybe_colo, 
+                        self.min_speed, 
+                        &colo_filters
+                    ) {
+                        qualified_indices.push(i);
+                        self.bar.as_ref().grow(1, "".to_string());
                     }
                 }
             } else {
                 if let PingResult::Tcp(data) = ping_result {
-                    data.download_speed = speed;
-                    // 同上
-                    if data.data_center.is_empty() {
-                        if let Some(colo) = maybe_colo {
-                            data.data_center = colo;
-                        }
-                    }
-                    
-                    // 检查速度是否符合要求
-                    let speed_match = speed >= self.min_speed * 1024.0 * 1024.0;
-                    
-                    // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
-                    if !colo_filters.is_empty() {
-                        // 检查数据中心是否符合过滤条件
-                        let colo_match = !data.data_center.is_empty() && 
-                        (colo_filters.is_empty() || colo_filters.iter().any(|filter| data.data_center.to_uppercase() == *filter));
-                        
-                        // 同时满足速度和数据中心要求才添加到合格索引
-                        if speed_match && colo_match {
-                            qualified_indices.push(i);
-                        }
-                    } else {
-                        // 如果没有设置 colo 过滤条件，只需要满足速度要求
-                        if speed_match {
-                            qualified_indices.push(i);
-                        }
+                    if common::process_download_result(
+                        data, 
+                        speed, 
+                        maybe_colo, 
+                        self.min_speed, 
+                        &colo_filters
+                    ) {
+                        qualified_indices.push(i);
+                        self.bar.as_ref().grow(1, "".to_string());
                     }
                 }
             }
