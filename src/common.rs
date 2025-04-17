@@ -272,8 +272,9 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
                 if response.status().is_success() {
                     match response.text().await {
                         Ok(content) => content.lines()
-                            .filter(|line| !line.trim().is_empty())
-                            .map(|line| line.trim().to_string())
+                            .map(|line| line.trim())
+                            .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                            .map(|line| line.to_string())
                             .collect(),
                         Err(_) => {
                             println!("解析 URL 列表内容失败，将使用默认 URL");
