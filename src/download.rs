@@ -2,6 +2,7 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::cmp::min;
+use std::collections::VecDeque;
 
 use reqwest::Client;
 use url;
@@ -52,8 +53,7 @@ struct DownloadHandler {
     next_slice: Instant,
     last_content_read: u64,
     time_counter: u32,
-    last_bytes: u64,
-    last_time: Instant,
+    speed_samples: VecDeque<(Instant, u64)>,
     ewma: Ewma,
 }
 
@@ -70,40 +70,55 @@ impl DownloadHandler {
             next_slice: now + Duration::from_millis(100),
             last_content_read: 0,
             time_counter: 1,
-            last_bytes: 0,
-            last_time: now,
+            speed_samples: VecDeque::new(),
             ewma: Ewma::new(0.3),
         }
     }
 
     fn update_data_received(&mut self, size: u64) {
         self.data_received += size;
-        
-        // 获取当前时间和计算时间差
         let now = Instant::now();
-        let elapsed = now.duration_since(self.last_update);
-        
-        // 500毫秒更新一次速度
-        if elapsed.as_millis() >= 500 {
-            let current_bytes = self.data_received;
-            let time_diff = now.duration_since(self.last_time).as_secs_f64();
-            
-            if time_diff > 0.0 {
-                let bytes_diff = current_bytes - self.last_bytes;
-                let speed = bytes_diff as f64 / time_diff;
-                
-                // 更新当前速度显示
-                *self.current_speed.lock().unwrap() = speed;
+
+        // 将当前数据点添加到队列
+        self.speed_samples.push_back((now, self.data_received));
+
+        // 移除超出 500ms 窗口的数据点
+        let window_start = now - Duration::from_millis(500);
+        while let Some(front) = self.speed_samples.front() {
+            if front.0 < window_start {
+                self.speed_samples.pop_front();
+            } else {
+                break; // 队列中的数据都在窗口内了
             }
-            
-            // 更新上次记录的字节数和时间
-            self.last_bytes = current_bytes;
-            self.last_time = now;
-            
-            // 重置计时器
+        }
+
+        // 检查是否需要更新显示速度（例如，仍然保持大约 500ms 更新一次）
+        let elapsed_since_last_update = now.duration_since(self.last_update);
+        if elapsed_since_last_update.as_millis() >= 500 {
+            let speed = if self.speed_samples.len() >= 2 {
+                // 计算窗口内的速度
+                let first = self.speed_samples.front().unwrap();
+                let last = self.speed_samples.back().unwrap();
+                let bytes_diff = last.1 - first.1;
+                let time_diff = last.0.duration_since(first.0).as_secs_f64();
+
+                if time_diff > 0.0 {
+                    bytes_diff as f64 / time_diff
+                } else {
+                    0.0 // 时间差为0，速度为0
+                }
+            } else {
+                0.0 // 样本不足，速度为0
+            };
+
+            // 更新当前速度显示
+            *self.current_speed.lock().unwrap() = speed;
+
+            // 更新上次显示更新的时间
             self.last_update = now;
         }
-        
+
+        // --- EWMA 计算部分 ---
         // 时间片计算 - 使用EWMA计算平均速度
         let current_time = Instant::now();
         
