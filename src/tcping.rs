@@ -32,7 +32,7 @@ impl Ping {
     }
 
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
-        // 1. 检查IP缓冲区是否为空
+        // 检查IP缓冲区是否为空
         {
             let ip_buffer = self.ip_buffer.lock().unwrap();
             if ip_buffer.is_empty() && ip_buffer.total_expected() == 0 {
@@ -40,7 +40,7 @@ impl Ping {
             }
         }
 
-        // 2. 打印开始延迟测试的信息
+        // 打印开始延迟测试的信息
         common::print_speed_test_info(
             "Tcping",
             common::get_tcp_port(&self.args),
@@ -49,45 +49,56 @@ impl Ping {
             self.max_loss_rate
         );
 
-        // 3. 创建线程安全集合和任务句柄向量
+        // 准备工作数据
+        let ip_buffer = Arc::clone(&self.ip_buffer);
+        let csv = Arc::clone(&self.csv);
+        let bar = Arc::clone(&self.bar);
+        let args = self.args.clone();
+        
+        // 流控信号量 (控制预取IP的数量)
+        let ip_fetch_semaphore = Arc::new(tokio::sync::Semaphore::new(2048));
+
+        // 用于收集所有任务的 JoinHandle
         let mut handles = Vec::new();
 
-        // 4. 循环从IP缓冲区获取IP并启动测试任务
         loop {
-            // 从缓冲区获取IP
+            // 获取取IP的许可
+            let permit = Arc::clone(&ip_fetch_semaphore).acquire_owned().await.unwrap();
+
             let ip = {
-                let mut ip_buffer = self.ip_buffer.lock().unwrap();
+                let mut ip_buffer = ip_buffer.lock().unwrap();
                 ip_buffer.pop()
             };
-            
-            // 如果没有更多IP，退出循环
+
             if ip.is_none() {
+                drop(permit);
                 break;
             }
-            
-            let ip = ip.unwrap();
-            let csv = Arc::clone(&self.csv);
-            let bar = Arc::clone(&self.bar);
-            let args = self.args.clone();
 
-            // 创建异步任务
+            let ip = ip.unwrap();
+            let csv_clone = Arc::clone(&csv);
+            let bar_clone = Arc::clone(&bar);
+            let args_clone = args.clone();
+            let sem_clone = Arc::clone(&ip_fetch_semaphore);
+
+            // 并发提交任务，不等待每个任务完成
             let handle = tokio::spawn(async move {
-                // 申请全局并发控制许可
-                execute_with_rate_limit(|| async {
-                    tcping_handler(ip, csv, bar, &args).await;
+                execute_with_rate_limit(|| async move {
+                    let _ = sem_clone.add_permits(1);
+                    tcping_handler(ip, csv_clone, bar_clone, &args_clone).await;
                     Ok::<(), io::Error>(())
                 }).await.unwrap();
+                drop(permit);
             });
-
             handles.push(handle);
         }
 
-        // 5. 等待所有剩余的异步任务完成
+        // 等待所有任务完成
         for handle in handles {
             let _ = handle.await;
         }
 
-        // 6. 更新进度条为完成状态
+        // 更新进度条为完成状态
         self.bar.done();
 
         // 收集所有测试结果，排序后返回

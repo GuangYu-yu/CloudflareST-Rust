@@ -52,7 +52,7 @@ impl Ping {
     }
 
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
-        // 1. 检查IP缓冲区是否为空
+        // 检查IP缓冲区是否为空
         {
             let ip_buffer = self.ip_buffer.lock().unwrap();
             if ip_buffer.is_empty() && ip_buffer.total_expected() == 0 {
@@ -60,7 +60,7 @@ impl Ping {
             }
         }
 
-        // 2. 打印开始延迟测试的信息
+        // 打印开始延迟测试的信息
         common::print_speed_test_info(
             "Httping",
             common::get_tcp_port(&self.args),
@@ -68,52 +68,64 @@ impl Ping {
             common::get_max_delay(&self.args),
             self.max_loss_rate
         );
+   
+        // 准备工作数据
+        let ip_buffer = Arc::clone(&self.ip_buffer);
+        let csv = Arc::clone(&self.csv);
+        let bar = Arc::clone(&self.bar);
+        let args = self.args.clone();
+        let colo_filters = self.colo_filters.clone();
+        let urlist = self.urlist.clone();
 
-        // 3. 创建线程安全集合和任务句柄向量
-        let mut handles = Vec::new();
+        // 添加流控信号量
+        let ip_fetch_semaphore = Arc::new(tokio::sync::Semaphore::new(2048));
+        
         let mut url_index = 0;
+        let mut handles = Vec::new();
 
-        // 4. 循环从IP缓冲区获取IP并启动测试任务
         loop {
-            // 从缓冲区获取IP
+            // 获取取IP的许可
+            let permit = Arc::clone(&ip_fetch_semaphore).acquire_owned().await.unwrap();
+            
             let ip = {
-                let mut ip_buffer = self.ip_buffer.lock().unwrap();
+                let mut ip_buffer = ip_buffer.lock().unwrap();
                 ip_buffer.pop()
             };
-            
-            // 如果没有更多IP，退出循环
+
             if ip.is_none() {
+                drop(permit);
                 break;
             }
-            
             let ip = ip.unwrap();
-            let csv = Arc::clone(&self.csv);
-            let bar = Arc::clone(&self.bar);
-            let args = self.args.clone();
-            let colo_filters = self.colo_filters.clone();
-            
-            // 根据索引选择URL（循环使用）
-            let url = self.urlist[url_index % self.urlist.len()].clone();
+
+            // 选择URL (轮询)
+            let url = urlist[url_index % urlist.len()].clone();
             url_index += 1;
 
-            // 创建异步任务
+            let csv_clone = Arc::clone(&csv);
+            let bar_clone = Arc::clone(&bar);
+            let args_clone = args.clone();
+            let colo_filters_clone = colo_filters.clone();
+            let sem_clone = Arc::clone(&ip_fetch_semaphore);
+
+            // 并发提交任务，不等待每个任务完成
             let handle = tokio::spawn(async move {
-                // 申请全局并发控制许可
-                execute_with_rate_limit(|| async {
-                    httping_handler(ip, csv, bar, &args, colo_filters, &url).await;
+                execute_with_rate_limit(|| async move {
+                    let _ = sem_clone.add_permits(1);
+                    httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url).await;
                     Ok::<(), io::Error>(())
                 }).await.unwrap();
+                drop(permit);
             });
-
             handles.push(handle);
         }
 
-        // 5. 等待所有异步任务完成
+        // 等待所有任务完成
         for handle in handles {
             let _ = handle.await;
         }
 
-        // 6. 更新进度条为完成状态
+        // 更新进度条为完成状态
         self.bar.done();
 
         // 收集所有测试结果，排序后返回
@@ -121,7 +133,6 @@ impl Ping {
         
         // 按延迟排序
         results.sort_by(|a, b| a.delay.partial_cmp(&b.delay).unwrap_or(std::cmp::Ordering::Equal));
-        
         Ok(results)
     }
 }
@@ -211,7 +222,7 @@ async fn httping(
     // 2. 进行多次测速
     let ping_times = common::get_ping_times(args);
     let mut success = 0;
-    let mut total_delay_ms = 0.0; // 使用f64类型表示毫秒
+    let mut total_delay_ms = 0.0;
     let mut data_center = String::new();
     let mut first_request_success = false; // 标记是否是第一个成功的请求
 
