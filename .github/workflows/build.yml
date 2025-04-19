@@ -101,7 +101,7 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: '1.82.0'
+          toolchain: '1.86.0'
 
       - name: 安装 cross
         run: |
@@ -143,7 +143,7 @@ jobs:
         - name: 设置 Rust 环境
           uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
           with:
-            toolchain: '1.82.0'
+            toolchain: '1.86.0'
   
         - name: 安装 ARM64 目标
           run: |
@@ -186,13 +186,13 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: '1.82.0'
+          toolchain: '1.86.0'
   
       - name: 构建 Linux AMD64
         run: |
           mkdir -p build/linux-amd64 binaries/linux_amd64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:1.82.0-slim \
+            rust:1.86.0-slim \
             sh -c "apt-get update && \
                   apt-get install -y musl-tools && \
                   rustup target add x86_64-unknown-linux-musl && \
@@ -229,13 +229,13 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: '1.82.0'
+          toolchain: '1.86.0'
   
       - name: 构建 Linux ARM64
         run: |
           mkdir -p build/linux-arm64 binaries/linux_arm64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:1.82.0-slim \
+            rust:1.86.0-slim \
             sh -c "apt-get update && \
                   apt-get install -y musl-tools gcc-aarch64-linux-gnu libc6-dev-arm64-cross && \
                   ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-musl-gcc && \
@@ -274,7 +274,7 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: '1.82.0'
+          toolchain: '1.86.0'
 
       - name: 构建 macOS AMD64
         if: ${{ github.event.inputs.build_macos_x86_64 == 'true' }}
