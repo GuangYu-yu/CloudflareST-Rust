@@ -140,16 +140,21 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     let mut total_expected = 0;
     
     for ip_range in &ip_sources {
+        // 先尝试解析为单个IP
+        if IpAddr::from_str(ip_range).is_ok() {
+            total_expected += 1;
+            continue;
+        }
+        
+        // 如果不是单个IP，再尝试解析为CIDR
         if let Ok(network) = IpNetwork::from_str(ip_range) {
             if is_ipv4(ip_range) {
                 if let IpNetwork::V4(ipv4_net) = network {
                     if test_all {
-                        // 测试所有IP
                         let prefix = ipv4_net.prefix();
                         let total_ips = if prefix < 32 { 2u32.pow((32 - prefix) as u32) as usize } else { 1 };
                         total_expected += total_ips;
                     } else {
-                        // 使用采样
                         let prefix = ipv4_net.prefix();
                         let sample_count = calculate_sample_count(prefix, true);
                         total_expected += sample_count;
@@ -162,9 +167,6 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
                     total_expected += sample_count;
                 }
             }
-        } else if !ip_range.contains('/') && IpAddr::from_str(ip_range).is_ok() {
-            // 单个IP
-            total_expected += 1;
         }
     }
     
