@@ -17,7 +17,7 @@ pub struct PingData {
     pub ip: IpAddr,
     pub sent: usize,
     pub received: usize,
-    pub delay: f64,  // 改为f64类型，表示毫秒
+    pub delay: f64,
     pub download_speed: f64,
     pub data_center: String,
 }
