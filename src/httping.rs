@@ -131,8 +131,9 @@ impl Ping {
         // 收集所有测试结果，排序后返回
         let mut results = self.csv.lock().unwrap().clone();
         
-        // 按延迟排序
-        results.sort_by(|a, b| a.delay.partial_cmp(&b.delay).unwrap_or(std::cmp::Ordering::Equal));
+        // 使用common模块的排序函数
+        common::sort_ping_results(&mut results);
+        
         Ok(results)
     }
 }

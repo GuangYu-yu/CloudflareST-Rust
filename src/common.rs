@@ -356,3 +356,16 @@ pub fn process_download_result(
         speed_match
     }
 }
+
+/// 按延迟和丢包率排序Ping结果
+pub fn sort_ping_results(results: &mut PingDelaySet) {
+    results.sort_by(|a, b| {
+        a.delay.partial_cmp(&b.delay)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                let a_loss = a.loss_rate();
+                let b_loss = b.loss_rate();
+                a_loss.partial_cmp(&b_loss).unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+}

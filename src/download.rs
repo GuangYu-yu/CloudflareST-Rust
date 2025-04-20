@@ -159,16 +159,16 @@ pub struct DownloadTest {
     ping_results: Vec<PingResult>,
 }
 
-// 按下载速度（降序）、丢包率（升序）、延迟（升序）排序
+// 按下载速度（降序）、延迟（升序）、丢包率（升序）
 fn sort_ping_results(results: &mut Vec<PingResult>) {
     results.sort_by(|a, b| {
         let (a_speed, a_loss, a_delay) = common::extract_ping_metrics(a);
         let (b_speed, b_loss, b_delay) = common::extract_ping_metrics(b);
         match b_speed.partial_cmp(&a_speed).unwrap() {
             std::cmp::Ordering::Equal => {
-                match a_loss.partial_cmp(&b_loss).unwrap() {
+                match a_delay.partial_cmp(&b_delay).unwrap() {  // 先比较延迟
                     std::cmp::Ordering::Equal => {
-                        a_delay.partial_cmp(&b_delay).unwrap()
+                        a_loss.partial_cmp(&b_loss).unwrap()  // 最后比较丢包率
                     },
                     other => other,
                 }
