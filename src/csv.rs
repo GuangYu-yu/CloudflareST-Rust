@@ -5,6 +5,12 @@ use crate::args::Args;
 use crate::PingResult;
 use crate::common;
 
+macro_rules! table_headers {
+    () => {
+        ["IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度 (MB/s)", "数据中心"]
+    };
+}
+
 /// 从 PingResult 导出 CSV 文件
 pub fn export_csv(results: &[PingResult], args: &Args) -> io::Result<()> {
     if results.is_empty() || args.output.is_empty() {
@@ -15,9 +21,7 @@ pub fn export_csv(results: &[PingResult], args: &Args) -> io::Result<()> {
     let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(32 * 1024, file));
 
     // 写入表头
-    writer.write_record(&[
-        "IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度 (MB/s)", "数据中心",
-    ])?;
+    writer.write_record(&table_headers!())?;
 
     // 写入数据
     for result in results {
@@ -63,15 +67,11 @@ impl PrintResult for Vec<PingResult> {
         table.set_format(*format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
         
         // 添加表头，使用青色
-        table.add_row(Row::new(vec![
-            Cell::new("IP 地址").style_spec("Fc"),
-            Cell::new("已发送").style_spec("Fc"),
-            Cell::new("已接收").style_spec("Fc"),
-            Cell::new("丢包率").style_spec("Fc"),
-            Cell::new("平均延迟").style_spec("Fc"),
-            Cell::new("下载速度 (MB/s)").style_spec("Fc"),
-            Cell::new("数据中心").style_spec("Fc"),
-        ]));
+        table.add_row(Row::new(
+            table_headers!().iter()
+                .map(|&h| Cell::new(h).style_spec("Fc"))
+                .collect::<Vec<_>>()
+        ));
 
         // 添加数据行，最多显示 args.print_num 条
         for result in self.iter().take(args.print_num) {
