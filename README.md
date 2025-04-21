@@ -2,9 +2,13 @@
 
 对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写
 
+**工具仅用于简单的网络测速，造成的一切后果自负**
+
+> 可以先使用 [CIDR测速](https://github.com/GuangYu-yu/cfspeed) ，从延迟较低的 CIDR 中生成随机 IP
+
 > [!TIP]
-> - 使用自适应线程
-> - 使用流式生成和测速 IP
+> - 使用自适应线程，最大 1024 线程
+> - IP 的生成和测速都是流式处理的
 > - 支持从指定 URL 中获取测速 CIDR/IP 列表
 > - 支持从指定 URL 中获取测速地址列表
 > - 使用 Httping 或下载测速时，显示数据中心
