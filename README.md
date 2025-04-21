@@ -69,6 +69,44 @@ HTTP测速选项：
         终端显示结果数量 [默认: 10]
 ```
 
+## 下载直链
+
+[linux_amd64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/linux_amd64/CloudflareST-Rust)
+
+```
+https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/linux_amd64/CloudflareST-Rust
+```
+
+[linux_arm64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/linux_arm64/CloudflareST-Rust)
+
+```
+https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/linux_arm64/CloudflareST-Rust
+```
+
+[macos_x86_64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/macos_x86_64/CloudflareST-Rust)
+
+```
+https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/macos_x86_64/CloudflareST-Rust
+```
+
+[linux_arm64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/linux_arm64/CloudflareST-Rust)
+
+```
+https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/linux_arm64/CloudflareST-Rust
+```
+
+[windows_x86_64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/windows_x86_64/CloudflareST-Rust.exe)
+
+```
+https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/windows_x86_64/CloudflareST-Rust.exe
+```
+
+[windows_arm64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/windows_arm64/CloudflareST-Rust.exe)
+
+```
+https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/windows_arm64/CloudflareST-Rust.exe
+```
+
 ****
 
 ## License
