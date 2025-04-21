@@ -1,8 +1,8 @@
 # CloudflareST-Rust
 
-对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写
+**对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
-**工具仅用于简单的网络测速，造成的一切后果自负**
+***工具仅用于简单的网络测速，造成的一切后果自负***
 
 > 可以先使用 [CIDR测速](https://github.com/GuangYu-yu/cfspeed) ，从延迟较低的 CIDR 中生成随机 IP
 
