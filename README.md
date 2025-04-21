@@ -77,7 +77,7 @@ HTTP测速选项：
 
 [macos_x86_64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/macos_x86_64/CloudflareST-Rust)
 
-[linux_arm64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/linux_arm64/CloudflareST-Rust)
+[macos_arm64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/macos_arm64/CloudflareST-Rust)
 
 [windows_x86_64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/windows_x86_64/CloudflareST-Rust.exe)
 
