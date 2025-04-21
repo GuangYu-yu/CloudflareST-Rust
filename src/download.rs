@@ -10,7 +10,7 @@ use url;
 use crate::progress::Bar;
 use crate::args::Args;
 use crate::PingResult;
-use crate::common;
+use crate::common::{self, PingData};
 
 // 指数加权移动平均
 struct Ewma {
@@ -244,67 +244,46 @@ impl DownloadTest {
             let ping_result = &mut self.ping_results[i];
             
             // 获取IP地址和检查是否需要获取 colo
-            let (ip, need_colo) = if self.httping {
-                let PingResult::Http(data) = ping_result else { unreachable!() };
-                (data.ip, data.data_center.is_empty())
-            } else {
-                let PingResult::Tcp(data) = ping_result else { unreachable!() };
-                (data.ip, data.data_center.is_empty())
+            let (ip, need_colo) = match ping_result {
+                PingResult::Http(data) => (data.ip, data.data_center.is_empty()),
+                PingResult::Tcp(data) => (data.ip, data.data_center.is_empty()),
             };
             
             // 执行下载测速
-            let (speed, maybe_colo) = if !self.urlist.is_empty() {
-                // 使用 urlist 中的 URL，根据 IP 索引选择不同的 URL 进行轮询
+            let test_url = if !self.urlist.is_empty() {
                 let url_index = i % self.urlist.len();
-                let test_url = &self.urlist[url_index];
-                
-                download_handler(
-                    ip, 
-                    test_url, 
-                    self.timeout.unwrap(),
-                    Arc::clone(&self.current_speed), 
-                    self.tcp_port, 
-                    need_colo
-                ).await
+                &self.urlist[url_index]
             } else {
-                // 使用单一 URL 进行测速
-                download_handler(
-                    ip, 
-                    &self.url, 
-                    self.timeout.unwrap(),
-                    Arc::clone(&self.current_speed), 
-                    self.tcp_port, 
-                    need_colo
-                ).await
+                &self.url
             };
             
+            let (speed, maybe_colo) = download_handler(
+                ip,
+                test_url,
+                self.timeout.unwrap(),
+                Arc::clone(&self.current_speed),
+                self.tcp_port,
+                need_colo,
+            ).await;
+            
             // 无论速度如何，都更新下载速度和可能的数据中心信息
-            if self.httping {
-                if let PingResult::Http(data) = ping_result {
-                    if common::process_download_result(
-                        data, 
-                        speed, 
-                        maybe_colo, 
-                        self.min_speed, 
-                        &colo_filters
-                    ) {
-                        qualified_indices.push(i);
-                        self.bar.as_ref().grow(1, "".to_string());
-                    }
+            let process_ping_data = |data: &mut PingData| {
+                if common::process_download_result(
+                    data,
+                    speed,
+                    maybe_colo,
+                    self.min_speed,
+                    &colo_filters,
+                ) {
+                    qualified_indices.push(i);
+                    self.bar.as_ref().grow(1, "".to_string());
                 }
-            } else {
-                if let PingResult::Tcp(data) = ping_result {
-                    if common::process_download_result(
-                        data, 
-                        speed, 
-                        maybe_colo, 
-                        self.min_speed, 
-                        &colo_filters
-                    ) {
-                        qualified_indices.push(i);
-                        self.bar.as_ref().grow(1, "".to_string());
-                    }
-                }
+            };
+
+            match ping_result {
+                PingResult::Http(data) if self.httping => process_ping_data(data),
+                PingResult::Tcp(data) if !self.httping => process_ping_data(data),
+                _ => {} // 忽略不匹配的情况
             }
             
             // 如果已经找到足够数量的合格结果，提前结束测试
@@ -334,8 +313,6 @@ impl DownloadTest {
         (qualified_results, false) // false 表示有合格结果
     }
 }
-
-
 
 // 构建reqwest客户端
 async fn build_reqwest_client(ip: IpAddr, url: &str, port: u16, timeout: Duration) -> Option<Client> {

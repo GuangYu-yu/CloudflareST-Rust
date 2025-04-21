@@ -21,17 +21,17 @@ pub fn export_csv(results: &[PingResult], args: &Args) -> io::Result<()> {
 
     // 写入数据
     for result in results {
-        // 根据 httping 参数选择处理方式
-        if args.httping {
-            if let PingResult::Http(data) = result {
+        // 使用模式匹配处理不同类型的结果
+        match result {
+            PingResult::Http(data) if args.httping => {
                 let record = common::ping_data_to_csv_record(data);
                 writer.write_record(&record)?;
-            }
-        } else {
-            if let PingResult::Tcp(data) = result {
+            },
+            PingResult::Tcp(data) if !args.httping => {
                 let record = common::ping_data_to_csv_record(data);
                 writer.write_record(&record)?;
-            }
+            },
+            _ => {} // 忽略不匹配的情况
         }
     }
 
@@ -75,15 +75,15 @@ impl PrintResult for Vec<PingResult> {
 
         // 添加数据行，最多显示 args.print_num 条
         for result in self.iter().take(args.print_num) {
-            // 根据 httping 参数选择处理方式
-            if args.httping {
-                if let PingResult::Http(data) = result {
+            // 使用模式匹配处理不同类型的结果
+            match result {
+                PingResult::Http(data) if args.httping => {
                     table.add_row(common::ping_data_to_table_row(data));
-                }
-            } else {
-                if let PingResult::Tcp(data) = result {
+                },
+                PingResult::Tcp(data) if !args.httping => {
                     table.add_row(common::ping_data_to_table_row(data));
-                }
+                },
+                _ => {} // 忽略不匹配的情况
             }
         }
 
@@ -92,7 +92,7 @@ impl PrintResult for Vec<PingResult> {
 
         // 如果有输出文件，打印提示
         if !args.output.is_empty() {
-            println!("\n完整测速结果已写入 {} 文件，可使用记事本/表格软件查看。", args.output);
+            println!("\n[信息] 完整测速结果已写入 {} 文件，可使用记事本/表格软件查看", args.output);
         }
     }
 }

@@ -518,15 +518,6 @@ pub fn generate_random_ipv6_address(ip_net: &IpNetwork) -> Option<IpAddr> {
                 new_ip[byte_pos] = (new_ip[byte_pos] & mask_byte) | (rand_value & !mask_byte);
             }
 
-            // 检查生成的IP是否为全零地址
-            let is_zero = new_ip.iter().all(|&b| b == 0);
-
-            // 如果是全零地址，重新生成
-            if is_zero {
-                // 简单地将最后一个字节设为1，确保不是全零地址
-                new_ip[15] = 1;
-            }
-
             Some(IpAddr::V6(Ipv6Addr::from(new_ip)))
         }
         _ => None,

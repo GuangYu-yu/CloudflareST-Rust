@@ -63,6 +63,9 @@ impl Bar {
     }
     
     pub fn done(&self) {
+        // 禁用稳定刷新
+        self.progress_bar.disable_steady_tick();
+        
         // 使用 finish() ，进度条保留在屏幕上
         self.progress_bar.finish();
     }

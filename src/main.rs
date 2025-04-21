@@ -37,35 +37,11 @@ async fn main() {
     
     // 根据参数选择 TCP 或 HTTP 测速
     let ping_result: Vec<PingResult> = if args.httping {
-        // 使用HTTP测速
-        match httping::Ping::new(&args).await {
-            Ok(ping) => match ping.run().await {
-                Ok(result) => result.into_iter().map(PingResult::Http).collect(),
-                Err(e) => {
-                    println!("HTTP测速失败: {:?}", e);
-                    Vec::new()
-                }
-            },
-            Err(e) => {
-                println!("创建HTTP Ping实例失败: {:?}", e);
-                Vec::new()
-            }
-        }
+        httping::Ping::new(&args).await.unwrap().run().await.unwrap()
+            .into_iter().map(PingResult::Http).collect()
     } else {
-        // 使用TCP测速
-        match tcping::Ping::new(&args).await {
-            Ok(ping) => match ping.run().await {
-                Ok(result) => result.into_iter().map(PingResult::Tcp).collect(),
-                Err(e) => {
-                    println!("TCP测速失败: {:?}", e);
-                    Vec::new()
-                }
-            },
-            Err(e) => {
-                println!("创建TCP Ping实例失败: {:?}", e);
-                Vec::new()
-            }
-        }
+        tcping::Ping::new(&args).await.unwrap().run().await.unwrap()
+            .into_iter().map(PingResult::Tcp).collect()
     };
     
     // 开始下载测速
