@@ -321,11 +321,15 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
             } else {
                 // 其他范围直接随机生成，不去重
                 let mut sent_count = 0;
+                // 创建一个随机数生成器实例，在整个循环中重用
+                let mut rng = rand::rng();
+                
                 while sent_count < ip_count {
                     if req_rx.recv().is_err() {
                         return;
                     }
-                    if let Some(ip) = generate_random_ipv4_address(network) {
+                    // 传递随机数生成器的引用，避免重复创建
+                    if let Some(ip) = generate_random_ipv4_address(network, &mut rng) {
                         if ip_tx.send(ip).is_err() {
                             return;
                         }
@@ -362,11 +366,15 @@ fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &
         } else {
             // 其他范围直接随机生成，不去重
             let mut sent_count = 0;
+            // 创建一个随机数生成器实例，在整个循环中重用
+            let mut rng = rand::rng();
+            
             while sent_count < ip_count {
                 if req_rx.recv().is_err() {
                     return;
                 }
-                if let Some(ip) = generate_random_ipv6_address(network) {
+                // 传递随机数生成器的引用，避免重复创建
+                if let Some(ip) = generate_random_ipv6_address(network, &mut rng) {
                     if ip_tx.send(ip).is_err() {
                         return;
                     }
@@ -417,7 +425,7 @@ pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
             _ => {
                 // 对于更大范围的 CIDR，使用指数函数计算
                 let a = 800_000.0;
-                let k = 0.1;
+                let k = 0.05;
                 let c = 0.0;
                 let result = a * (-k * prefix as f64).exp() + c;
                 result.round() as usize
@@ -427,71 +435,54 @@ pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
 }
 
 // 通用的IPv4地址生成函数
-pub fn generate_random_ipv4_address(ip_net: &IpNetwork) -> Option<IpAddr> {
+pub fn generate_random_ipv4_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> Option<IpAddr> {
     match ip_net {
         IpNetwork::V4(ipv4_net) => {
-            // 获取网络地址和掩码
-            let ip = ipv4_net.network().octets();
-            let ones = ipv4_net.prefix();
-            let random_bits = 32 - ones;
+            let network_addr = ipv4_net.network();
+            let broadcast_addr = ipv4_net.broadcast();
 
-            // 将IP地址转换为u32
-            let base_ip = u32::from_be_bytes(ip);
+            let network_octets = network_addr.octets();
+            let broadcast_octets = broadcast_addr.octets();
 
-            // 创建掩码
-            let net_mask = 0xffffffff << random_bits;
-            let network_addr = base_ip & net_mask;
+            // 初始化结果段为网络地址的段
+            let mut result_octets = network_octets;
 
-            // 计算最大偏移量
-            let max_offset = 1u32 << random_bits;
+            for i in 0..4 {
+                if network_octets[i] != broadcast_octets[i] {
+                    // 该段有范围限制，进行随机
+                    result_octets[i] = rng.random_range(network_octets[i]..=broadcast_octets[i]);
+                }
+                // 如果段相同，保持不变（已在初始化时完成）
+            }
 
-            // 生成随机偏移量
-            let random_offset = rand::rng().random_range(0..max_offset);
-
-            // 计算最终IP
-            let final_ip = network_addr | random_offset;
-
-            // 转换回IP地址格式
-            Some(IpAddr::V4(Ipv4Addr::from(final_ip.to_be_bytes())))
+            Some(IpAddr::V4(Ipv4Addr::from(result_octets)))
         }
         _ => None,
     }
 }
 
 // 通用的IPv6地址生成函数
-pub fn generate_random_ipv6_address(ip_net: &IpNetwork) -> Option<IpAddr> {
+pub fn generate_random_ipv6_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> Option<IpAddr> {
     match ip_net {
         IpNetwork::V6(ipv6_net) => {
-            // 获取网络地址
-            let ip = ipv6_net.network().octets();
-            let prefix_len = ipv6_net.prefix();
-            
-            // 创建新IP，初始化为网络地址
-            let mut new_ip = [0u8; 16];
-            new_ip.copy_from_slice(&ip);
-            
-            let mut rng = rand::rng();
-         
-            // 计算需要处理的字节索引和位
-            let first_random_byte = prefix_len as usize / 8;  // 第一个需要随机化的字节索引
-            let bits_in_first_byte = prefix_len % 8;          // 第一个字节中需要保留的位数
-            
-            // 处理第一个需要部分随机化的字节（如果有）
-            if bits_in_first_byte > 0 && first_random_byte < 16 {
-                // 创建掩码：高位保留（网络部分），低位随机（主机部分）
-                let mask = 0xFF << (8 - bits_in_first_byte);
-                // 生成随机值，但只用于低位部分
-                let random_part = rng.random::<u8>() & (!mask);
-                // 合并：保留高位网络部分，随机化低位主机部分
-                new_ip[first_random_byte] = (new_ip[first_random_byte] & mask) | random_part;
+            let network_addr = ipv6_net.network();
+            let broadcast_addr = ipv6_net.broadcast();
+
+            let network_segments = network_addr.segments();
+            let broadcast_segments = broadcast_addr.segments();
+
+            // 初始化结果段为网络地址的段
+            let mut result_segments = network_segments;
+
+            for i in 0..8 {
+                if network_segments[i] != broadcast_segments[i] {
+                    // 该段有范围限制，进行随机
+                    result_segments[i] = rng.random_range(network_segments[i]..=broadcast_segments[i]);
+                }
+                // 如果段相同，保持不变（已在初始化时完成）
             }
-            
-            // 处理剩余的完全随机字节
-            for i in (first_random_byte + (if bits_in_first_byte > 0 { 1 } else { 0 }))..16 {
-                new_ip[i] = rng.random::<u8>();
-            }
-            
-            Some(IpAddr::V6(Ipv6Addr::from(new_ip)))
+
+            Some(IpAddr::V6(Ipv6Addr::from(result_segments)))
         }
         _ => None,
     }
