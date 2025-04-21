@@ -445,17 +445,8 @@ pub fn generate_random_ipv4_address(ip_net: &IpNetwork) -> Option<IpAddr> {
             // 计算最大偏移量
             let max_offset = 1u32 << random_bits;
 
-            if max_offset == 1 {
-                // /32，只有一个IP，直接返回
-                return Some(IpAddr::V4(ipv4_net.network()));
-            }
-
             // 生成随机偏移量
-            let random_offset = if max_offset > 2 {
-                rand::rng().random_range(1..max_offset)
-            } else {
-                1 // /31 的情况，两个地址都可以用
-            };
+            let random_offset = rand::rng().random_range(0..max_offset);
 
             // 计算最终IP
             let final_ip = network_addr | random_offset;
@@ -473,51 +464,33 @@ pub fn generate_random_ipv6_address(ip_net: &IpNetwork) -> Option<IpAddr> {
         IpNetwork::V6(ipv6_net) => {
             // 获取网络地址
             let ip = ipv6_net.network().octets();
-            let ones = ipv6_net.prefix();
-            let random_bits = 128 - ones;
-
-            // 创建新IP
+            let prefix_len = ipv6_net.prefix();
+            
+            // 创建新IP，初始化为网络地址
             let mut new_ip = [0u8; 16];
             new_ip.copy_from_slice(&ip);
-
-            // 计算需要随机的字节数和位数
-            let random_bytes = (random_bits / 8) as usize;
-            let remaining_bits = random_bits % 8;
-
+            
             let mut rng = rand::rng();
-
-            // 完全随机的字节
-            for i in 0..16 {
-                // 只处理需要随机化的字节
-                if i >= 16 - random_bytes {
-                    // 生成完全随机的字节
-                    let rand_value = rng.random::<u8>();
-                    // 保留网络前缀部分
-                    let mask_byte = if ones > 0 && i == 16 - random_bytes - 1 && remaining_bits > 0 {
-                        0xFF << remaining_bits
-                    } else if i < (ones as usize) / 8 {
-                        0xFF
-                    } else {
-                        0
-                    };
-                    new_ip[i] = (new_ip[i] & mask_byte) | (rand_value & !mask_byte);
-                }
+         
+            // 计算需要处理的字节索引和位
+            let first_random_byte = prefix_len as usize / 8;  // 第一个需要随机化的字节索引
+            let bits_in_first_byte = prefix_len % 8;          // 第一个字节中需要保留的位数
+            
+            // 处理第一个需要部分随机化的字节（如果有）
+            if bits_in_first_byte > 0 && first_random_byte < 16 {
+                // 创建掩码：高位保留（网络部分），低位随机（主机部分）
+                let mask = 0xFF << (8 - bits_in_first_byte);
+                // 生成随机值，但只用于低位部分
+                let random_part = rng.random::<u8>() & (!mask);
+                // 合并：保留高位网络部分，随机化低位主机部分
+                new_ip[first_random_byte] = (new_ip[first_random_byte] & mask) | random_part;
             }
-
-            // 处理剩余的不足一个字节的位
-            if remaining_bits > 0 {
-                let byte_pos = 16 - random_bytes - 1;
-
-                // 创建位掩码，只修改需要随机的位
-                let bit_mask = 0xFF >> (8 - remaining_bits);
-                // 生成随机值
-                let rand_value = rng.random::<u8>() & bit_mask;
-                // 应用掩码和随机值
-                let mask_byte = 0xFF << remaining_bits;
-                // 保留网络前缀，修改主机部分
-                new_ip[byte_pos] = (new_ip[byte_pos] & mask_byte) | (rand_value & !mask_byte);
+            
+            // 处理剩余的完全随机字节
+            for i in (first_random_byte + (if bits_in_first_byte > 0 { 1 } else { 0 }))..16 {
+                new_ip[i] = rng.random::<u8>();
             }
-
+            
             Some(IpAddr::V6(Ipv6Addr::from(new_ip)))
         }
         _ => None,
