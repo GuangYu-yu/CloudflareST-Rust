@@ -135,8 +135,8 @@ impl DynamicThreadPool {
             stats.stalled_tasks = stalled;
 
             // 根据卡顿比例调整因子
-            let min_factor = 0.7;
-            let max_factor = 1.3;
+            let min_factor = 0.6;
+            let max_factor = 1.2;
             let adjustment_factor = min_factor + (max_factor - min_factor) * (1.0 - stall_ratio);
 
             // 计算新的每核心线程数

@@ -128,26 +128,29 @@ pub async fn tcping(ip: IpAddr, args: &Args) -> Option<f32> {
     let task_id = GLOBAL_POOL.get_task_id();
     GLOBAL_POOL.start_task(task_id);
     
-    // 2. 记录开始连接时间
+    // 记录开始连接时间
     let start_time = Instant::now();
     
-    // 3. 尝试建立TCP连接
+    // 尝试建立TCP连接
     let port = common::get_tcp_port(args);
     let addr = SocketAddr::new(ip, port);
     
     // 使用更安全的方式处理连接和超时
     let mut interval = tokio::time::interval(Duration::from_millis(100));
     
-    // 在连接尝试循环中使用common中的心跳功能
+    // 在连接尝试循环中使用select!宏同时处理连接和心跳
     let connect_result = tokio::time::timeout(args.max_delay, async {
         loop {
-            // 尝试连接
-            match TcpStream::connect(&addr).await {
-                Ok(stream) => return Some((stream, start_time.elapsed().as_secs_f32() * 1000.0)),
-                Err(_) => {
-                    // 等待下一个间隔
-                    interval.tick().await;
-                    // 记录进度
+            tokio::select! {
+                // 尝试连接
+                result = TcpStream::connect(&addr) => {
+                    match result {
+                        Ok(stream) => return Some((stream, start_time.elapsed().as_secs_f32() * 1000.0)),
+                        Err(_) => {}  // 连接失败，继续尝试
+                    }
+                },
+                _ = interval.tick() => {
+                    // 记录心跳
                     GLOBAL_POOL.record_progress(task_id);
                 }
             }
@@ -164,7 +167,7 @@ pub async fn tcping(ip: IpAddr, args: &Args) -> Option<f32> {
         _ => None, // 连接超时或失败
     };
     
-    // 4. 结束任务
+    // 结束任务
     GLOBAL_POOL.end_task(task_id);
     
     result

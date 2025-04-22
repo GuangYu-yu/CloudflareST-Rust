@@ -462,22 +462,17 @@ pub fn generate_random_ipv4_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> O
         IpNetwork::V4(ipv4_net) => {
             let network_addr = ipv4_net.network();
             let broadcast_addr = ipv4_net.broadcast();
-
-            let network_octets = network_addr.octets();
-            let broadcast_octets = broadcast_addr.octets();
-
-            // 初始化结果段为网络地址的段
-            let mut result_octets = network_octets;
-
-            for i in 0..4 {
-                if network_octets[i] != broadcast_octets[i] {
-                    // 该段有范围限制，进行随机
-                    result_octets[i] = rng.random_range(network_octets[i]..=broadcast_octets[i]);
-                }
-                // 如果段相同，保持不变（已在初始化时完成）
-            }
-
-            Some(IpAddr::V4(Ipv4Addr::from(result_octets)))
+            
+            // 将IP地址转换为u32
+            let start = u32::from_be_bytes(network_addr.octets());
+            let end = u32::from_be_bytes(broadcast_addr.octets());
+            
+            // 在范围内生成随机数
+            let random_ip =rng.random_range(start..=end);
+            
+            // 转回IPv4地址
+            let ip = Ipv4Addr::from(random_ip.to_be_bytes());
+            Some(IpAddr::V4(ip))
         }
         _ => None,
     }
@@ -489,22 +484,17 @@ pub fn generate_random_ipv6_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> O
         IpNetwork::V6(ipv6_net) => {
             let network_addr = ipv6_net.network();
             let broadcast_addr = ipv6_net.broadcast();
-
-            let network_octets = network_addr.octets();
-            let broadcast_octets = broadcast_addr.octets();
-
-            // 先复制网络地址作为初始值
-            let mut result_octets = network_octets;
-
-            // 处理每个字节（共16字节）
-            for i in 0..16 {
-                if network_octets[i] != broadcast_octets[i] {
-                    result_octets[i] = rng.random_range(network_octets[i]..=broadcast_octets[i]);
-                }
-                // 如果段相同，不需要额外处理
-            }
-
-            Some(IpAddr::V6(Ipv6Addr::from(result_octets)))
+            
+            // 将IPv6地址转换为u128
+            let start = u128::from_be_bytes(network_addr.octets());
+            let end = u128::from_be_bytes(broadcast_addr.octets());
+            
+            // 在范围内生成随机数
+            let random_ip =rng.random_range(start..=end);
+            
+            // 转回IPv6地址
+            let ip = Ipv6Addr::from(random_ip.to_be_bytes());
+            Some(IpAddr::V6(ip))
         }
         _ => None,
     }
