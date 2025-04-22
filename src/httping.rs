@@ -167,42 +167,37 @@ async fn httping_handler(
     // 执行 HTTP 连接测试
     let result = httping(ip, args, &colo_filters, url).await;
     
-    // 如果测试失败，直接更新进度条并返回
+    // 获取当前成功连接的IP数量（无论是否符合筛选条件）
+    let mut http_success_count = {
+        let csv_guard = csv.lock().unwrap();
+        csv_guard.iter().filter(|d| d.received > 0).count()
+    };
+
     if result.is_none() {
-        // 获取当前可用IP数量并更新进度条
-        let now_able = {
-            let csv_guard = csv.lock().unwrap();
-            csv_guard.len()
-        };
-        
-        // 更新进度条
-        bar.grow(1, now_able.to_string());
+        // 连接失败，更新进度条（使用成功连接数）
+        bar.grow(1, http_success_count.to_string());
         return;
     }
+    
+    // 连接成功，增加成功计数
+    http_success_count += 1;
     
     // 解包测试结果
     let (recv, avg_delay, data_center) = result.unwrap();
     
-    // 连接成功，创建测试数据
+    // 创建测试数据
     let ping_times = common::get_ping_times(args);
     let mut data = PingData::new(ip, ping_times, recv, avg_delay);
     data.data_center = data_center;
     
-    // 应用筛选条件并更新进度条
-    let now_able = if common::should_keep_result(&data, args) {
-        // 符合条件，添加到结果集
+    // 应用筛选条件（但不影响进度条计数）
+    if common::should_keep_result(&data, args) {
         let mut csv_guard = csv.lock().unwrap();
         csv_guard.push(data);
-        let count = csv_guard.len();
-        count
-    } else {
-        // 不符合条件，获取当前数量
-        let csv_guard = csv.lock().unwrap();
-        csv_guard.len()
-    };
+    }
     
-    // 更新进度条
-    bar.grow(1, now_able.to_string());
+    // 更新进度条（使用成功连接数）
+    bar.grow(1, http_success_count.to_string());
 }
 
 // HTTP 测速函数
