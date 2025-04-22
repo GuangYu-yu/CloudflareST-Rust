@@ -45,6 +45,12 @@ impl DynamicThreadPool {
         }
     }
 
+    // 添加获取当前并发级别的方法
+    pub fn get_concurrency_level(&self) -> usize {
+        let stats = self.stats.lock().unwrap();
+        self.cpu_count * stats.threads_per_core
+    }
+
     // 获取任务ID的新方法
     pub fn get_task_id(&self) -> usize {
         let mut stats = self.stats.lock().unwrap();

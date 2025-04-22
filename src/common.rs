@@ -15,15 +15,15 @@ pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWeb
 #[derive(Clone, Debug)]
 pub struct PingData {
     pub ip: IpAddr,
-    pub sent: usize,
-    pub received: usize,
-    pub delay: f64,
-    pub download_speed: f64,
+    pub sent: u16,
+    pub received: u16,
+    pub delay: f32,
+    pub download_speed: f32,
     pub data_center: String,
 }
 
 impl PingData {
-    pub fn new(ip: IpAddr, sent: usize, received: usize, delay: f64) -> Self {
+    pub fn new(ip: IpAddr, sent: u16, received: u16, delay: f32) -> Self {
         Self {
             ip,
             sent,
@@ -56,7 +56,7 @@ pub fn print_speed_test_info(mode: &str, port: u16, min_delay: Duration, max_del
 }
 
 /// 从 PingResult 中提取速度、丢包率和延迟信息
-pub fn extract_ping_metrics(result: &PingResult) -> (f64, f32, f64) {
+pub fn extract_ping_metrics(result: &PingResult) -> (f32, f32, f32) {
     match result {
         PingResult::Http(data) => (data.download_speed, data.loss_rate(), data.delay),
         PingResult::Tcp(data) => (data.download_speed, data.loss_rate(), data.delay),
@@ -64,13 +64,13 @@ pub fn extract_ping_metrics(result: &PingResult) -> (f64, f32, f64) {
 }
 
 /// 计算平均延迟，精确到两位小数
-pub fn calculate_precise_delay(total_delay_ms: f64, success_count: usize) -> f64 {
+pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     if success_count == 0 {
         return 0.0;
     }
     
     // 计算平均值
-    let avg_ms = total_delay_ms / success_count as f64;
+    let avg_ms = total_delay_ms / success_count as f32;
     // 四舍五入到两位小数
     (avg_ms * 100.0).round() / 100.0
 }
@@ -201,7 +201,7 @@ pub fn get_tcp_port(args: &Args) -> u16 {
 }
 
 /// 获取Ping次数
-pub fn get_ping_times(args: &Args) -> usize {
+pub fn get_ping_times(args: &Args) -> u16 {
     args.ping_times
 }
 
@@ -314,8 +314,8 @@ pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
     }
     
     // 检查延迟上下限
-    if data.delay < args.min_delay.as_millis() as f64 || 
-       data.delay > args.max_delay.as_millis() as f64 {
+    if data.delay < args.min_delay.as_millis() as f32 ||
+       data.delay > args.max_delay.as_millis() as f32 {
         return false;
     }
     
@@ -326,9 +326,9 @@ pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
 /// 检查并处理下载测速结果，返回是否满足条件
 pub fn process_download_result(
     data: &mut PingData,
-    speed: f64,
+    speed: f32,
     maybe_colo: Option<String>,
-    min_speed: f64,
+    min_speed: f32,
     colo_filters: &[String],
 ) -> bool {
     data.download_speed = speed;

@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::io;
 use url::Url;
-
+use futures::stream::{FuturesUnordered, StreamExt};
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -77,52 +77,69 @@ impl Ping {
         let colo_filters = self.colo_filters.clone();
         let urlist = self.urlist.clone();
 
-        // 添加流控信号量
-        let ip_fetch_semaphore = Arc::new(tokio::sync::Semaphore::new(2048));
+        // 使用FuturesUnordered来动态管理任务
+        let mut tasks = FuturesUnordered::new();
         
+        // 获取当前线程池的并发能力
+        let initial_tasks = GLOBAL_POOL.get_concurrency_level();
         let mut url_index = 0;
-        let mut handles = Vec::new();
 
-        loop {
-            // 获取取IP的许可
-            let permit = Arc::clone(&ip_fetch_semaphore).acquire_owned().await.unwrap();
-            
+        // 初始填充任务队列
+        for _ in 0..initial_tasks {
             let ip = {
                 let mut ip_buffer = ip_buffer.lock().unwrap();
                 ip_buffer.pop()
             };
+            
+            if let Some(ip) = ip {
+                // 选择URL (轮询)
+                let url = urlist[url_index % urlist.len()].clone();
+                url_index += 1;
 
-            if ip.is_none() {
-                drop(permit);
+                let csv_clone = Arc::clone(&csv);
+                let bar_clone = Arc::clone(&bar);
+                let args_clone = args.clone();
+                let colo_filters_clone = colo_filters.clone();
+                
+                tasks.push(tokio::spawn(async move {
+                    execute_with_rate_limit(|| async move {
+                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url).await;
+                        Ok::<(), io::Error>(())
+                    }).await.unwrap();
+                }));
+            } else {
                 break;
             }
-            let ip = ip.unwrap();
-
-            // 选择URL (轮询)
-            let url = urlist[url_index % urlist.len()].clone();
-            url_index += 1;
-
-            let csv_clone = Arc::clone(&csv);
-            let bar_clone = Arc::clone(&bar);
-            let args_clone = args.clone();
-            let colo_filters_clone = colo_filters.clone();
-            let sem_clone = Arc::clone(&ip_fetch_semaphore);
-
-            // 并发提交任务，不等待每个任务完成
-            let handle = tokio::spawn(async move {
-                execute_with_rate_limit(|| async move {
-                    let _ = sem_clone.add_permits(1);
-                    httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url).await;
-                    Ok::<(), io::Error>(())
-                }).await.unwrap();
-                drop(permit);
-            });
-            handles.push(handle);
         }
+        
+        // 动态处理任务完成和添加新任务
+        while let Some(result) = tasks.next().await {
+            // 处理已完成的任务
+            let _ = result;
+            
+            // 添加新任务
+            let ip = {
+                let mut ip_buffer = ip_buffer.lock().unwrap();
+                ip_buffer.pop()
+            };
+            
+            if let Some(ip) = ip {
+                // 选择URL (轮询)
+                let url = urlist[url_index % urlist.len()].clone();
+                url_index += 1;
 
-        // 等待所有任务完成
-        for handle in handles {
-            let _ = handle.await;
+                let csv_clone = Arc::clone(&csv);
+                let bar_clone = Arc::clone(&bar);
+                let args_clone = args.clone();
+                let colo_filters_clone = colo_filters.clone();
+                
+                tasks.push(tokio::spawn(async move {
+                    execute_with_rate_limit(|| async move {
+                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url).await;
+                        Ok::<(), io::Error>(())
+                    }).await.unwrap();
+                }));
+            }
         }
 
         // 更新进度条为完成状态
@@ -194,7 +211,7 @@ async fn httping(
     args: &Args,
     colo_filters: &[String],
     url: &str
-) -> Option<(usize, f64, String)> {
+) -> Option<(u16, f32, String)> {
     // 使用GLOBAL_POOL获取任务ID
     let task_id = GLOBAL_POOL.get_task_id();
     GLOBAL_POOL.start_task(task_id);
@@ -295,7 +312,7 @@ async fn httping(
                 
                 // 请求成功
                 success += 1;
-                total_delay_ms += start_time.elapsed().as_secs_f64() * 1000.0;
+                total_delay_ms += start_time.elapsed().as_secs_f32() * 1000.0;
             },
             _ => {
                 // 请求失败或超时

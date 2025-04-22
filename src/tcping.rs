@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use std::io;
+use futures::stream::{FuturesUnordered, StreamExt};
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -55,47 +56,58 @@ impl Ping {
         let bar = Arc::clone(&self.bar);
         let args = self.args.clone();
         
-        // 流控信号量 (控制预取IP的数量)
-        let ip_fetch_semaphore = Arc::new(tokio::sync::Semaphore::new(2048));
-
-        // 用于收集所有任务的 JoinHandle
-        let mut handles = Vec::new();
-
-        loop {
-            // 获取取IP的许可
-            let permit = Arc::clone(&ip_fetch_semaphore).acquire_owned().await.unwrap();
-
+        // 使用FuturesUnordered来动态管理任务
+        let mut tasks = FuturesUnordered::new();
+        
+        // 获取当前线程池的并发能力
+        let initial_tasks = GLOBAL_POOL.get_concurrency_level();
+        
+        // 初始填充任务队列
+        for _ in 0..initial_tasks {
             let ip = {
                 let mut ip_buffer = ip_buffer.lock().unwrap();
                 ip_buffer.pop()
             };
-
-            if ip.is_none() {
-                drop(permit);
+            
+            if let Some(ip) = ip {
+                let csv_clone = Arc::clone(&csv);
+                let bar_clone = Arc::clone(&bar);
+                let args_clone = args.clone();
+                
+                tasks.push(tokio::spawn(async move {
+                    execute_with_rate_limit(|| async move {
+                        tcping_handler(ip, csv_clone, bar_clone, &args_clone).await;
+                        Ok::<(), io::Error>(())
+                    }).await.unwrap();
+                }));
+            } else {
                 break;
             }
-
-            let ip = ip.unwrap();
-            let csv_clone = Arc::clone(&csv);
-            let bar_clone = Arc::clone(&bar);
-            let args_clone = args.clone();
-            let sem_clone = Arc::clone(&ip_fetch_semaphore);
-
-            // 并发提交任务，不等待每个任务完成
-            let handle = tokio::spawn(async move {
-                execute_with_rate_limit(|| async move {
-                    let _ = sem_clone.add_permits(1);
-                    tcping_handler(ip, csv_clone, bar_clone, &args_clone).await;
-                    Ok::<(), io::Error>(())
-                }).await.unwrap();
-                drop(permit);
-            });
-            handles.push(handle);
         }
-
-        // 等待所有任务完成
-        for handle in handles {
-            let _ = handle.await;
+        
+        // 动态处理任务完成和添加新任务
+        while let Some(result) = tasks.next().await {
+            // 处理已完成的任务
+            let _ = result;
+            
+            // 添加新任务
+            let ip = {
+                let mut ip_buffer = ip_buffer.lock().unwrap();
+                ip_buffer.pop()
+            };
+            
+            if let Some(ip) = ip {
+                let csv_clone = Arc::clone(&csv);
+                let bar_clone = Arc::clone(&bar);
+                let args_clone = args.clone();
+                
+                tasks.push(tokio::spawn(async move {
+                    execute_with_rate_limit(|| async move {
+                        tcping_handler(ip, csv_clone, bar_clone, &args_clone).await;
+                        Ok::<(), io::Error>(())
+                    }).await.unwrap();
+                }));
+            }
         }
 
         // 更新进度条为完成状态
@@ -111,7 +123,7 @@ impl Ping {
     }
 }
 
-pub async fn tcping(ip: IpAddr, args: &Args) -> Option<f64> {
+pub async fn tcping(ip: IpAddr, args: &Args) -> Option<f32> {
     // 使用GLOBAL_POOL获取任务ID
     let task_id = GLOBAL_POOL.get_task_id();
     GLOBAL_POOL.start_task(task_id);
@@ -131,7 +143,7 @@ pub async fn tcping(ip: IpAddr, args: &Args) -> Option<f64> {
         loop {
             // 尝试连接
             match TcpStream::connect(&addr).await {
-                Ok(stream) => return Some((stream, start_time.elapsed().as_secs_f64() * 1000.0)),
+                Ok(stream) => return Some((stream, start_time.elapsed().as_secs_f32() * 1000.0)),
                 Err(_) => {
                     // 等待下一个间隔
                     interval.tick().await;
@@ -203,7 +215,7 @@ async fn tcping_handler(
 }
 
 // 执行连接测试
-async fn check_connection(ip: IpAddr, args: &Args) -> (usize, f64) {
+async fn check_connection(ip: IpAddr, args: &Args) -> (u16, f32) {
     let mut recv = 0;
     let mut total_delay_ms = 0.0;
     let ping_times = common::get_ping_times(args);

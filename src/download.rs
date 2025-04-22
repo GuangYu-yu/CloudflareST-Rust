@@ -14,13 +14,13 @@ use crate::common::{self, PingData};
 
 // 指数加权移动平均
 struct Ewma {
-    value: f64,
-    alpha: f64,
+    value: f32,
+    alpha: f32,
     initialized: bool,
 }
 
 impl Ewma {
-    fn new(alpha: f64) -> Self {
+    fn new(alpha: f32) -> Self {
         Self {
             value: 0.0,
             alpha,
@@ -28,7 +28,7 @@ impl Ewma {
         }
     }
 
-    fn add(&mut self, value: f64) {
+    fn add(&mut self, value: f32) {
         if !self.initialized {
             self.value = value;
             self.initialized = true;
@@ -37,7 +37,7 @@ impl Ewma {
         }
     }
 
-    fn value(&self) -> f64 {
+    fn value(&self) -> f32 {
         self.value
     }
 }
@@ -47,7 +47,7 @@ struct DownloadHandler {
     data_received: u64,
     headers: std::collections::HashMap<String, String>,
     last_update: Instant,
-    current_speed: Arc<Mutex<f64>>,
+    current_speed: Arc<Mutex<f32>>,
     start_time: Instant,
     time_slice: Duration,
     next_slice: Instant,
@@ -58,7 +58,7 @@ struct DownloadHandler {
 }
 
 impl DownloadHandler {
-    fn new(current_speed: Arc<Mutex<f64>>) -> Self {
+    fn new(current_speed: Arc<Mutex<f32>>) -> Self {
         let now = Instant::now();
         Self {
             data_received: 0,
@@ -100,10 +100,10 @@ impl DownloadHandler {
                 let first = self.speed_samples.front().unwrap();
                 let last = self.speed_samples.back().unwrap();
                 let bytes_diff = last.1 - first.1;
-                let time_diff = last.0.duration_since(first.0).as_secs_f64();
+                let time_diff = last.0.duration_since(first.0).as_secs_f32();
 
                 if time_diff > 0.0 {
-                    bytes_diff as f64 / time_diff
+                    bytes_diff as f32 / time_diff
                 } else {
                     0.0 // 时间差为0，速度为0
                 }
@@ -127,7 +127,7 @@ impl DownloadHandler {
             let content_diff = self.data_received - self.last_content_read;
             
             // 添加到EWMA中
-            self.ewma.add(content_diff as f64);
+            self.ewma.add(content_diff as f32);
             
             // 更新计数器和下一个时间片
             self.time_counter += 1;
@@ -149,11 +149,11 @@ pub struct DownloadTest {
     url: String,
     urlist: Vec<String>,
     timeout: Option<Duration>,
-    test_count: usize,
-    min_speed: f64,
+    test_count: u16,
+    min_speed: f32,
     tcp_port: u16,
     bar: Arc<Bar>,
-    current_speed: Arc<Mutex<f64>>,
+    current_speed: Arc<Mutex<f32>>,
     httping: bool,
     colo_filter: String,
     ping_results: Vec<PingResult>,
@@ -193,7 +193,7 @@ impl DownloadTest {
         let urlist_vec = common::get_url_list(&url, &urlist).await;
 
         // 计算实际需要测试的数量
-        let test_num = min(test_count, ping_results.len());
+        let test_num = min(test_count as u32, ping_results.len() as u32);
         
         Self {
             url,
@@ -212,7 +212,7 @@ impl DownloadTest {
 
     pub async fn test_download_speed(&mut self) -> (Vec<PingResult>, bool) {
         // 先检查队列数量是否足够
-        if self.test_count > self.ping_results.len() {
+        if self.test_count as usize > self.ping_results.len() {
             println!("\n[信息] {}", "队列数量不足所需数量！");
         }
 
@@ -226,7 +226,7 @@ impl DownloadTest {
         let colo_filters = common::parse_colo_filters(&self.colo_filter);
         
         // 创建一个任务来更新进度条的速度显示
-        let current_speed: Arc<Mutex<f64>> = Arc::clone(&self.current_speed);
+        let current_speed: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
         let bar: Arc<Bar> = Arc::clone(&self.bar);
         let speed_update_handle = tokio::spawn(async move {
             loop {
@@ -287,7 +287,7 @@ impl DownloadTest {
             }
             
             // 如果已经找到足够数量的合格结果，提前结束测试
-            if qualified_indices.len() >= self.test_count {
+            if qualified_indices.len() >= self.test_count as usize {
                 break;
             }
         }
@@ -324,10 +324,10 @@ async fn download_handler(
     ip: IpAddr, 
     url: &str, 
     download_duration: Duration,
-    current_speed: Arc<Mutex<f64>>,
+    current_speed: Arc<Mutex<f32>>,
     tcp_port: u16,
     need_colo: bool
-) -> (f64, Option<String>) {
+) -> (f32, Option<String>) {
     
     // 解析原始URL以获取主机名和路径
     let url_parts = match url::Url::parse(url) {
@@ -389,7 +389,7 @@ async fn download_handler(
         }
 
         let now = Instant::now();
-        // 确保 time_counter > 0 避免 usize 减法溢出
+        // 确保 time_counter > 0 避免 u16 减法溢出
         if handler.time_counter > 0 {
             // 计算上一个完整时间片的结束时间点
             let last_slice_end_time = handler.start_time + handler.time_slice * (handler.time_counter - 1);
@@ -398,25 +398,25 @@ async fn download_handler(
             // 计算最后一个不完整时间片下载的数据量
             let last_content_diff = handler.data_received - handler.last_content_read;
 
-            if last_content_diff > 0 && last_slice_duration.as_secs_f64() > 0.0 {
+            if last_content_diff > 0 && last_slice_duration.as_secs_f32() > 0.0 {
                 // 计算实际持续时间与标准时间片的比例
-                let time_ratio = last_slice_duration.as_secs_f64() / handler.time_slice.as_secs_f64();
+                let time_ratio = last_slice_duration.as_secs_f32() / handler.time_slice.as_secs_f32();
                 if time_ratio > 0.0 {
                     // 根据比例调整数据量并添加到EWMA
-                    handler.ewma.add(last_content_diff as f64 / time_ratio);
+                    handler.ewma.add(last_content_diff as f32 / time_ratio);
                 } else {
                      // 如果时间比例过小或为0，直接添加原始数据量
-                     handler.ewma.add(last_content_diff as f64);
+                     handler.ewma.add(last_content_diff as f32);
                 }
             } else if last_content_diff > 0 {
                  // 如果时间差为0但有数据，直接添加
-                 handler.ewma.add(last_content_diff as f64);
+                 handler.ewma.add(last_content_diff as f32);
             }
         }
         
         // 使用EWMA计算的平均速度
         let final_ewma_value = handler.ewma.value();
-        let time_factor = download_duration.as_secs_f64() / 120.0;
+        let time_factor = download_duration.as_secs_f32() / 120.0;
 
         if time_factor > 0.0 {
              final_ewma_value / time_factor

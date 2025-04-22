@@ -5,7 +5,7 @@ use colored::*;
 #[derive(Clone)]
 pub struct Args {
     // 延迟测速相关
-    pub ping_times: usize,       // 延迟测速次数
+    pub ping_times: u16,       // 延迟测速次数
     pub tcp_port: u16,           // 指定测速端口
     pub url: String,             // 指定测速地址
     pub urlist: String,          // 指定测速地址列表
@@ -21,14 +21,14 @@ pub struct Args {
     pub max_loss_rate: f32,      // 丢包几率上限
     
     // 下载测速相关
-    pub test_count: usize,       // 下载测速数量
+    pub test_count: u16,       // 下载测速数量
     pub timeout: String,         // 下载测速时间(字符串)
     pub timeout_duration: Option<Duration>, // 下载测速时间
-    pub min_speed: f64,          // 下载速度下限
+    pub min_speed: f32,          // 下载速度下限
     pub disable_download: bool,  // 是否禁用下载测速
     
     // 输出相关
-    pub print_num: usize,        // 显示结果数量
+    pub print_num: u16,        // 显示结果数量
     pub ip_file: String,         // IP段数据文件
     pub ip_text: String,         // 指定IP段数据
     pub ip_url: String,          // 从URL获取IP段数据
@@ -125,12 +125,12 @@ impl Args {
             if i + 1 < args.len() && !args[i + 1].starts_with('-') {
                 match name.as_str() {
                     "t" => {
-                        if let Ok(val) = args[i + 1].parse::<usize>() {
+                        if let Ok(val) = args[i + 1].parse::<u16>() {
                             parsed.ping_times = val;
                         }
                     },
                     "dn" => {
-                        if let Ok(val) = args[i + 1].parse::<usize>() {
+                        if let Ok(val) = args[i + 1].parse::<u16>() {
                             parsed.test_count = val;
                         }
                     },
@@ -175,12 +175,12 @@ impl Args {
                         }
                     },
                     "sl" => {
-                        if let Ok(val) = args[i + 1].parse::<f64>() {
+                        if let Ok(val) = args[i + 1].parse::<f32>() {
                             parsed.min_speed = val;
                         }
                     },
                     "p" => {
-                        if let Ok(val) = args[i + 1].parse::<usize>() {
+                        if let Ok(val) = args[i + 1].parse::<u16>() {
                             parsed.print_num = val;
                         }
                     },

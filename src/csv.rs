@@ -74,7 +74,7 @@ impl PrintResult for Vec<PingResult> {
         ));
 
         // 添加数据行，最多显示 args.print_num 条
-        for result in self.iter().take(args.print_num) {
+        for result in self.iter().take(args.print_num.into()) {
             // 使用模式匹配处理不同类型的结果
             match result {
                 PingResult::Http(data) if args.httping => {
