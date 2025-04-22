@@ -184,19 +184,19 @@ async fn tcping_handler(
     let (recv, avg_delay_ms) = check_connection(ip, args).await;
     
     // 获取当前成功连接的IP数量（无论是否符合筛选条件）
-    let mut ping_success_count = {
+    let mut tcping_success_count = {
         let csv_guard = csv.lock().unwrap();
         csv_guard.iter().filter(|d| d.received > 0).count()
     };
 
     if recv == 0 {
         // 连接失败，更新进度条（使用成功连接数）
-        bar.grow(1, ping_success_count.to_string());
+        bar.grow(1, tcping_success_count.to_string());
         return;
     }
     
     // 连接成功，增加成功计数
-    ping_success_count += 1;
+    tcping_success_count += 1;
     
     // 创建测试数据
     let ping_times = common::get_ping_times(args);
@@ -209,7 +209,7 @@ async fn tcping_handler(
     }
     
     // 更新进度条（使用成功连接数）
-    bar.grow(1, ping_success_count.to_string());
+    bar.grow(1, tcping_success_count.to_string());
 }
 
 // 执行连接测试

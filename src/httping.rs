@@ -168,19 +168,19 @@ async fn httping_handler(
     let result = httping(ip, args, &colo_filters, url).await;
     
     // 获取当前成功连接的IP数量（无论是否符合筛选条件）
-    let mut http_success_count = {
+    let mut httping_success_count = {
         let csv_guard = csv.lock().unwrap();
         csv_guard.iter().filter(|d| d.received > 0).count()
     };
 
     if result.is_none() {
         // 连接失败，更新进度条（使用成功连接数）
-        bar.grow(1, http_success_count.to_string());
+        bar.grow(1, httping_success_count.to_string());
         return;
     }
     
     // 连接成功，增加成功计数
-    http_success_count += 1;
+    httping_success_count += 1;
     
     // 解包测试结果
     let (recv, avg_delay, data_center) = result.unwrap();
@@ -197,7 +197,7 @@ async fn httping_handler(
     }
     
     // 更新进度条（使用成功连接数）
-    bar.grow(1, http_success_count.to_string());
+    bar.grow(1, httping_success_count.to_string());
 }
 
 // HTTP 测速函数
