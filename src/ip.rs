@@ -493,15 +493,15 @@ pub fn generate_random_ipv6_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> O
             let network_octets = network_addr.octets();
             let broadcast_octets = broadcast_addr.octets();
 
-            // 初始化结果段为网络地址的段
+            // 先复制网络地址作为初始值
             let mut result_octets = network_octets;
 
-            for i in 0..8 {
+            // 处理每个字节（共16字节）
+            for i in 0..16 {
                 if network_octets[i] != broadcast_octets[i] {
-                    // 该段有范围限制，进行随机
                     result_octets[i] = rng.random_range(network_octets[i]..=broadcast_octets[i]);
                 }
-                // 如果段相同，保持不变（已在初始化时完成）
+                // 如果段相同，不需要额外处理
             }
 
             Some(IpAddr::V6(Ipv6Addr::from(result_octets)))
