@@ -78,7 +78,7 @@ impl IpBuffer {
 // 加载IP列表到缓存
 pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     // 缓冲区大小
-    let buffer_size = 1024;
+    let buffer_size = 4096;
     let (ip_tx, ip_rx) = bounded::<IpAddr>(buffer_size);
     let (req_tx, req_rx) = bounded::<()>(buffer_size);
     
@@ -290,10 +290,14 @@ fn is_ipv4(ip: &str) -> bool {
 fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>) {
     if let IpNetwork::V4(ipv4_net) = network {
         if test_all {
-            for ip in ipv4_net.iter() {
+            // 测试所有IP时，严格按照请求信号发送
+            let mut iter = ipv4_net.iter();
+            while let Some(ip) = iter.next() {
+                // 等待请求信号
                 if req_rx.recv().is_err() {
                     return;
                 }
+                // 发送IP
                 if ip_tx.send(IpAddr::V4(ip)).is_err() {
                     return;
                 }
@@ -304,16 +308,24 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
 
             // 小于等于/23，直接枚举所有IP再随机采样
             if prefix <= 23 {
+                // 先准备好采样的IP列表
                 let all_ips: Vec<Ipv4Addr> = ipv4_net.iter().collect();
                 let mut rng = rand::rng();
                 use rand::seq::SliceRandom;
                 let sample_count = ip_count.min(all_ips.len());
                 let mut sampled = all_ips;
                 sampled.shuffle(&mut rng);
-                for ip in sampled.into_iter().take(sample_count) {
+                
+                // 只保留需要的IP，释放多余内存
+                let sampled = sampled.into_iter().take(sample_count).collect::<Vec<_>>();
+                
+                // 严格按照请求信号发送IP
+                for ip in sampled {
+                    // 等待请求信号
                     if req_rx.recv().is_err() {
                         return;
                     }
+                    // 发送IP
                     if ip_tx.send(IpAddr::V4(ip)).is_err() {
                         return;
                     }
@@ -325,6 +337,7 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
                 let mut rng = rand::rng();
                 
                 while sent_count < ip_count {
+                    // 等待请求信号
                     if req_rx.recv().is_err() {
                         return;
                     }
@@ -349,16 +362,24 @@ fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &
 
         // 小于等于/117，直接枚举所有IP再随机采样
         if prefix <= 117 {
+            // 先准备好采样的IP列表
             let all_ips: Vec<Ipv6Addr> = ipv6_net.iter().collect();
             let mut rng = rand::rng();
             use rand::seq::SliceRandom;
             let sample_count = ip_count.min(all_ips.len());
             let mut sampled = all_ips;
             sampled.shuffle(&mut rng);
-            for ip in sampled.into_iter().take(sample_count) {
+            
+            // 只保留需要的IP，释放多余内存
+            let sampled = sampled.into_iter().take(sample_count).collect::<Vec<_>>();
+            
+            // 严格按照请求信号发送IP
+            for ip in sampled {
+                // 等待请求信号
                 if req_rx.recv().is_err() {
                     return;
                 }
+                // 发送IP
                 if ip_tx.send(IpAddr::V6(ip)).is_err() {
                     return;
                 }
@@ -370,6 +391,7 @@ fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &
             let mut rng = rand::rng();
             
             while sent_count < ip_count {
+                // 等待请求信号
                 if req_rx.recv().is_err() {
                     return;
                 }
@@ -468,21 +490,21 @@ pub fn generate_random_ipv6_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> O
             let network_addr = ipv6_net.network();
             let broadcast_addr = ipv6_net.broadcast();
 
-            let network_segments = network_addr.segments();
-            let broadcast_segments = broadcast_addr.segments();
+            let network_octets = network_addr.octets();
+            let broadcast_octets = broadcast_addr.octets();
 
             // 初始化结果段为网络地址的段
-            let mut result_segments = network_segments;
+            let mut result_octets = network_octets;
 
             for i in 0..8 {
-                if network_segments[i] != broadcast_segments[i] {
+                if network_octets[i] != broadcast_octets[i] {
                     // 该段有范围限制，进行随机
-                    result_segments[i] = rng.random_range(network_segments[i]..=broadcast_segments[i]);
+                    result_octets[i] = rng.random_range(network_octets[i]..=broadcast_octets[i]);
                 }
                 // 如果段相同，保持不变（已在初始化时完成）
             }
 
-            Some(IpAddr::V6(Ipv6Addr::from(result_segments)))
+            Some(IpAddr::V6(Ipv6Addr::from(result_octets)))
         }
         _ => None,
     }
