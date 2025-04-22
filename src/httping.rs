@@ -10,6 +10,7 @@ use crate::args::Args;
 use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
@@ -19,6 +20,7 @@ pub struct Ping {
     args: Args,
     colo_filters: Vec<String>,
     urlist: Vec<String>,
+    success_count: Arc<AtomicUsize>,
 }
 
 impl Ping {
@@ -48,6 +50,7 @@ impl Ping {
             args: args.clone(),
             colo_filters,
             urlist,
+            success_count: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -76,6 +79,7 @@ impl Ping {
         let args = self.args.clone();
         let colo_filters = self.colo_filters.clone();
         let urlist = self.urlist.clone();
+        let success_count = Arc::clone(&self.success_count);
 
         // 使用FuturesUnordered来动态管理任务
         let mut tasks = FuturesUnordered::new();
@@ -100,10 +104,11 @@ impl Ping {
                 let bar_clone = Arc::clone(&bar);
                 let args_clone = args.clone();
                 let colo_filters_clone = colo_filters.clone();
-                
+                let success_count_clone = Arc::clone(&success_count);
+
                 tasks.push(tokio::spawn(async move {
                     execute_with_rate_limit(|| async move {
-                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url).await;
+                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url, success_count_clone).await;
                         Ok::<(), io::Error>(())
                     }).await.unwrap();
                 }));
@@ -132,10 +137,11 @@ impl Ping {
                 let bar_clone = Arc::clone(&bar);
                 let args_clone = args.clone();
                 let colo_filters_clone = colo_filters.clone();
+                let success_count_clone = Arc::clone(&success_count);
                 
                 tasks.push(tokio::spawn(async move {
                     execute_with_rate_limit(|| async move {
-                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url).await;
+                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url, success_count_clone).await;
                         Ok::<(), io::Error>(())
                     }).await.unwrap();
                 }));
@@ -162,26 +168,22 @@ async fn httping_handler(
     bar: Arc<Bar>, 
     args: &Args,
     colo_filters: Vec<String>,
-    url: &str
+    url: &str,
+    success_count: Arc<AtomicUsize>,
 ) {
     // 执行 HTTP 连接测试
     let result = httping(ip, args, &colo_filters, url).await;
-    
-    // 获取当前成功连接的IP数量（无论是否符合筛选条件）
-    let mut httping_success_count = {
-        let csv_guard = csv.lock().unwrap();
-        csv_guard.iter().filter(|d| d.received > 0).count()
-    };
 
     if result.is_none() {
         // 连接失败，更新进度条（使用成功连接数）
-        bar.grow(1, httping_success_count.to_string());
+        let current_success = success_count.load(Ordering::Relaxed);
+        bar.grow(1, current_success.to_string());
         return;
     }
     
     // 连接成功，增加成功计数
-    httping_success_count += 1;
-    
+    let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
+
     // 解包测试结果
     let (recv, avg_delay, data_center) = result.unwrap();
     
@@ -197,7 +199,7 @@ async fn httping_handler(
     }
     
     // 更新进度条（使用成功连接数）
-    bar.grow(1, httping_success_count.to_string());
+    bar.grow(1, new_success_count.to_string());
 }
 
 // HTTP 测速函数

@@ -10,6 +10,7 @@ use crate::args::Args;
 use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
@@ -17,6 +18,7 @@ pub struct Ping {
     bar: Arc<Bar>,
     max_loss_rate: f32,
     args: Args,
+    success_count: Arc<AtomicUsize>,
 }
 
 impl Ping {
@@ -29,6 +31,7 @@ impl Ping {
             bar,
             max_loss_rate,
             args: args.clone(),
+            success_count: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -55,6 +58,7 @@ impl Ping {
         let csv = Arc::clone(&self.csv);
         let bar = Arc::clone(&self.bar);
         let args = self.args.clone();
+        let success_count = Arc::clone(&self.success_count);
         
         // 使用FuturesUnordered来动态管理任务
         let mut tasks = FuturesUnordered::new();
@@ -73,10 +77,11 @@ impl Ping {
                 let csv_clone = Arc::clone(&csv);
                 let bar_clone = Arc::clone(&bar);
                 let args_clone = args.clone();
+                let success_count_clone = Arc::clone(&success_count);
                 
                 tasks.push(tokio::spawn(async move {
                     execute_with_rate_limit(|| async move {
-                        tcping_handler(ip, csv_clone, bar_clone, &args_clone).await;
+                        tcping_handler(ip, csv_clone, bar_clone, &args_clone, success_count_clone).await;
                         Ok::<(), io::Error>(())
                     }).await.unwrap();
                 }));
@@ -100,10 +105,11 @@ impl Ping {
                 let csv_clone = Arc::clone(&csv);
                 let bar_clone = Arc::clone(&bar);
                 let args_clone = args.clone();
+                let success_count_clone = Arc::clone(&success_count);
                 
                 tasks.push(tokio::spawn(async move {
                     execute_with_rate_limit(|| async move {
-                        tcping_handler(ip, csv_clone, bar_clone, &args_clone).await;
+                        tcping_handler(ip, csv_clone, bar_clone, &args_clone, success_count_clone).await;
                         Ok::<(), io::Error>(())
                     }).await.unwrap();
                 }));
@@ -179,24 +185,20 @@ async fn tcping_handler(
     csv: Arc<Mutex<PingDelaySet>>, 
     bar: Arc<Bar>, 
     args: &Args,
+    success_count: Arc<AtomicUsize>,
 ) {
     // 执行连接测试
     let (recv, avg_delay_ms) = check_connection(ip, args).await;
     
-    // 获取当前成功连接的IP数量（无论是否符合筛选条件）
-    let mut tcping_success_count = {
-        let csv_guard = csv.lock().unwrap();
-        csv_guard.iter().filter(|d| d.received > 0).count()
-    };
-
     if recv == 0 {
         // 连接失败，更新进度条（使用成功连接数）
-        bar.grow(1, tcping_success_count.to_string());
+        let current_success = success_count.load(Ordering::Relaxed);
+        bar.grow(1, current_success.to_string());
         return;
     }
-    
+
     // 连接成功，增加成功计数
-    tcping_success_count += 1;
+    let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
     
     // 创建测试数据
     let ping_times = common::get_ping_times(args);
@@ -209,7 +211,7 @@ async fn tcping_handler(
     }
     
     // 更新进度条（使用成功连接数）
-    bar.grow(1, tcping_success_count.to_string());
+    bar.grow(1, new_success_count.to_string());
 }
 
 // 执行连接测试
