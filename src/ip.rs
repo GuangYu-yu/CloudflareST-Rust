@@ -306,8 +306,8 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
             let prefix = ipv4_net.prefix();
             let ip_count = calculate_sample_count(prefix, true);
 
-            // 小于等于/23，直接枚举所有IP再随机采样
-            if prefix <= 23 {
+            // 直接枚举所有IP再随机采样
+            if prefix >= 23 {
                 // 先准备好采样的IP列表
                 let all_ips: Vec<Ipv4Addr> = ipv4_net.iter().collect();
                 let mut rng = rand::rng();
@@ -360,8 +360,8 @@ fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &
         let prefix = ipv6_net.prefix();
         let ip_count = calculate_sample_count(prefix, false);
 
-        // 小于等于/117，直接枚举所有IP再随机采样
-        if prefix <= 117 {
+        // 直接枚举所有IP再随机采样
+        if prefix >= 117 {
             // 先准备好采样的IP列表
             let all_ips: Vec<Ipv6Addr> = ipv6_net.iter().collect();
             let mut rng = rand::rng();
