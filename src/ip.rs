@@ -116,10 +116,10 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
                 }
                 _ => {
                     if i < 3 {
-                        println!("从 URL 获取 IP 或 CIDR列表失败，正在重试 ({}/{})", i, 3);
+                        println!("从 URL 获取 IP 或 CIDR 列表失败，正在重试 ({}/{})", i, 3);
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     } else {
-                        println!("从 URL 获取 IP 或 CIDR列表失败，已达到最大重试次数");
+                        println!("从 URL 获取 IP 或 CIDR 列表失败，已达到最大重试次数");
                     }
                 }
             }
