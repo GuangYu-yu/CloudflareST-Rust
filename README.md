@@ -22,7 +22,7 @@
     -urlist
         从 URL 内读取测速地址列表 (https://example.com/url_list.txt) [默认: 未指定]
     -f
-        从文件或文件路径读取 IP 或 CIDR [默认: ip.txt]
+        从文件或文件路径读取 IP 或 CIDR [默认: 未指定]
     -ip
         直接指定 IP 或 CIDR (多个用逗号分隔) [默认: 未指定]
     -ipurl
