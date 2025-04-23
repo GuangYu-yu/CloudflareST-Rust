@@ -189,57 +189,45 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
 
 // 从URL获取IP段数据
 fn fetch_ip_from_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    // 创建单线程运行时
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()?;
-            
-            // 重试逻辑
-            let max_retries = 3;
-            let mut retry_count = 0;
-            let mut last_error = None;
-            
-            while retry_count < max_retries {
-                match client.get(url)
-                    .header("User-Agent", USER_AGENT)
-                    .send()
-                    .await {
-                        Ok(response) => {
-                            // 检查状态码
-                            if !response.status().is_success() {
-                                retry_count += 1;
-                                last_error = Some(format!("HTTP请求失败，状态码: {}", response.status()));
-                                println!("请求失败，状态码: {}，正在重试 ({}/{})", response.status(), retry_count, max_retries);
-                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                continue;
-                            }
-                            
-                            // 获取响应内容
-                            match response.text().await {
-                                Ok(content) => return Ok(content),
-                                Err(e) => {
-                                    retry_count += 1;
-                                    last_error = Some(format!("读取响应内容失败: {}", e));
-                                    println!("读取响应内容失败: {}，正在重试 ({}/{})", e, retry_count, max_retries);
-                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            retry_count += 1;
-                            last_error = Some(format!("发送HTTP请求失败: {}", e));
-                            println!("发送HTTP请求失败: {}，正在重试 ({}/{})", e, retry_count, max_retries);
-                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        }
+    let async_task = async {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+
+        // 最多尝试3次
+        for i in 1..=3 {
+            if let Ok(resp) = client.get(url)
+                .header("User-Agent", USER_AGENT)
+                .send()
+                .await
+            {
+                if resp.status().is_success() {
+                    if let Ok(text) = resp.text().await {
+                        return Ok(text);
                     }
+                }
             }
-            
-            Err(last_error.unwrap_or_else(|| "未知错误".to_string()).into())
-        })
+            // 只有在不是最后一次尝试时才打印重试信息和等待
+            if i < 3 {
+                println!("请求失败，正在重试 ({}/{})", i, 3);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            } else {
+                println!("请求失败，已达到最大重试次数");
+            }
+        }
+
+        // 所有尝试都失败后返回错误
+        Err("从URL获取IP段数据失败".into())
+    };
+
+    // 检查是否已在异步上下文中，避免嵌套运行时
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle.block_on(async_task),
+        Err(_) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(async_task),
+    }
 }
 
 // 处理IP范围并发送到通道
