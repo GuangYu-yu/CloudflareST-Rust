@@ -75,6 +75,76 @@ impl IpBuffer {
     }
 }
 
+// 收集IP源
+async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<String> {
+    let mut ip_sources = Vec::new();
+    
+    // 1. 从参数中获取IP段数据
+    if !ip_text.is_empty() {
+        let ips: Vec<&str> = ip_text.split(',').collect();
+        for ip in ips {
+            let ip = ip.trim();
+            if !ip.is_empty() {
+                ip_sources.push(ip.to_string());
+            }
+        }
+    }
+    
+    // 2. 从URL获取IP段数据
+    if !ip_url.is_empty() {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap();
+        
+        for i in 1..=3 {
+            match client.get(ip_url)
+                .header("User-Agent", USER_AGENT)
+                .send()
+                .await 
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(text) = resp.text().await {
+                        for line in text.lines() {
+                            let line = line.trim();
+                            if !line.is_empty() {
+                                ip_sources.push(line.to_string());
+                            }
+                        }
+                        break;
+                    }
+                }
+                _ => {
+                    if i < 3 {
+                        println!("从 URL 获取 IP 或 CIDR列表失败，正在重试 ({}/{})", i, 3);
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    } else {
+                        println!("从 URL 获取 IP 或 CIDR列表失败，已达到最大重试次数");
+                    }
+                }
+            }
+        }
+    }
+    
+    // 3. 从文件中获取IP段数据
+    if !ip_file.is_empty() && std::path::Path::new(ip_file).exists() {
+        if let Ok(lines) = read_lines(ip_file) {
+            for line in lines.flatten() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    ip_sources.push(line.to_string());
+                }
+            }
+        }
+    }
+    
+    // 去重
+    ip_sources.sort();
+    ip_sources.dedup();
+    
+    ip_sources
+}
+
 // 加载IP列表到缓存
 pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     // 缓冲区大小
@@ -94,46 +164,14 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     let ip_file = config.ip_file.clone();
     let test_all = config.test_all;
     
-    // 收集IP源
-    let mut ip_sources = Vec::new();
+    // 使用当前运行时执行异步操作
+    let ip_sources = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(collect_ip_sources(&ip_text, &ip_url, &ip_file))
+    });
     
-    if !ip_text.is_empty() {
-        // 从参数中获取IP段数据
-        let ips: Vec<&str> = ip_text.split(',').collect();
-        for ip in ips {
-            let ip = ip.trim();
-            if !ip.is_empty() {
-                ip_sources.push(ip.to_string());
-            }
-        }
-    } else if !ip_url.is_empty() {
-        // 从URL获取IP段数据
-        match fetch_ip_from_url(&ip_url) {
-            Ok(content) => {
-                // 按行处理获取的内容
-                for line in content.lines() {
-                    let line = line.trim();
-                    if !line.is_empty() {
-                        ip_sources.push(line.to_string());
-                    }
-                }
-            },
-            Err(err) => {
-                println!("从URL获取IP段数据失败: {}", err);
-            }
-        }
-    } else {
-        // 从文件中获取IP段数据
-        if let Ok(lines) = read_lines(&ip_file) {
-            for line in lines.flatten() {
-                let line = line.trim();
-                if !line.is_empty() {
-                    ip_sources.push(line.to_string());
-                }
-            }
-        } else {
-            println!("无法读取IP文件: {}", ip_file);
-        }
+    // 如果没有收集到任何IP源，返回空缓冲区
+    if ip_sources.is_empty() {
+        return IpBuffer::new(bounded(0).1, None, Arc::new(AtomicBool::new(false)));
     }
     
     // 先计算总IP数量
@@ -185,49 +223,6 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     });
     
     ip_buffer
-}
-
-// 从URL获取IP段数据
-fn fetch_ip_from_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let async_task = async {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()?;
-
-        // 最多尝试3次
-        for i in 1..=3 {
-            if let Ok(resp) = client.get(url)
-                .header("User-Agent", USER_AGENT)
-                .send()
-                .await
-            {
-                if resp.status().is_success() {
-                    if let Ok(text) = resp.text().await {
-                        return Ok(text);
-                    }
-                }
-            }
-            // 只有在不是最后一次尝试时才打印重试信息和等待
-            if i < 3 {
-                println!("请求失败，正在重试 ({}/{})", i, 3);
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            } else {
-                println!("请求失败，已达到最大重试次数");
-            }
-        }
-
-        // 所有尝试都失败后返回错误
-        Err("从URL获取IP段数据失败".into())
-    };
-
-    // 检查是否已在异步上下文中，避免嵌套运行时
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => handle.block_on(async_task),
-        Err(_) => tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?
-            .block_on(async_task),
-    }
 }
 
 // 处理IP范围并发送到通道

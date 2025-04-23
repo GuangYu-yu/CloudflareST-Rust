@@ -25,22 +25,22 @@ pub struct Ping {
 
 impl Ping {
     pub async fn new(args: &Args) -> io::Result<Self> {
-        let (ip_buffer, csv, bar, max_loss_rate) = common::init_ping_test(args);
+        // 获取URL列表
+        let urlist = common::get_url_list(&args.url, &args.urlist).await;
         
-        // 解析 colo 过滤条件，使用 common 模块中的函数
+        if urlist.is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "警告：URL列表为空"));
+        }
+        
+        // 解析 colo 过滤条件
         let colo_filters = if !args.httping_cf_colo.is_empty() {
             common::parse_colo_filters(&args.httping_cf_colo)
         } else {
             Vec::new()
         };
         
-        // 使用common模块获取URL列表
-        let urlist = common::get_url_list(&args.url, &args.urlist).await;
-        
-        if urlist.is_empty() {
-            println!("警告：URL列表为空，将使用默认URL");
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "URL列表为空"));
-        }
+        // 初始化测试环境
+        let (ip_buffer, csv, bar, max_loss_rate) = common::init_ping_test(args);
         
         Ok(Ping {
             ip_buffer,

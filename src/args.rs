@@ -66,7 +66,7 @@ impl Args {
             disable_download: false,
             
             print_num: 10,
-            ip_file: "ip.txt".to_string(),
+            ip_file: String::new(),
             ip_text: String::new(),
             ip_url: String::new(),
             output: "result.csv".to_string(),
@@ -245,7 +245,7 @@ pub fn print_help() {
     println!("\n{}:", "基本参数".bold());
     print_arg!("-url", "测速地址 (https://example.com/file)", "[默认: 未指定]");
     print_arg!("-urlist", "从 URL 内读取测速地址列表 (https://example.com/url_list.txt)", "[默认: 未指定]");
-    print_arg!("-f", "从文件或文件路径读取 IP 或 CIDR", "[默认: ip.txt]");
+    print_arg!("-f", "从文件或文件路径读取 IP 或 CIDR", "[默认: 未指定]");
     print_arg!("-ip", "直接指定 IP 或 CIDR (多个用逗号分隔)", "[默认: 未指定]");
     print_arg!("-ipurl", "从URL读取 IP 或 CIDR (https://example.com/ip_list.txt)", "[默认: 未指定]");
     print_arg!("-o", "输出结果文件（文件名或文件路径）", "[默认: result.csv]");
@@ -282,6 +282,13 @@ pub fn parse_args() -> Args {
     if args.help {
         print_help();
         std::process::exit(0);
+    }
+    
+    // 检查IP来源参数是否至少指定了一个
+    if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
+        println!("错误: 必须指定一个或多个IP来源参数 (-f, -ipurl 或 -ip)");
+        println!("{}", "使用 -h 参数查看帮助".red());
+        std::process::exit(1);
     }
     
     // 检查测速地址是否为空（当需要下载测速或使用HTTP测速时）
