@@ -234,12 +234,9 @@ async fn httping(
     let port = common::get_tcp_port(args);
     let is_https = url_parts.scheme() == "https";
     
-    // 2. 进行多次测速
+    // 进行多次测速（并发执行）
     let ping_times = common::get_ping_times(args);
-    let mut success = 0;
-    let mut total_delay_ms = 0.0;
-    let mut data_center = String::new();
-    let mut first_request_success = false; // 标记是否是第一个成功的请求
+    let mut tasks = Vec::with_capacity(ping_times as usize);
 
     for _ in 0..ping_times {
         // 构建新的 reqwest 客户端
@@ -248,79 +245,82 @@ async fn httping(
             None => continue,
         };
         
-        let start_time = Instant::now();
-        
-        // 使用timeout监听请求，采用内部心跳方式
-        let mut interval = tokio::time::interval(Duration::from_millis(100));
-        
-        let result = tokio::time::timeout(args.max_delay, async {
-            // 创建请求future
-            let request_future = common::send_head_request(&client, is_https, host, port, path);
+        let host = host.to_string();
+        let path = path.to_string();
+        let task_id = task_id;
+        let args = args.clone();
+        let is_https = is_https;
+        let port = port;
+
+        tasks.push(tokio::spawn(async move {
+            let start_time = Instant::now();
             
-            // 使用select同时处理请求和心跳
-            tokio::pin!(request_future);
+            // 使用timeout监听请求，采用内部心跳方式
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
             
-            loop {
-                tokio::select! {
-                    request_result = &mut request_future => {
-                        return request_result;
-                    },
-                    _ = interval.tick() => {
-                        // 记录进度
-                        GLOBAL_POOL.record_progress(task_id);
+            let result = tokio::time::timeout(args.max_delay, async {
+                let request_future = common::send_head_request(&client, is_https, &host, port, &path);
+                tokio::pin!(request_future);
+                
+                loop {
+                    tokio::select! {
+                        request_result = &mut request_future => {
+                            return request_result;
+                        },
+                        _ = interval.tick() => {
+                            GLOBAL_POOL.record_progress(task_id);
+                        }
                     }
                 }
+            }).await;
+
+            (result, start_time)
+        }));
+    }
+
+    // 处理并发任务结果
+    let mut success = 0;
+    let mut total_delay_ms = 0.0;
+    let mut data_center = String::new();
+    let mut first_request_success = false;
+
+    for result in futures::future::join_all(tasks).await {
+        if let Ok((Ok(Some(response)), start_time)) = result {
+            // 获取状态码
+            let status_code = response.status().as_u16();
+            
+            if !common::is_valid_status_code(status_code, args) {
+                continue;
             }
-        }).await;
-        
-        match result {
-            Ok(Some(response)) => {
-                // 获取状态码
-                let status_code = response.status().as_u16();
-                
-                // 验证状态码 - 每次请求都验证
-                if !common::is_valid_status_code(status_code, args) {
-                    continue; // 状态码不匹配，当前请求算作失败
-                }
-                
-                // 如果这是第一个成功的请求，提取数据中心信息
-                if !first_request_success {
-                    first_request_success = true;
-                    
-                    // 提取数据中心信息
-                    if let Some(cf_ray) = response.headers().get("cf-ray") {
-                        if let Ok(cf_ray_str) = cf_ray.to_str() {
-                            data_center = common::extract_colo(cf_ray_str);
-                            
-                            // 只有当指定了 httping_cf_colo 参数时才进行数据中心匹配检查
-                            if !args.httping_cf_colo.is_empty() {
-                                // 检查数据中心是否匹配
-                                if !data_center.is_empty() && !colo_filters.is_empty() {
-                                    let dc_upper = data_center.to_uppercase();
-                                    if !colo_filters.iter().any(|filter| dc_upper == *filter) {
-                                        GLOBAL_POOL.end_task(task_id);
-                                        return None; // 数据中心不匹配，直接返回失败
-                                    }
+            
+            if !first_request_success {
+                first_request_success = true;
+                if let Some(cf_ray) = response.headers().get("cf-ray") {
+                    if let Ok(cf_ray_str) = cf_ray.to_str() {
+                        data_center = common::extract_colo(cf_ray_str);
+                        
+                        if !args.httping_cf_colo.is_empty() {
+                            if !data_center.is_empty() && !colo_filters.is_empty() {
+                                let dc_upper = data_center.to_uppercase();
+                                if !colo_filters.iter().any(|filter| dc_upper == *filter) {
+                                    GLOBAL_POOL.end_task(task_id);
+                                    return None;
                                 }
                             }
                         }
                     }
                 }
-                
-                // 请求成功
-                success += 1;
-                total_delay_ms += start_time.elapsed().as_secs_f32() * 1000.0;
-            },
-            _ => {
-                // 请求失败或超时
             }
+            
+            success += 1;
+            total_delay_ms += start_time.elapsed().as_secs_f32() * 1000.0;
         }
     }
 
-    // 3. 结束任务
+    // 结束任务
     GLOBAL_POOL.end_task(task_id);
 
-    // 4. 返回结果
+    // 返回结果
     if success > 0 {
         // 使用 common 模块中的函数计算延迟
         let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, success);
