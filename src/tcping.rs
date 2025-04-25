@@ -216,12 +216,23 @@ async fn tcping_handler(
 
 // 执行连接测试
 async fn check_connection(ip: IpAddr, args: &Args) -> (u16, f32) {
-    let mut recv = 0;
-    let mut total_delay_ms = 0.0;
     let ping_times = common::get_ping_times(args);
     
+    // 创建多个并发任务
+    let mut tasks = Vec::with_capacity(ping_times as usize);
     for _ in 0..ping_times {
-        if let Some(delay_ms) = tcping(ip, args).await {
+        tasks.push(tcping(ip, args));
+    }
+    
+    // 并行等待所有任务完成
+    let results = futures::future::join_all(tasks).await;
+    
+    // 处理结果
+    let mut recv = 0;
+    let mut total_delay_ms = 0.0;
+    
+    for result in results {
+        if let Some(delay_ms) = result {
             recv += 1;
             total_delay_ms += delay_ms;
         }
