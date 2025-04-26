@@ -4,7 +4,6 @@ use std::time::Instant;
 use std::io;
 use url::Url;
 use futures::stream::{FuturesUnordered, StreamExt};
-use tokio::time::Duration;
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -247,12 +246,7 @@ async fn httping(
     for _ in 0..ping_times {
         // 恢复CPU计时（客户端构建是CPU计算）
         cpu_timer.resume();
-        let client = match common::build_reqwest_client_with_host(
-            ip,
-            port,
-            host,
-            (args.max_delay + Duration::from_millis(500)).as_secs(),
-        ).await {
+        let client = match common::build_reqwest_client_with_host(ip, port, host, args.max_delay.as_millis().try_into().unwrap()).await {
             Some(client) => client,
             None => continue,
         };
@@ -264,18 +258,17 @@ async fn httping(
         let is_https = is_https;
         let port = port;
     
-        // 请求前添加延迟
-        // tokio::time::sleep(Duration::from_millis(100)).await;
-    
-        tasks.push(tokio::spawn(async move {
-            let start_time = Instant::now();
-            
-            let result = async {
-                // 直接等待请求完成
-                common::send_head_request(&client, is_https, &host, port, &path).await
-            }.await;
-    
-            (result, start_time)
+        tasks.push(tokio::spawn({
+            async move {
+                let start_time = Instant::now();
+                
+                let result = async {
+                    // 直接等待请求完成
+                    common::send_head_request(&client, is_https, &host, port, &path).await
+                }.await;
+        
+                (result, start_time)
+            }
         }));
     }
 

@@ -4,7 +4,6 @@ use std::time::Instant;
 use tokio::net::TcpStream;
 use std::io;
 use futures::stream::{FuturesUnordered, StreamExt};
-use tokio::time::{self, Duration};
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -12,7 +11,7 @@ use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use surge_ping::{Client, Config, PingIdentifier, PingSequence};
+use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 use rand::random;
 
 pub struct Ping {
@@ -189,7 +188,9 @@ async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
     // 创建CPU计时器
     let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
-    let connect_result = tokio::time::timeout(args.max_delay + Duration::from_millis(500), async {
+    let connect_result = tokio::time::timeout(
+        args.max_delay,
+        async {
         let start_time = Instant::now();
         
         // 暂停CPU计时(网络连接阶段)
@@ -221,7 +222,13 @@ async fn icmp_ping(ip: IpAddr, args: &Args) -> Option<f32> {
     GLOBAL_POOL.start_task();
     let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
-    let client = match Client::new(&Config::default()) {
+    // 根据IP地址类型配置Config
+    let config = match ip {
+        IpAddr::V4(_) => Config::default(),
+        IpAddr::V6(_) => Config::builder().kind(ICMP::V6).build(),
+    };
+
+    let client = match Client::new(&config) {
         Ok(c) => c,
         Err(_) => {
             GLOBAL_POOL.end_task();
@@ -231,27 +238,26 @@ async fn icmp_ping(ip: IpAddr, args: &Args) -> Option<f32> {
 
     let payload = [0; 56];
     let identifier = PingIdentifier(random::<u16>());
-    let timeout = args.max_delay + Duration::from_millis(500);
     let mut rtt = None;
 
-    let _ = time::timeout(timeout, async {
-        let start = Instant::now();
-        
+    // 设置pinger的超时
+    let mut pinger = client.pinger(ip, identifier).await;
+    pinger.timeout(args.max_delay);
+
+    let _ = async {
         // 暂停CPU计时(网络等待阶段)
         cpu_timer.pause();
-        let mut pinger = client.pinger(ip, identifier).await;
-        // 恢复CPU计时(结果处理阶段)
-        cpu_timer.resume();
-        
         match pinger.ping(PingSequence(0), &payload).await {
-            Ok((packet, _)) => {
-                rtt = Some(start.elapsed().as_secs_f32() * 1000.0);
+            Ok((packet, dur)) => {
+                rtt = Some(dur.as_secs_f32() * 1000.0);
                 // 结果处理(释放资源)在计时范围内
                 drop(packet);
             },
             Err(_) => {}
         }
-    }).await;
+        // 恢复CPU计时(结果处理阶段)
+        cpu_timer.resume();
+    }.await;
 
     cpu_timer.finish();
     GLOBAL_POOL.end_task();

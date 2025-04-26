@@ -261,12 +261,12 @@ impl ThreadPool {
             let cpu_ratio = p90_cpu_duration / cpu_duration;
             
             // 根据CPU时间和负载因子综合调整
-            let min_factor = 0.8;
-            let max_factor = 1.6;
+            let min_factor = 0.6;
+            let max_factor = 1.2;
             
             let cpu_weight = (cpu_ratio - 1.0).min(2.0).max(0.0);
             adjustment_factor = min_factor + (max_factor - min_factor) * 
-                ((1.0 - load_factor) * 0.7 + cpu_weight * 0.3);
+                ((1.0 - load_factor) * 0.4 + cpu_weight * 0.6);
         }
         
         // 计算新的每核心线程数
