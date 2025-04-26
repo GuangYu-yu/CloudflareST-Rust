@@ -4,6 +4,7 @@ use std::time::Instant;
 use std::io;
 use url::Url;
 use futures::stream::{FuturesUnordered, StreamExt};
+use tokio::time::Duration;
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -245,24 +246,28 @@ async fn httping(
 
     for _ in 0..ping_times {
         // 构建新的 reqwest 客户端
-        let client = match common::build_reqwest_client_with_host(ip, port, host, args.max_delay.as_millis() as u64).await {
+        let client = match common::build_reqwest_client_with_host(
+            ip,
+            port,
+            host,
+            (args.max_delay + Duration::from_millis(500)).as_secs(),
+        ).await {
             Some(client) => client,
             None => continue,
         };
         
         let host = host.to_string();
         let path = path.to_string();
-        let args = args.clone();
         let is_https = is_https;
         let port = port;
 
         tasks.push(tokio::spawn(async move {
             let start_time = Instant::now();
             
-            let result = tokio::time::timeout(args.max_delay, async {
+            let result = async {
                 // 直接等待请求完成
                 common::send_head_request(&client, is_https, &host, port, &path).await
-            }).await;
+            }.await;
 
             (result, start_time)
         }));
@@ -275,7 +280,7 @@ async fn httping(
     let mut first_request_success = false;
 
     for result in futures::future::join_all(tasks).await {
-        if let Ok((Ok(Some(response)), start_time)) = result {
+        if let Ok((Some(response), start_time)) = result {
             // 获取状态码
             let status_code = response.status().as_u16();
             

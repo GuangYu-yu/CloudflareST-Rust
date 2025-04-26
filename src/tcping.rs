@@ -4,6 +4,7 @@ use std::time::Instant;
 use tokio::net::TcpStream;
 use std::io;
 use futures::stream::{FuturesUnordered, StreamExt};
+use tokio::time::{self, Duration};
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -12,7 +13,6 @@ use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence};
-use tokio::time;
 use rand::random;
 
 pub struct Ping {
@@ -189,7 +189,7 @@ async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
     // 创建CPU计时器
     let cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
-    let connect_result = tokio::time::timeout(args.max_delay, async {
+    let connect_result = tokio::time::timeout(args.max_delay + Duration::from_millis(500), async {
         let start_time = Instant::now();
         match TcpStream::connect(&addr).await {
             Ok(stream) => {
@@ -224,7 +224,7 @@ async fn icmp_ping(ip: IpAddr, args: &Args) -> Option<f32> {
 
     let payload = [0; 56];
     let identifier = PingIdentifier(random::<u16>());
-    let timeout = args.max_delay;
+    let timeout = args.max_delay + Duration::from_millis(500);
     let mut rtt = None;
 
     let _ = time::timeout(timeout, async {
