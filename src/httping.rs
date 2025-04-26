@@ -212,7 +212,7 @@ async fn httping(
     GLOBAL_POOL.start_task();
     
     // 创建CPU计时器（仅测量本地CPU计算）
-    let cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
     // 解析URL（CPU计算部分）
     let url_parts = match Url::parse(url) {
@@ -237,15 +237,16 @@ async fn httping(
     let port = common::get_tcp_port(args);
     let is_https = url_parts.scheme() == "https";
     
-    // 在URL解析和客户端构建完成后结束CPU计时
-    cpu_timer.finish();
+    // URL解析完成，暂停CPU计时
+    cpu_timer.pause();
 
     // 进行多次测速（并发执行）
     let ping_times = common::get_ping_times(args);
     let mut tasks = Vec::with_capacity(ping_times as usize);
 
     for _ in 0..ping_times {
-        // 构建新的 reqwest 客户端
+        // 恢复CPU计时（客户端构建是CPU计算）
+        cpu_timer.resume();
         let client = match common::build_reqwest_client_with_host(
             ip,
             port,
@@ -255,6 +256,8 @@ async fn httping(
             Some(client) => client,
             None => continue,
         };
+        // 客户端构建完成，暂停CPU计时
+        cpu_timer.pause();
         
         let host = host.to_string();
         let path = path.to_string();
@@ -272,6 +275,9 @@ async fn httping(
             (result, start_time)
         }));
     }
+
+    // 所有请求发送完成，恢复CPU计时（准备处理结果）
+    cpu_timer.resume();
 
     // 处理并发任务结果
     let mut success = 0;
@@ -311,6 +317,9 @@ async fn httping(
             total_delay_ms += start_time.elapsed().as_secs_f32() * 1000.0;
         }
     }
+
+    // 所有结果处理完成，结束CPU计时
+    cpu_timer.finish();
 
     // 结束任务
     GLOBAL_POOL.end_task();

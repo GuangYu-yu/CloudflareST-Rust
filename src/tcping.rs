@@ -187,13 +187,20 @@ async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
     GLOBAL_POOL.start_task();
     
     // 创建CPU计时器
-    let cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
     let connect_result = tokio::time::timeout(args.max_delay + Duration::from_millis(500), async {
         let start_time = Instant::now();
-        match TcpStream::connect(&addr).await {
+        
+        // 暂停CPU计时(网络连接阶段)
+        cpu_timer.pause();
+        let stream_result = TcpStream::connect(&addr).await;
+        // 恢复CPU计时(结果处理阶段)
+        cpu_timer.resume();
+        
+        match stream_result {
             Ok(stream) => {
-                // 立即关闭连接以释放资源
+                // 结果处理(关闭连接等操作)在计时范围内
                 let _ = stream.set_linger(None);
                 drop(stream);
                 cpu_timer.finish();
@@ -206,20 +213,20 @@ async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
     // 结束任务
     GLOBAL_POOL.end_task();
     
-    match connect_result {
-        Ok(result) => result,
-        Err(_) => None,
-    }
+    connect_result.unwrap_or(None)
 }
 
 // ICMP ping函数
 async fn icmp_ping(ip: IpAddr, args: &Args) -> Option<f32> {
     GLOBAL_POOL.start_task();
-    let cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
     let client = match Client::new(&Config::default()) {
         Ok(c) => c,
-        Err(_) => return None,
+        Err(_) => {
+            GLOBAL_POOL.end_task();
+            return None;
+        },
     };
 
     let payload = [0; 56];
@@ -229,10 +236,17 @@ async fn icmp_ping(ip: IpAddr, args: &Args) -> Option<f32> {
 
     let _ = time::timeout(timeout, async {
         let start = Instant::now();
+        
+        // 暂停CPU计时(网络等待阶段)
+        cpu_timer.pause();
         let mut pinger = client.pinger(ip, identifier).await;
+        // 恢复CPU计时(结果处理阶段)
+        cpu_timer.resume();
+        
         match pinger.ping(PingSequence(0), &payload).await {
             Ok((packet, _)) => {
                 rtt = Some(start.elapsed().as_secs_f32() * 1000.0);
+                // 结果处理(释放资源)在计时范围内
                 drop(packet);
             },
             Err(_) => {}

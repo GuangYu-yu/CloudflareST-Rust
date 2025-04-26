@@ -79,13 +79,34 @@ impl Drop for CustomPermit {
 
 pub struct CpuTimer<'a> {
     start: Instant,
+    paused: Option<Instant>,
+    total_paused: Duration,
     pool: &'a ThreadPool,
 }
 
 impl<'a> CpuTimer<'a> {
+    // 记录暂停时的累计时间
+    pub fn pause(&mut self) {
+        if self.paused.is_none() {
+            self.paused = Some(Instant::now());
+        }
+    }
+
+    // 恢复计时
+    pub fn resume(&mut self) {
+        if let Some(pause_time) = self.paused.take() {
+            self.total_paused += pause_time.elapsed();
+        }
+    }
+
+    // 结束计时
     pub fn finish(self) {
-        let duration = self.start.elapsed();
-        self.pool.record_cpu_duration(duration);
+        let elapsed = if let Some(pause_time) = self.paused {
+            pause_time - self.start - self.total_paused
+        } else {
+            self.start.elapsed() - self.total_paused
+        };
+        self.pool.record_cpu_duration(elapsed);
     }
 }
 
@@ -194,6 +215,8 @@ impl ThreadPool {
     pub fn start_cpu_timer(&self) -> CpuTimer {
         CpuTimer {
             start: Instant::now(),
+            paused: None,
+            total_paused: Duration::default(),
             pool: self,
         }
     }
