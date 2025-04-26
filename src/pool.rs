@@ -271,9 +271,9 @@ impl ThreadPool {
         
         // 计算新的每核心线程数
         let mut new_threads_per_core = ((current_threads_per_core as f64 * adjustment_factor) as usize)
-            .max(32)  // 最小每核心32个线程
-            .min(256) // 最大每核心256个线程
-            .min(1024 / self.cpu_count); // 总线程数不超过1024
+            .max(32)  // 最小每核心线程数
+            .min(256) // 最大每核心线程数
+            .min(1024 / self.cpu_count); // 总线程数上限
         
         // 防止频繁小幅度调整
         if (new_threads_per_core as f64 / current_threads_per_core as f64 - 1.0).abs() < 0.1 {

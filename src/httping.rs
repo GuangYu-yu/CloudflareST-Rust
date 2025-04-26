@@ -263,7 +263,10 @@ async fn httping(
         let path = path.to_string();
         let is_https = is_https;
         let port = port;
-
+    
+        // 请求前添加延迟
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    
         tasks.push(tokio::spawn(async move {
             let start_time = Instant::now();
             
@@ -271,7 +274,7 @@ async fn httping(
                 // 直接等待请求完成
                 common::send_head_request(&client, is_https, &host, port, &path).await
             }.await;
-
+    
             (result, start_time)
         }));
     }
