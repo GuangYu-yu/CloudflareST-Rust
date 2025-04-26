@@ -251,7 +251,7 @@ macro_rules! print_arg {
 }
 
 pub fn print_help() {
-    println!("{}", "CloudflareST-Rust".bold().blue());
+    println!("{}", "# CloudflareST-Rust".bold().blue());
     
     // 基本参数
     println!("\n{}:", "基本参数".bold());
