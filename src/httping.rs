@@ -25,8 +25,16 @@ pub struct Ping {
 
 impl Ping {
     pub async fn new(args: &Args) -> io::Result<Self> {
-        // 获取URL列表
-        let urlist = common::get_url_list(&args.url, &args.urlist).await;
+        // 优先使用-hu参数指定的URL列表
+        let urlist = if !args.httping_urls.is_empty() {
+            args.httping_urls.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        } else {
+            // 如果没有-hu参数，则使用-url或-urlist
+            common::get_url_list(&args.url, &args.urlist).await
+        };
         
         if urlist.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "警告：URL列表为空"));

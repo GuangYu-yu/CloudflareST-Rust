@@ -15,6 +15,7 @@ pub struct Args {
     pub httping: bool,           // 是否使用HTTP测速
     pub httping_status_code: Option<u16>, // HTTP有效状态码，None表示接受200、301、302
     pub httping_cf_colo: String, // 匹配指定地区
+    pub httping_urls: String,    // 指定Httping模式的测速地址
     
     // 延迟过滤相关
     pub max_delay: Duration,     // 平均延迟上限
@@ -56,6 +57,7 @@ impl Args {
             httping: false,
             httping_status_code: None,
             httping_cf_colo: String::new(),
+            httping_urls: String::new(),
             
             max_delay: Duration::from_millis(2000),
             min_delay: Duration::from_millis(0),
@@ -208,6 +210,9 @@ impl Args {
                         // 解析超时时间
                         parsed.global_timeout_duration = parse_duration(&args[i + 1]);
                     },
+                    "hu" => {
+                        parsed.httping_urls = args[i + 1].clone();
+                    },
                     _ => {}
                 }
                 i += 2;  // 跳过参数名和值
@@ -250,7 +255,7 @@ pub fn print_help() {
     
     // 基本参数
     println!("\n{}:", "基本参数".bold());
-    print_arg!("-url", "测速地址 (https://example.com/file)", "[默认: 未指定]");
+    print_arg!("-url", "Httping模式和下载测速所使用的测速地址 (https://example.com/file)", "[默认: 未指定]");
     print_arg!("-urlist", "从 URL 内读取测速地址列表 (https://example.com/url_list.txt)", "[默认: 未指定]");
     print_arg!("-f", "从文件或文件路径读取 IP 或 CIDR", "[默认: 未指定]");
     print_arg!("-ip", "直接指定 IP 或 CIDR (多个用逗号分隔)", "[默认: 未指定]");
@@ -272,7 +277,8 @@ pub fn print_help() {
     println!("\n{}:", "测速选项".bold());
     print_arg!("-httping", "Httping模式", "[默认: 否]");
     print_arg!("-ping", "ICMP-Ping测速模式", "[默认: 否]");
-    print_arg!("-hc", "有效状态码", "[默认: 接受200/301/302]");
+    print_arg!("-hc", "Httping模式的有效状态码", "[默认: 接受200/301/302]");
+    print_arg!("-hu", "只使用这条参数所指定的 URL 作为Httping模式的测速地址，多条用逗号分隔", "[默认: 未指定]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]");
     
     // 筛选参数
@@ -299,9 +305,16 @@ pub fn parse_args() -> Args {
         std::process::exit(1);
     }
     
-    // 检查测速地址是否为空（当需要下载测速或使用HTTP测速时）
-    if args.url.is_empty() && args.urlist.is_empty() && (!args.disable_download || args.httping) {
-        println!("错误: 未设置测速地址，在使用 -httping 或没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定测速地址");
+    // 检查HTTP测速地址（当使用-httping时）
+    if args.httping && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {
+        println!("错误: 使用 -httping 参数时，请使用 -hu, -url 或 -urlist 参数指定Httping模式的测速地址");
+        println!("{}", "使用 -h 参数查看帮助".red());
+        std::process::exit(1);
+    }
+    
+    // 检查下载测速地址（当没有使用-dd时）
+    if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
+        println!("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址");
         println!("{}", "使用 -h 参数查看帮助".red());
         std::process::exit(1);
     }
