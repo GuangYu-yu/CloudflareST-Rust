@@ -265,7 +265,7 @@ async fn httping(
         let port = port;
     
         // 请求前添加延迟
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // tokio::time::sleep(Duration::from_millis(100)).await;
     
         tasks.push(tokio::spawn(async move {
             let start_time = Instant::now();
