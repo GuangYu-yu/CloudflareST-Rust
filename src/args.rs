@@ -5,7 +5,8 @@ use colored::*;
 #[derive(Clone)]
 pub struct Args {
     // 延迟测速相关
-    pub ping_times: u16,       // 延迟测速次数
+    pub icmp_ping: bool,        // 是否使用ICMP Ping测速
+    pub ping_times: u16,        // 延迟测速次数
     pub tcp_port: u16,           // 指定测速端口
     pub url: String,             // 指定测速地址
     pub urlist: String,          // 指定测速地址列表
@@ -46,6 +47,7 @@ pub struct Args {
 impl Args {
     pub fn new() -> Self {
         Self {
+            icmp_ping: false,
             ping_times: 4,
             tcp_port: 443,
             url: String::new(),
@@ -105,6 +107,11 @@ impl Args {
                 },
                 "httping" => {
                     parsed.httping = true;
+                    i += 1;
+                    continue;
+                },
+                "ping" => {
+                    parsed.icmp_ping = true;
                     i += 1;
                     continue;
                 },
@@ -261,9 +268,10 @@ pub fn print_help() {
     print_arg!("-dd", "禁用下载测速", "[默认: 否]");
     print_arg!("-all4", "测速全部IPv4", "[默认: 否]");
     
-    // HTTP测速选项
-    println!("\n{}:", "HTTP测速选项".bold());
+    // 测速选项
+    println!("\n{}:", "测速选项".bold());
     print_arg!("-httping", "Httping模式", "[默认: 否]");
+    print_arg!("-ping", "ICMP-Ping测速模式", "[默认: 否]");
     print_arg!("-hc", "有效状态码", "[默认: 接受200/301/302]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]");
     

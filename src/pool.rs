@@ -1,160 +1,301 @@
 use std::sync::Arc;
-use tokio::sync::{Semaphore, OwnedSemaphorePermit};
+use tokio::sync::Semaphore;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use std::collections::{HashMap, VecDeque};
 use num_cpus;
+use lazy_static::lazy_static;
+use std::mem::ManuallyDrop;
 
-pub struct DynamicThreadPool {
+// 简化的线程池实现
+pub struct ThreadPool {
+    // 使用信号量控制并发
     semaphore: Arc<Semaphore>,
-    stats: Arc<Mutex<ThreadStats>>,
+    // 任务计数器
+    task_counter: Arc<AtomicUsize>,
+    // 活跃任务数
+    active_tasks: Arc<AtomicUsize>,
+    // 保留一些统计信息
+    stats: Arc<Mutex<PoolStats>>,
+    // CPU核心数
     cpu_count: usize,
+    // 当前允许的最大许可数
+    max_permits: Arc<AtomicUsize>,
+    // 当前活跃许可计数
+    current_permits: Arc<AtomicUsize>,
 }
 
-struct ThreadStats {
+struct PoolStats {
+    // 每核心线程数
     threads_per_core: usize,
-    stalled_tasks: usize,
-    active_tasks: usize,
+    // 上次调整时间
     last_adjust: Instant,
-    last_progress: Arc<Mutex<HashMap<usize, Instant>>>,
-    // 添加可用ID队列
-    available_ids: VecDeque<usize>,
-    next_id: usize, // 下一个未使用的ID
+    // 总任务执行时间统计
+    total_duration: f64,
+    // CPU计算时间统计
+    cpu_duration: f64,
+    p90_cpu_duration: f64,
+    ewma_factor: f64,
+    // 最近一次调整的方向 (1: 增加, -1: 减少, 0: 不变)
+    last_adjustment_direction: i8,
+    // 连续相同方向调整的次数
+    consecutive_adjustments: usize,
 }
 
-impl DynamicThreadPool {
+pub struct CustomPermit {
+    permit: ManuallyDrop<tokio::sync::OwnedSemaphorePermit>,
+    max_permits: Arc<AtomicUsize>,
+    current_permits: Arc<AtomicUsize>,
+    dropped: bool,
+}
+
+impl Drop for CustomPermit {
+    fn drop(&mut self) {
+        if self.dropped {
+            return;
+        }
+        
+        // 获取当前许可计数和最大许可数
+        let current = self.current_permits.load(Ordering::SeqCst);
+        let max = self.max_permits.load(Ordering::SeqCst);
+        
+        // 减少当前活跃许可计数
+        self.current_permits.fetch_sub(1, Ordering::SeqCst);
+        
+        // 如果当前许可数超过最大许可数，则不返回到信号量池中
+        if current > max {
+            // 标记为已处理，避免重复处理
+            self.dropped = true;
+            return;
+        }
+        
+        // 正常返回许可
+        unsafe {
+            ManuallyDrop::drop(&mut self.permit);
+        }
+        self.dropped = true;
+    }
+}
+
+pub struct CpuTimer<'a> {
+    start: Instant,
+    pool: &'a ThreadPool,
+}
+
+impl<'a> CpuTimer<'a> {
+    pub fn finish(self) {
+        let duration = self.start.elapsed();
+        self.pool.record_cpu_duration(duration);
+    }
+}
+
+impl ThreadPool {
     pub fn new() -> Self {
         let cpu_count = num_cpus::get();
-        let initial_threads = cpu_count * 64;
+        // 初始每核心64个线程
+        let initial_threads_per_core = 64;
+        let initial_threads = cpu_count * initial_threads_per_core;
         
-        // 创建一个空的可用ID队列
-        let available_ids = VecDeque::new();
-        
-        Self {
+        let pool = Self {
             semaphore: Arc::new(Semaphore::new(initial_threads)),
-            stats: Arc::new(Mutex::new(ThreadStats {
-                threads_per_core: 64,
-                stalled_tasks: 0,
-                active_tasks: 0,
+            task_counter: Arc::new(AtomicUsize::new(1)), // 从1开始
+            active_tasks: Arc::new(AtomicUsize::new(0)),
+            max_permits: Arc::new(AtomicUsize::new(initial_threads)),
+            current_permits: Arc::new(AtomicUsize::new(0)),
+            stats: Arc::new(Mutex::new(PoolStats {
+                threads_per_core: initial_threads_per_core,
                 last_adjust: Instant::now(),
-                last_progress: Arc::new(Mutex::new(HashMap::new())),
-                available_ids,
-                next_id: 1, // 从1开始分配ID
+                total_duration: 0.0,
+                cpu_duration: 0.0,
+                p90_cpu_duration: 0.0,
+                ewma_factor: 0.1,
+                last_adjustment_direction: 0,
+                consecutive_adjustments: 0,
             })),
             cpu_count,
+        };
+        
+        // 启动后台调整任务
+        let pool_clone = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                pool_clone.adjust_threads();
+            }
+        });
+        
+        pool
+    }
+    
+    // 克隆线程池
+    fn clone(&self) -> Self {
+        Self {
+            semaphore: self.semaphore.clone(),
+            task_counter: self.task_counter.clone(),
+            active_tasks: self.active_tasks.clone(),
+            stats: self.stats.clone(),
+            cpu_count: self.cpu_count,
+            max_permits: self.max_permits.clone(),
+            current_permits: self.current_permits.clone(),
         }
     }
-
-    // 添加获取当前并发级别的方法
+    
+    // 获取当前并发级别
     pub fn get_concurrency_level(&self) -> usize {
         let stats = self.stats.lock().unwrap();
         self.cpu_count * stats.threads_per_core
     }
-
-    // 获取任务ID的新方法
-    pub fn get_task_id(&self) -> usize {
+    
+    // 开始任务
+    pub fn start_task(&self) {
+        self.active_tasks.fetch_add(1, Ordering::SeqCst);
+    }
+    
+    // 结束任务
+    pub fn end_task(&self) {
+        self.active_tasks.fetch_sub(1, Ordering::SeqCst);
+    }
+    
+    // 记录总任务执行时间
+    pub fn record_task_duration(&self, duration: Duration) {
+        let duration_ms = duration.as_secs_f64() * 1000.0;
+        let mut stats = self.stats.lock().unwrap();
+        stats.total_duration = duration_ms;
+    }
+    
+    // 记录CPU计算时间
+    pub fn record_cpu_duration(&self, duration: Duration) {
+        let duration_ms = duration.as_secs_f64() * 1000.0;
         let mut stats = self.stats.lock().unwrap();
         
-        // 优先从可用ID队列中获取
-        if let Some(id) = stats.available_ids.pop_front() {
-            return id;
+        // 使用EWMA更新CPU时间统计
+        if stats.cpu_duration == 0.0 {
+            // 首次初始化
+            stats.cpu_duration = duration_ms;
+            stats.p90_cpu_duration = duration_ms;
+        } else {
+            // 更新统计值
+            stats.cpu_duration = stats.cpu_duration * (1.0 - stats.ewma_factor) + 
+                               duration_ms * stats.ewma_factor;
+            
+            // 如果当前值大于P90，则更新P90
+            if duration_ms > stats.p90_cpu_duration {
+                stats.p90_cpu_duration = stats.p90_cpu_duration * (1.0 - stats.ewma_factor) + 
+                                    duration_ms * stats.ewma_factor;
+            } else {
+                // 缓慢降低P90
+                stats.p90_cpu_duration = stats.p90_cpu_duration * (1.0 - stats.ewma_factor * 0.1);
+            }
         }
-        
-        // 如果没有可用ID，则分配新ID
-        let id = stats.next_id;
-        stats.next_id += 1;
-        
-        // 确保ID不超过一个较大的值
-        if stats.next_id > 10_000 {
-            // 如果所有ID都已分配，则从1重新开始
-            // 这种情况应该很少发生，因为我们会回收ID
-            stats.next_id = 1;
+    }
+    
+    // 开始CPU计时
+    pub fn start_cpu_timer(&self) -> CpuTimer {
+        CpuTimer {
+            start: Instant::now(),
+            pool: self,
         }
-        
-        id
     }
-
-    pub async fn acquire(&self) -> OwnedSemaphorePermit {
-        self.adjust_threads();
-        self.semaphore.clone().acquire_owned().await.unwrap()
-    }
-
-    pub fn record_progress(&self, task_id: usize) {
-        let stats = self.stats.lock().unwrap();
-        stats.last_progress.lock().unwrap().insert(task_id, Instant::now());
-    }
-
-    pub fn start_task(&self, task_id: usize) {
-        let mut stats = self.stats.lock().unwrap();
-        stats.active_tasks += 1;
-        stats.last_progress.lock().unwrap().insert(task_id, Instant::now());
-    }
-
-    pub fn end_task(&self, task_id: usize) {
-        let mut stats = self.stats.lock().unwrap();
-        stats.active_tasks -= 1;
-        stats.last_progress.lock().unwrap().remove(&task_id);
-        
-        // 回收任务ID
-        stats.available_ids.push_back(task_id);
-    }
-
-    fn adjust_threads(&self) {
+    
+    // 动态调整线程数（基于CPU时间）
+    pub fn adjust_threads(&self) {
         let now = Instant::now();
         
-        // 增加初始等待时间
-        if now.duration_since(self.stats.lock().unwrap().last_adjust) < Duration::from_secs(5) {
+        // 先检查是否需要调整
+        {
+            let stats = self.stats.lock().unwrap();
+            if now.duration_since(stats.last_adjust) < Duration::from_secs(5) {
+                return;
+            }
+        }
+        
+        // 获取当前活跃任务数
+        let active_tasks = self.active_tasks.load(Ordering::SeqCst);
+        if active_tasks == 0 {
             return;
         }
-
-        let adjust_needed = {
+        
+        // 获取必要的统计信息，但尽快释放锁
+        let (current_threads_per_core, cpu_duration, p90_cpu_duration) = {
             let stats = self.stats.lock().unwrap();
-            now.duration_since(stats.last_adjust) >= Duration::from_secs(1)
+            (
+                stats.threads_per_core,
+                stats.cpu_duration,
+                stats.p90_cpu_duration
+            )
         };
-
-        if !adjust_needed {
-            return;
-        }
-
-        let (stalled, active_tasks, current_threads) = {
-            let stats = self.stats.lock().unwrap();
-            let progress_map = stats.last_progress.lock().unwrap();
+        
+        // 计算负载因子 (活跃任务数 / 总线程数)
+        let total_threads = self.cpu_count * current_threads_per_core;
+        let load_factor = active_tasks as f64 / total_threads as f64;
+        
+        // 分析CPU计算时间
+        let mut adjustment_factor = 1.0;
+        
+        if cpu_duration > 0.0 {
+            // 计算CPU时间波动比
+            let cpu_ratio = p90_cpu_duration / cpu_duration;
             
-            // 超过3秒没有心跳的任务视为卡住
-            let stalled = progress_map.iter()
-                .filter(|(_, last_time)| now.duration_since(**last_time) > Duration::from_secs(3))
-                .count();
-                
-            (stalled, stats.active_tasks, stats.threads_per_core)
-        };
-
-        // 只有当有活跃任务时才进行调整
-        if active_tasks > 0 {
-            let stall_ratio = stalled as f64 / active_tasks as f64;
-            let mut stats = self.stats.lock().unwrap();
-            stats.stalled_tasks = stalled;
-
-            // 根据卡顿比例调整因子
+            // 根据CPU时间和负载因子综合调整
             let min_factor = 0.6;
             let max_factor = 1.2;
-            let adjustment_factor = min_factor + (max_factor - min_factor) * (1.0 - stall_ratio);
-
-            // 计算新的每核心线程数
-            let new_threads_per_core = ((current_threads as f64 * adjustment_factor) as usize)
-                .max(32)  // 最小每核心32个线程
-                .min(256) // 最大每核心256个线程
-                .min(1024 / self.cpu_count); // 总线程数不超过1024
-
-            // 只有当线程数需要变化时才进行调整
-            if new_threads_per_core != current_threads {
+            
+            let cpu_weight = (cpu_ratio - 1.0).min(2.0).max(0.0);
+            adjustment_factor = min_factor + (max_factor - min_factor) * 
+                ((1.0 - load_factor) * 0.7 + cpu_weight * 0.3);
+        }
+        
+        // 计算新的每核心线程数
+        let mut new_threads_per_core = ((current_threads_per_core as f64 * adjustment_factor) as usize)
+            .max(32)  // 最小每核心32个线程
+            .min(256) // 最大每核心256个线程
+            .min(1024 / self.cpu_count); // 总线程数不超过1024
+        
+        // 防止频繁小幅度调整
+        if (new_threads_per_core as f64 / current_threads_per_core as f64 - 1.0).abs() < 0.1 {
+            new_threads_per_core = current_threads_per_core;
+        }
+        
+        // 只有当线程数需要变化时才再次获取锁
+        if new_threads_per_core != current_threads_per_core {
+            let mut stats = self.stats.lock().unwrap();
+            
+            // 再次检查，避免在获取锁期间其他线程已经调整过
+            if new_threads_per_core != stats.threads_per_core {
                 let new_total = new_threads_per_core * self.cpu_count;
-                let current_total = current_threads * self.cpu_count;
+                let current_total = stats.threads_per_core * self.cpu_count;
+                
+                // 确定调整方向
+                let direction = if new_threads_per_core > stats.threads_per_core { 1 } else { -1 };
+                
+                // 检查是否连续同向调整
+                if direction == stats.last_adjustment_direction {
+                    stats.consecutive_adjustments += 1;
+                } else {
+                    stats.consecutive_adjustments = 1;
+                }
+                
+                // 如果连续同向调整次数过多，增加调整幅度
+                if stats.consecutive_adjustments > 3 {
+                    if direction > 0 {
+                        new_threads_per_core = (new_threads_per_core * 12 / 10)
+                            .min(256)
+                            .min(1024 / self.cpu_count);
+                    } else {
+                        new_threads_per_core = (new_threads_per_core * 8 / 10).max(32);
+                    }
+                }
+                
+                stats.last_adjustment_direction = direction;
                 
                 if new_total > current_total {
                     // 增加线程数
                     self.semaphore.add_permits(new_total - current_total);
+                    self.max_permits.store(new_total, Ordering::SeqCst);
                 } else if new_total < current_total {
-                    // 注意：Semaphore不支持直接减少permits，但会随着任务完成自然减少
+                    // 更新最大许可数，新的许可将受此限制
+                    self.max_permits.store(new_total, Ordering::SeqCst);
                 }
                 
                 stats.threads_per_core = new_threads_per_core;
@@ -162,36 +303,48 @@ impl DynamicThreadPool {
             }
         }
     }
+    
+    // 获取信号量许可
+    pub async fn acquire(&self) -> CustomPermit {
+        // 获取许可
+        let permit = self.semaphore.clone().acquire_owned().await.unwrap();
+        
+        // 更新当前活跃许可计数
+        self.current_permits.fetch_add(1, Ordering::SeqCst);
+        
+        // 返回自定义许可包装
+        CustomPermit {
+            permit: ManuallyDrop::new(permit),
+            max_permits: self.max_permits.clone(),
+            current_permits: self.current_permits.clone(),
+            dropped: false,
+        }
+    }
 }
 
 // 全局线程池
-lazy_static::lazy_static! {
-    pub static ref GLOBAL_POOL: DynamicThreadPool = DynamicThreadPool::new();
+lazy_static! {
+    pub static ref GLOBAL_POOL: ThreadPool = ThreadPool::new();
 }
 
-/// 执行带线程池控制的操作
+// 执行带线程池控制的操作
 pub async fn execute_with_rate_limit<F, Fut, T, E>(f: F) -> Result<T, E>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
 {
-    // 使用池分配的任务ID，而不是随机生成
-    let task_id = GLOBAL_POOL.get_task_id();
-    
-    // 开始任务
-    GLOBAL_POOL.start_task(task_id);
-    
-    // 获取线程许可
+    // 开始任务（内部会处理活跃任务计数）
     let _permit = GLOBAL_POOL.acquire().await;
     
-    // 记录进度
-    GLOBAL_POOL.record_progress(task_id);
+    // 记录开始时间
+    let start_time = Instant::now();
     
     // 执行操作
     let result = f().await;
     
-    // 结束任务
-    GLOBAL_POOL.end_task(task_id);
+    // 记录总任务执行时间
+    GLOBAL_POOL.record_task_duration(start_time.elapsed());
     
+    // 结束任务（CustomPermit的Drop实现会自动处理）
     result
 }

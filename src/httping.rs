@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::io;
 use url::Url;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -88,6 +88,25 @@ impl Ping {
         let initial_tasks = GLOBAL_POOL.get_concurrency_level();
         let mut url_index = 0;
 
+        let add_task = |ip: IpAddr, url_index: &mut usize, tasks: &mut FuturesUnordered<_>| {
+            // 选择URL (轮询)
+            let url = urlist[*url_index % urlist.len()].clone();
+            *url_index += 1;
+
+            let csv_clone = Arc::clone(&csv);
+            let bar_clone = Arc::clone(&bar);
+            let args_clone = args.clone();
+            let colo_filters_clone = colo_filters.clone();
+            let success_count_clone = Arc::clone(&success_count);
+
+            tasks.push(tokio::spawn(async move {
+                execute_with_rate_limit(|| async move {
+                    httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url, success_count_clone).await;
+                    Ok::<(), io::Error>(())
+                }).await.unwrap();
+            }));
+        };
+
         // 初始填充任务队列
         for _ in 0..initial_tasks {
             let ip = {
@@ -96,22 +115,7 @@ impl Ping {
             };
             
             if let Some(ip) = ip {
-                // 选择URL (轮询)
-                let url = urlist[url_index % urlist.len()].clone();
-                url_index += 1;
-
-                let csv_clone = Arc::clone(&csv);
-                let bar_clone = Arc::clone(&bar);
-                let args_clone = args.clone();
-                let colo_filters_clone = colo_filters.clone();
-                let success_count_clone = Arc::clone(&success_count);
-
-                tasks.push(tokio::spawn(async move {
-                    execute_with_rate_limit(|| async move {
-                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url, success_count_clone).await;
-                        Ok::<(), io::Error>(())
-                    }).await.unwrap();
-                }));
+                add_task(ip, &mut url_index, &mut tasks);
             } else {
                 break;
             }
@@ -129,22 +133,7 @@ impl Ping {
             };
             
             if let Some(ip) = ip {
-                // 选择URL (轮询)
-                let url = urlist[url_index % urlist.len()].clone();
-                url_index += 1;
-
-                let csv_clone = Arc::clone(&csv);
-                let bar_clone = Arc::clone(&bar);
-                let args_clone = args.clone();
-                let colo_filters_clone = colo_filters.clone();
-                let success_count_clone = Arc::clone(&success_count);
-                
-                tasks.push(tokio::spawn(async move {
-                    execute_with_rate_limit(|| async move {
-                        httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url, success_count_clone).await;
-                        Ok::<(), io::Error>(())
-                    }).await.unwrap();
-                }));
+                add_task(ip, &mut url_index, &mut tasks);
             }
         }
 
@@ -209,15 +198,19 @@ async fn httping(
     colo_filters: &[String],
     url: &str
 ) -> Option<(u16, f32, String)> {
-    // 使用GLOBAL_POOL获取任务ID
-    let task_id = GLOBAL_POOL.get_task_id();
-    GLOBAL_POOL.start_task(task_id);
     
-    // 解析URL
+    // 开始任务
+    GLOBAL_POOL.start_task();
+    
+    // 创建CPU计时器（仅测量本地CPU计算）
+    let cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    
+    // 解析URL（CPU计算部分）
     let url_parts = match Url::parse(url) {
         Ok(parts) => parts,
         Err(_) => {
-            GLOBAL_POOL.end_task(task_id);
+            // 结束任务
+            GLOBAL_POOL.end_task();
             return None;
         }
     };
@@ -225,7 +218,8 @@ async fn httping(
     let host = match url_parts.host_str() {
         Some(host) => host,
         None => {
-            GLOBAL_POOL.end_task(task_id);
+            // 结束任务
+            GLOBAL_POOL.end_task();
             return None;
         }
     };
@@ -234,6 +228,9 @@ async fn httping(
     let port = common::get_tcp_port(args);
     let is_https = url_parts.scheme() == "https";
     
+    // 在URL解析和客户端构建完成后结束CPU计时
+    cpu_timer.finish();
+
     // 进行多次测速（并发执行）
     let ping_times = common::get_ping_times(args);
     let mut tasks = Vec::with_capacity(ping_times as usize);
@@ -247,7 +244,6 @@ async fn httping(
         
         let host = host.to_string();
         let path = path.to_string();
-        let task_id = task_id;
         let args = args.clone();
         let is_https = is_https;
         let port = port;
@@ -255,23 +251,9 @@ async fn httping(
         tasks.push(tokio::spawn(async move {
             let start_time = Instant::now();
             
-            // 使用timeout监听请求，采用内部心跳方式
-            let mut interval = tokio::time::interval(Duration::from_millis(100));
-            
             let result = tokio::time::timeout(args.max_delay, async {
-                let request_future = common::send_head_request(&client, is_https, &host, port, &path);
-                tokio::pin!(request_future);
-                
-                loop {
-                    tokio::select! {
-                        request_result = &mut request_future => {
-                            return request_result;
-                        },
-                        _ = interval.tick() => {
-                            GLOBAL_POOL.record_progress(task_id);
-                        }
-                    }
-                }
+                // 直接等待请求完成
+                common::send_head_request(&client, is_https, &host, port, &path).await
             }).await;
 
             (result, start_time)
@@ -303,7 +285,7 @@ async fn httping(
                             if !data_center.is_empty() && !colo_filters.is_empty() {
                                 let dc_upper = data_center.to_uppercase();
                                 if !colo_filters.iter().any(|filter| dc_upper == *filter) {
-                                    GLOBAL_POOL.end_task(task_id);
+                                    GLOBAL_POOL.end_task();
                                     return None;
                                 }
                             }
@@ -318,7 +300,7 @@ async fn httping(
     }
 
     // 结束任务
-    GLOBAL_POOL.end_task(task_id);
+    GLOBAL_POOL.end_task();
 
     // 返回结果
     if success > 0 {

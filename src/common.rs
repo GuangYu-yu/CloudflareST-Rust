@@ -18,7 +18,7 @@ pub struct PingData {
     pub sent: u16,
     pub received: u16,
     pub delay: f32,
-    pub download_speed: f32,
+    pub download_speed: Option<f32>,
     pub data_center: String,
 }
 
@@ -29,7 +29,7 @@ impl PingData {
             sent,
             received,
             delay,
-            download_speed: 0.0,
+            download_speed: None,
             data_center: String::new(),
         }
     }
@@ -56,7 +56,7 @@ pub fn print_speed_test_info(mode: &str, port: u16, min_delay: Duration, max_del
 }
 
 /// 从 PingResult 中提取速度、丢包率和延迟信息
-pub fn extract_ping_metrics(result: &PingResult) -> (f32, f32, f32) {
+pub fn extract_ping_metrics(result: &PingResult) -> (Option<f32>, f32, f32) {
     match result {
         PingResult::Http(data) => (data.download_speed, data.loss_rate(), data.delay),
         PingResult::Tcp(data) => (data.download_speed, data.loss_rate(), data.delay),
@@ -245,7 +245,10 @@ pub fn ping_data_to_csv_record(data: &PingData) -> Vec<String> {
         data.received.to_string(),
         format!("{:.2}", data.loss_rate()),
         format!("{:.2}", data.delay),
-        format!("{:.2}", data.download_speed / 1024.0 / 1024.0),
+        match data.download_speed {
+            Some(speed) => format!("{:.2}", speed / 1024.0 / 1024.0),
+            None => String::new(),
+        },
         data.data_center.clone(),
     ]
 }
@@ -258,7 +261,10 @@ pub fn ping_data_to_table_row(data: &PingData) -> Row {
         Cell::new(&data.received.to_string()),
         Cell::new(&format!("{:.2}", data.loss_rate())),
         Cell::new(&format!("{:.2}", data.delay)),
-        Cell::new(&format!("{:.2}", data.download_speed / 1024.0 / 1024.0)),
+        Cell::new(&match data.download_speed {
+            Some(speed) => format!("{:.2}", speed / 1024.0 / 1024.0),
+            None => String::new(),
+        }),
         Cell::new(&data.data_center),
     ])
 }
@@ -326,7 +332,7 @@ pub fn process_download_result(
     min_speed: f32,
     colo_filters: &[String],
 ) -> bool {
-    data.download_speed = speed;
+    data.download_speed = Some(speed);
     
     // 如果数据中心为空且获取到了新的数据中心信息，则更新
     if data.data_center.is_empty() {
