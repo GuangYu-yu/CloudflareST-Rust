@@ -155,6 +155,7 @@ pub struct DownloadTest {
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
     httping: bool,
+    icmp_ping: bool,
     colo_filter: String,
     ping_results: Vec<PingResult>,
 }
@@ -205,6 +206,7 @@ impl DownloadTest {
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
             httping,
+            icmp_ping: args.icmp_ping,
             colo_filter,
             ping_results,
         }
@@ -247,6 +249,7 @@ impl DownloadTest {
             let (ip, need_colo) = match ping_result {
                 PingResult::Http(data) => (data.ip, data.data_center.is_empty()),
                 PingResult::Tcp(data) => (data.ip, data.data_center.is_empty()),
+                PingResult::Icmp(data) => (data.ip, data.data_center.is_empty()),
             };
             
             // 执行下载测速
@@ -282,8 +285,9 @@ impl DownloadTest {
 
             match ping_result {
                 PingResult::Http(data) if self.httping => process_ping_data(data),
-                PingResult::Tcp(data) if !self.httping => process_ping_data(data),
-                _ => {} // 忽略不匹配的情况
+                PingResult::Tcp(data) if !self.httping && !self.icmp_ping => process_ping_data(data),
+                PingResult::Icmp(data) if self.icmp_ping => process_ping_data(data),
+                _ => {}
             }
             
             // 如果已经找到足够数量的合格结果，提前结束测试

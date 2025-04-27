@@ -60,6 +60,7 @@ pub fn extract_ping_metrics(result: &PingResult) -> (Option<f32>, f32, f32) {
     match result {
         PingResult::Http(data) => (data.download_speed, data.loss_rate(), data.delay),
         PingResult::Tcp(data) => (data.download_speed, data.loss_rate(), data.delay),
+        PingResult::Icmp(data) => (data.download_speed, data.loss_rate(), data.delay),
     }
 }
 

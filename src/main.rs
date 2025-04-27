@@ -1,6 +1,7 @@
 mod args;
 mod tcping;
 mod httping;
+mod icmp;
 mod download;
 mod csv;
 mod progress;
@@ -35,10 +36,13 @@ async fn main() {
     
     println!("# CloudflareST-Rust\n");
     
-    // 根据参数选择 TCP 或 HTTP 测速
+    // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingResult> = if args.httping {
         httping::Ping::new(&args).await.unwrap().run().await.unwrap()
             .into_iter().map(PingResult::Http).collect()
+    } else if args.icmp_ping {
+        icmp::Ping::new(&args).await.unwrap().run().await.unwrap()
+            .into_iter().map(PingResult::Icmp).collect()
     } else {
         tcping::Ping::new(&args).await.unwrap().run().await.unwrap()
             .into_iter().map(PingResult::Tcp).collect()
@@ -78,4 +82,5 @@ fn init_rand_seed() {
 pub enum PingResult {
     Tcp(PingData),
     Http(PingData),
+    Icmp(PingData),
 }
