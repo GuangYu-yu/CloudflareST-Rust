@@ -142,7 +142,7 @@ async fn tcping_handler(
         let args_clone = args.clone();  // 克隆Args结构体
         tasks.push(tokio::spawn(async move {
             if args_clone.icmp_ping {
-                icmp_ping(ip).await  // 传递引用
+                icmp_ping(ip).await
             } else {
                 let port = common::get_tcp_port(&args_clone);
                 let addr = SocketAddr::new(ip, port);
