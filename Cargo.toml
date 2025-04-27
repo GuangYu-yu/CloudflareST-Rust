@@ -19,7 +19,7 @@ lazy_static = "1.5.0"
 num_cpus = "1.16.0"
 crossbeam-channel = "0.5.15"
 futures = "0.3.31"
-surge-ping = "0.8.2"
+pinger = "2.0.0"
 
 [profile.release]
 opt-level = 3        # 最高级别的优化
