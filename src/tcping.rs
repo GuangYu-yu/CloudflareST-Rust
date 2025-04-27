@@ -4,6 +4,8 @@ use std::time::Instant;
 use tokio::net::TcpStream;
 use std::io;
 use futures::stream::{FuturesUnordered, StreamExt};
+use pinger::{ping, PingOptions, PingResult};
+use std::time::Duration;
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -11,8 +13,6 @@ use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
-use rand::random;
 
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
@@ -139,14 +139,14 @@ async fn tcping_handler(
 
     // 使用FuturesUnordered来动态管理并发测试
     for _ in 0..ping_times {
-        let args_clone = args.clone();
+        let args_clone = args.clone();  // 克隆Args结构体
         tasks.push(tokio::spawn(async move {
             if args_clone.icmp_ping {
-                icmp_ping(ip, &args_clone).await
+                icmp_ping(ip).await  // 传递引用
             } else {
                 let port = common::get_tcp_port(&args_clone);
                 let addr = SocketAddr::new(ip, port);
-                tcping(addr, &args_clone).await
+                tcping(addr, &args_clone).await  // 传递引用
             }
         }));
     }
@@ -218,48 +218,36 @@ async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
 }
 
 // ICMP ping函数
-async fn icmp_ping(ip: IpAddr, args: &Args) -> Option<f32> {
+async fn icmp_ping(ip: IpAddr) -> Option<f32> {
     GLOBAL_POOL.start_task();
-    let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    let cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
-    // 根据IP地址类型配置Config
-    let config = match ip {
-        IpAddr::V4(_) => Config::default(),
-        IpAddr::V6(_) => Config::builder().kind(ICMP::V6).build(),
-    };
+    let options = PingOptions::new(
+        ip.to_string(),
+        Duration::from_millis(100),
+        None,
+    );
 
-    let client = match Client::new(&config) {
-        Ok(c) => c,
-        Err(_) => {
-            GLOBAL_POOL.end_task();
-            return None;
-        },
-    };
-
-    let payload = [0; 56];
-    let identifier = PingIdentifier(random::<u16>());
-    let mut rtt = None;
-
-    // 设置pinger的超时
-    let mut pinger = client.pinger(ip, identifier).await;
-    pinger.timeout(args.max_delay);
-
-    let _ = async {
-        // 暂停CPU计时(网络等待阶段)
-        cpu_timer.pause();
-        match pinger.ping(PingSequence(0), &payload).await {
-            Ok((packet, dur)) => {
-                rtt = Some(dur.as_secs_f32() * 1000.0);
-                // 结果处理(释放资源)在计时范围内
-                drop(packet);
-            },
-            Err(_) => {}
+    // 使用tokio::task::spawn_blocking包装同步ping操作
+    let ping_result = tokio::task::spawn_blocking(move || {
+        let start_time = Instant::now(); // 记录开始时间
+        match ping(options) {
+            Ok(stream) => {
+                match stream.recv() {
+                    Ok(PingResult::Pong(_, _)) => {
+                        let end_time = Instant::now(); // 记录结束时间
+                        let delay_ms = (end_time - start_time).as_secs_f32() * 1000.0; // 计算延迟时间
+                        Some(delay_ms)
+                    },
+                    _ => None
+                }
+            }
+            Err(_) => None
         }
-        // 恢复CPU计时(结果处理阶段)
-        cpu_timer.resume();
-    }.await;
+    }).await.ok()?;
 
     cpu_timer.finish();
     GLOBAL_POOL.end_task();
-    rtt
+    
+    ping_result
 }
