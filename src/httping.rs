@@ -241,7 +241,7 @@ async fn httping(
 
     // 进行多次测速（并发执行）
     let ping_times = common::get_ping_times(args);
-    let mut tasks = Vec::with_capacity(ping_times as usize);
+    let mut tasks = FuturesUnordered::new();
 
     for _ in 0..ping_times {
         // 恢复CPU计时（客户端构建是CPU计算）
@@ -281,7 +281,7 @@ async fn httping(
     let mut data_center = String::new();
     let mut first_request_success = false;
 
-    for result in futures::future::join_all(tasks).await {
+    while let Some(result) = tasks.next().await {
         if let Ok((Some(response), start_time)) = result {
             // 获取状态码
             let status_code = response.status().as_u16();
