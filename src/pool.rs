@@ -285,8 +285,9 @@ impl ThreadPool {
         }
         
         // 计算新的每核心线程数
+        let min_threads_per_core = 5; // 绝对最小线程数
         let mut new_threads_per_core = ((current_threads_per_core as f64 * adjustment_factor) as usize)
-            .max(20)  // 最小每核心线程数
+            .max(min_threads_per_core) // 最小线程数下限
             .min(self.max_threads / self.cpu_count); // 总线程数上限
         
         // 防止频繁小幅度调整
@@ -319,7 +320,7 @@ impl ThreadPool {
                         new_threads_per_core = (new_threads_per_core * 12 / 10)
                             .min(self.max_threads / self.cpu_count); // 总线程数上限
                     } else {
-                        new_threads_per_core = (new_threads_per_core * 8 / 10).max(20);
+                        new_threads_per_core = (new_threads_per_core * 8 / 10).max(min_threads_per_core);
                     }
                 }
                 

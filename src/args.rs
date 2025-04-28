@@ -198,7 +198,7 @@ impl Args {
                     "n" => {
                         if let Ok(val) = args[i + 1].parse::<usize>() {
                             // 检查并调整 max_threads 的值
-                            parsed.max_threads = val.clamp(5, 1024);
+                            parsed.max_threads = val.clamp(5, 2048);
                         }
                     },
                     "f" => {
