@@ -264,7 +264,7 @@ impl ThreadPool {
             let min_factor = 0.4;
             let max_factor = 1.2;
             
-            let cpu_weight = (cpu_ratio - 1.0).min(50.0).max(0.0);
+            let cpu_weight = (cpu_ratio - 1.0).min(70.0).max(0.0);
             adjustment_factor = min_factor + (max_factor - min_factor) * 
                 ((1.0 - load_factor) * 0.4 + cpu_weight * 0.6);
         }
