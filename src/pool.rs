@@ -182,7 +182,16 @@ impl ThreadPool {
     pub fn record_task_duration(&self, duration: Duration) {
         let duration_ms = duration.as_secs_f64() * 1000.0;
         let mut stats = self.stats.lock().unwrap();
-        stats.total_duration = duration_ms;
+        
+        // 使用EWMA更新总任务时间统计
+        if stats.total_duration == 0.0 {
+            // 首次初始化
+            stats.total_duration = duration_ms;
+        } else {
+            // 更新统计值
+            stats.total_duration = stats.total_duration * (1.0 - stats.ewma_factor) + 
+                                 duration_ms * stats.ewma_factor;
+        }
     }
     
     // 记录CPU计算时间
@@ -264,7 +273,7 @@ impl ThreadPool {
             let min_factor = 0.4;
             let max_factor = 1.2;
             
-            let cpu_weight = (cpu_ratio - 1.0).min(70.0).max(0.0);
+            let cpu_weight = (cpu_ratio - 1.0).min(100.0).max(0.0);
             adjustment_factor = min_factor + (max_factor - min_factor) * 
                 ((1.0 - load_factor) * 0.4 + cpu_weight * 0.6);
         }
