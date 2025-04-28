@@ -37,15 +37,19 @@ async fn main() {
     println!("# CloudflareST-Rust\n");
     
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
-    let ping_result: Vec<PingResult> = if args.httping {
-        httping::Ping::new(&args).await.unwrap().run().await.unwrap()
-            .into_iter().map(PingResult::Http).collect()
-    } else if args.icmp_ping {
-        icmp::Ping::new(&args).await.unwrap().run().await.unwrap()
-            .into_iter().map(PingResult::Icmp).collect()
-    } else {
-        tcping::Ping::new(&args).await.unwrap().run().await.unwrap()
-            .into_iter().map(PingResult::Tcp).collect()
+    let ping_result: Vec<PingResult> = match (args.httping, args.icmp_ping) {
+        (true, _) => {
+            httping::Ping::new(&args).await.unwrap().run().await.unwrap()
+                .into_iter().map(PingResult::Http).collect()
+        }
+        (_, true) => {
+            icmp::Ping::new(&args).await.unwrap().run().await.unwrap()
+                .into_iter().map(PingResult::Icmp).collect()
+        }
+        _ => {
+            tcping::Ping::new(&args).await.unwrap().run().await.unwrap()
+                .into_iter().map(PingResult::Tcp).collect()
+        }
     };
     
     // 开始下载测速
