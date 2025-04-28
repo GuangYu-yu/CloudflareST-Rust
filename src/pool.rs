@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use num_cpus;
 use lazy_static::lazy_static;
 use std::mem::ManuallyDrop;
+use crate::args::Args;
 
 // 简化的线程池实现
 pub struct ThreadPool {
@@ -23,6 +24,8 @@ pub struct ThreadPool {
     max_permits: Arc<AtomicUsize>,
     // 当前活跃许可计数
     current_permits: Arc<AtomicUsize>,
+    // 最大线程数
+    max_threads: usize,
 }
 
 struct PoolStats {
@@ -113,6 +116,7 @@ impl<'a> CpuTimer<'a> {
 impl ThreadPool {
     pub fn new() -> Self {
         let cpu_count = num_cpus::get();
+        let max_threads = Args::parse().max_threads as usize;
         // 初始每核心64个线程
         let initial_threads_per_core = 64;
         let initial_threads = cpu_count * initial_threads_per_core;
@@ -134,6 +138,7 @@ impl ThreadPool {
                 consecutive_adjustments: 0,
             })),
             cpu_count,
+            max_threads,
         };
         
         // 启动后台调整任务
@@ -159,6 +164,7 @@ impl ThreadPool {
             cpu_count: self.cpu_count,
             max_permits: self.max_permits.clone(),
             current_permits: self.current_permits.clone(),
+            max_threads: self.max_threads,
         }
     }
     
@@ -280,9 +286,8 @@ impl ThreadPool {
         
         // 计算新的每核心线程数
         let mut new_threads_per_core = ((current_threads_per_core as f64 * adjustment_factor) as usize)
-            .max(32)  // 最小每核心线程数
-            .min(256) // 最大每核心线程数
-            .min(1024 / self.cpu_count); // 总线程数上限
+            .max(20)  // 最小每核心线程数
+            .min(self.max_threads / self.cpu_count); // 总线程数上限
         
         // 防止频繁小幅度调整
         if (new_threads_per_core as f64 / current_threads_per_core as f64 - 1.0).abs() < 0.1 {
@@ -312,10 +317,9 @@ impl ThreadPool {
                 if stats.consecutive_adjustments > 3 {
                     if direction > 0 {
                         new_threads_per_core = (new_threads_per_core * 12 / 10)
-                            .min(256)
-                            .min(1024 / self.cpu_count);
+                            .min(self.max_threads / self.cpu_count); // 总线程数上限
                     } else {
-                        new_threads_per_core = (new_threads_per_core * 8 / 10).max(32);
+                        new_threads_per_core = (new_threads_per_core * 8 / 10).max(20);
                     }
                 }
                 

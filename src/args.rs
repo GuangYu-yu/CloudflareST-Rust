@@ -43,6 +43,7 @@ pub struct Args {
     // 全局超时
     pub global_timeout: String,         // 全局超时时间(字符串)
     pub global_timeout_duration: Option<Duration>, // 全局超时时间
+    pub max_threads: usize,      // 最大线程数
 }
 
 impl Args {
@@ -80,6 +81,7 @@ impl Args {
             
             global_timeout: String::new(),
             global_timeout_duration: None,
+            max_threads: 1024,
         }
     }
 
@@ -193,6 +195,12 @@ impl Args {
                             parsed.print_num = val;
                         }
                     },
+                    "n" => {
+                        if let Ok(val) = args[i + 1].parse::<usize>() {
+                            // 检查并调整 max_threads 的值
+                            parsed.max_threads = val.clamp(5, 1024);
+                        }
+                    },
                     "f" => {
                         parsed.ip_file = args[i + 1].clone();
                     },
@@ -278,6 +286,7 @@ pub fn print_help() {
     print_arg!("-hc", "Httping模式的有效状态码", "[默认: 接受200/301/302]");
     print_arg!("-hu", "只使用这条参数所指定的 URL 作为Httping模式的测速地址，多条用逗号分隔", "[默认: 未指定]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]");
+    print_arg!("-n", "动态线程池的线程数量上限", "[默认: 1024]");
     
     // 筛选参数
     println!("\n{}:", "筛选参数".bold());
