@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::cmp::min;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use reqwest::Client;
 use url;
@@ -158,6 +159,7 @@ pub struct DownloadTest {
     icmp_ping: bool,
     colo_filter: String,
     ping_results: Vec<PingResult>,
+    timeout_flag: Arc<AtomicBool>,
 }
 
 // 按下载速度（降序）、延迟（升序）、丢包率（升序）
@@ -180,7 +182,7 @@ fn sort_ping_results(results: &mut Vec<PingResult>) {
 }
 
 impl DownloadTest {
-    pub async fn new(args: &Args, ping_results: Vec<PingResult>) -> Self {
+    pub async fn new(args: &Args, ping_results: Vec<PingResult>, timeout_flag: Arc<AtomicBool>) -> Self {
         let url = args.url.clone();
         let urlist = args.urlist.clone();
         let timeout = args.timeout_duration;
@@ -209,6 +211,7 @@ impl DownloadTest {
             icmp_ping: args.icmp_ping,
             colo_filter,
             ping_results,
+            timeout_flag,
         }
     }
 
@@ -230,9 +233,14 @@ impl DownloadTest {
         // 创建一个任务来更新进度条的速度显示
         let current_speed: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
         let bar: Arc<Bar> = Arc::clone(&self.bar);
+        let timeout_flag_clone = Arc::clone(&self.timeout_flag);
         let speed_update_handle = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;
+                // 检查是否收到超时信号
+                if timeout_flag_clone.load(Ordering::SeqCst) {
+                    break;
+                }
                 let speed = *current_speed.lock().unwrap();
                 if speed > 0.0 {
                     bar.as_ref().set_suffix(format!("{:.2} MB/s", speed / 1024.0 / 1024.0));
@@ -242,6 +250,11 @@ impl DownloadTest {
     
         // 逐个IP进行测速（单线程）
         for i in 0..self.ping_results.len() {
+            // 检查是否收到超时信号
+            if common::check_timeout_signal(&self.timeout_flag) {
+                break;
+            }
+            
             // 使用引用
             let ping_result = &mut self.ping_results[i];
             
@@ -267,6 +280,7 @@ impl DownloadTest {
                 Arc::clone(&self.current_speed),
                 self.tcp_port,
                 need_colo,
+                Arc::clone(&self.timeout_flag),
             ).await;
             
             // 无论速度如何，都更新下载速度和可能的数据中心信息
@@ -299,7 +313,7 @@ impl DownloadTest {
         // 中止速度更新任务
         speed_update_handle.abort();
         
-        // 完成进度条
+        // 更新进度条为完成状态
         self.bar.done();
         
         // 返回排序后的原始集合
@@ -330,7 +344,8 @@ async fn download_handler(
     download_duration: Duration,
     current_speed: Arc<Mutex<f32>>,
     tcp_port: u16,
-    need_colo: bool
+    need_colo: bool,
+    timeout_flag: Arc<AtomicBool>
 ) -> (f32, Option<String>) {
     
     // 解析原始URL以获取主机名和路径
@@ -376,8 +391,8 @@ async fn download_handler(
         
         // 读取响应体
         loop {
-            // 检查是否超时
-            if tokio::time::Instant::now() >= cancel_at {
+            // 检查是否超时或收到全局超时信号
+            if tokio::time::Instant::now() >= cancel_at || timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
             

@@ -1,6 +1,7 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use reqwest::{Client, Response};
 use crate::PingResult;
 use crate::args::Args;
@@ -370,4 +371,9 @@ pub fn sort_ping_results(results: &mut PingDelaySet) {
                 a_loss.partial_cmp(&b_loss).unwrap_or(std::cmp::Ordering::Equal)
             })
     });
+}
+
+/// 检查是否收到超时信号，如果是则打印信息并返回 true
+pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
+    if timeout_flag.load(Ordering::SeqCst) {true} else {false}
 }

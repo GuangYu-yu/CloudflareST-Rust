@@ -1,10 +1,12 @@
 use indicatif::{ProgressBar, ProgressStyle};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use terminal_size::{terminal_size, Width};
 
 pub struct Bar {
     progress_bar: Arc<ProgressBar>,
+    is_done: Arc<Mutex<bool>>,
+    is_active: Arc<Mutex<bool>>,
 }
 
 impl Bar {
@@ -45,34 +47,59 @@ impl Bar {
                 })
         );
         
-        // 启用稳定的刷新间隔
-        pb.enable_steady_tick(Duration::from_millis(120));
-
+        // 创建进度条但不启用刷新
         Self {
             progress_bar: Arc::new(pb),
+            is_done: Arc::new(Mutex::new(false)),
+            is_active: Arc::new(Mutex::new(false)),
         }
     }
     
+    // 检查是否已完成
+    fn is_done(&self) -> bool {
+        *self.is_done.lock().unwrap()
+    }
+    
     pub fn grow(&self, num: u64, msg: String) {
+        // 检查是否已完成，如果已完成则不更新
+        if self.is_done() {
+            return;
+        }
+        
+        // 检查并激活进度条（仅首次）
+        {
+            let mut is_active = self.is_active.lock().unwrap();
+            if !*is_active {
+                *is_active = true;
+                // 首次更新时启用稳定刷新
+                self.progress_bar.enable_steady_tick(Duration::from_millis(120));
+            }
+        }
+        
         self.progress_bar.set_message(msg);
         self.progress_bar.inc(num);
     }
     
     pub fn set_suffix(&self, suffix: String) {
+        // 检查状态
+        if self.is_done() {
+            return;
+        }
+        
         self.progress_bar.set_message(suffix);
     }
     
     pub fn done(&self) {
-        // 禁用稳定刷新
-        self.progress_bar.disable_steady_tick();
+        // 获取锁并检查是否已经完成
+        let mut is_done = self.is_done.lock().unwrap();
+        if *is_done {
+            return;
+        }
         
-        // 使用 finish() ，进度条保留在屏幕上
+        // 标记为已完成
+        *is_done = true;
+        
+        // 停止进度条
         self.progress_bar.finish();
-    }
-}
-
-impl Drop for Bar {
-    fn drop(&mut self) {
-        self.done();
     }
 }

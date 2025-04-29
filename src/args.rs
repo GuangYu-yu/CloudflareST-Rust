@@ -239,6 +239,14 @@ fn parse_duration(duration_str: &str) -> Option<Duration> {
     if duration_str.is_empty() {
         return None;
     }
+
+    // 检查是否为纯数字
+    if duration_str.chars().all(char::is_numeric) {
+        // 将纯数字视为秒数
+        if let Ok(seconds) = duration_str.parse::<u64>() {
+            return Some(Duration::from_secs(seconds));
+        }
+    }
     
     // 尝试使用humantime库解析时间字符串
     match humantime::parse_duration(duration_str) {

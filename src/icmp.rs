@@ -2,7 +2,7 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::io;
 use futures::stream::{FuturesUnordered, StreamExt};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 use rand::random;
 use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
@@ -21,10 +21,11 @@ pub struct Ping {
     success_count: Arc<AtomicUsize>,
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
+    timeout_flag: Arc<AtomicBool>,
 }
 
 impl Ping {
-    pub async fn new(args: &Args) -> io::Result<Self> {
+    pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
         let (ip_buffer, csv, bar, max_loss_rate) = common::init_ping_test(args);
         let client_v4 = Arc::new(Client::new(&Config::default())?);
         let client_v6 = Arc::new(Client::new(&Config::builder().kind(ICMP::V6).build())?);
@@ -38,6 +39,7 @@ impl Ping {
             success_count: Arc::new(AtomicUsize::new(0)),
             client_v4,
             client_v6,
+            timeout_flag,
         })
     }
 
@@ -65,6 +67,7 @@ impl Ping {
         let bar = Arc::clone(&self.bar);
         let args = self.args.clone();
         let success_count = Arc::clone(&self.success_count);
+        let timeout_flag = Arc::clone(&self.timeout_flag);
 
         // 使用FuturesUnordered来动态管理任务
         let mut tasks = FuturesUnordered::new();
@@ -115,6 +118,11 @@ impl Ping {
         
         // 动态处理任务完成和添加新任务
         while let Some(result) = tasks.next().await {
+            // 检查是否收到超时信号
+            if common::check_timeout_signal(&timeout_flag) {
+                break;
+            }
+            
             // 处理已完成的任务
             let _ = result;
             

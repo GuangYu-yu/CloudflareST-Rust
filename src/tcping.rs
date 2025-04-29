@@ -4,13 +4,13 @@ use std::time::Instant;
 use tokio::net::TcpStream;
 use std::io;
 use futures::stream::{FuturesUnordered, StreamExt};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 
 use crate::progress::Bar;
 use crate::args::Args;
 use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
@@ -19,10 +19,11 @@ pub struct Ping {
     max_loss_rate: f32,
     args: Args,
     success_count: Arc<AtomicUsize>,
+    timeout_flag: Arc<AtomicBool>,
 }
 
 impl Ping {
-    pub async fn new(args: &Args) -> io::Result<Self> {
+    pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
         let (ip_buffer, csv, bar, max_loss_rate) = common::init_ping_test(args);
 
         Ok(Ping {
@@ -32,6 +33,7 @@ impl Ping {
             max_loss_rate,
             args: args.clone(),
             success_count: Arc::new(AtomicUsize::new(0)),
+            timeout_flag,
         })
     }
 
@@ -59,6 +61,7 @@ impl Ping {
         let bar = Arc::clone(&self.bar);
         let args = self.args.clone();
         let success_count = Arc::clone(&self.success_count);
+        let timeout_flag = Arc::clone(&self.timeout_flag);
 
         // 使用FuturesUnordered来动态管理任务
         let mut tasks = FuturesUnordered::new();
@@ -93,9 +96,14 @@ impl Ping {
                 break;
             }
         }
-        
+
         // 动态处理任务完成和添加新任务
         while let Some(result) = tasks.next().await {
+            // 检查是否收到超时信号
+            if common::check_timeout_signal(&timeout_flag) {
+                break;
+            }
+            
             // 处理已完成的任务
             let _ = result;
             

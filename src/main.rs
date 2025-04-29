@@ -10,6 +10,8 @@ mod pool;
 mod common;
 
 use std::thread;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use rand::prelude::*;
 use crate::csv::PrintResult;
 use crate::common::PingData;
@@ -20,14 +22,16 @@ async fn main() {
     // 解析命令行参数
     let args = args::parse_args();
     
+    // 创建全局超时标志
+    let timeout_flag = Arc::new(AtomicBool::new(false));
+    
     // 设置全局超时
     if let Some(timeout) = args.global_timeout_duration {
-        // 克隆 global_timeout 字符串
-        let timeout_str = args.global_timeout.clone();
+        println!("\n[信息] 程序执行时间超过 {:?} 后，将提前结算结果并退出", timeout);
+        let timeout_flag_clone = Arc::clone(&timeout_flag);
         thread::spawn(move || {
             thread::sleep(timeout);
-            println!("\n程序已达到设定的超时时间 {}，自动退出", timeout_str);
-            std::process::exit(0);
+            timeout_flag_clone.store(true, Ordering::SeqCst);
         });
     }
     
@@ -39,26 +43,31 @@ async fn main() {
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingResult> = match (args.httping, args.icmp_ping) {
         (true, _) => {
-            httping::Ping::new(&args).await.unwrap().run().await.unwrap()
+            httping::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
                 .into_iter().map(PingResult::Http).collect()
         }
         (_, true) => {
-            icmp::Ping::new(&args).await.unwrap().run().await.unwrap()
+            icmp::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
                 .into_iter().map(PingResult::Icmp).collect()
         }
         _ => {
-            tcping::Ping::new(&args).await.unwrap().run().await.unwrap()
+            tcping::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
                 .into_iter().map(PingResult::Tcp).collect()
         }
     };
     
+    // 检查是否在 ping 阶段被超时中断
+    let ping_interrupted = timeout_flag.load(Ordering::SeqCst);
+    
     // 开始下载测速
-    let (result, no_qualified) = if args.disable_download || ping_result.is_empty() {
-        println!("\n[信息] {}", if args.disable_download { "已禁用下载测速" } else { "延迟测速结果为空，跳过下载测速" });
+    let (result, no_qualified) = if args.disable_download || ping_result.is_empty() || ping_interrupted {
+        println!("\n[信息] {}", 
+            if args.disable_download {"已禁用下载测速"} else if ping_interrupted {"由于全局超时，跳过下载测速"} else {"延迟测速结果为空，跳过下载测速"}
+        );
         (ping_result, false)
     } else {
         // 创建可变下载测速实例
-        let mut download_test = download::DownloadTest::new(&args, ping_result).await;
+        let mut download_test = download::DownloadTest::new(&args, ping_result, Arc::clone(&timeout_flag)).await;
         
         // 执行下载测速
         download_test.test_download_speed().await
