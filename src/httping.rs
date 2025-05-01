@@ -139,6 +139,13 @@ impl Ping {
                 break;
             }
             
+            // 检查是否达到目标成功数量
+            if let Some(target_num) = args.target_num {
+                if success_count.load(Ordering::Relaxed) >= target_num as usize {
+                    break;
+                }
+            }
+            
             // 处理已完成的任务
             let _ = result;
             

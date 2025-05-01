@@ -30,6 +30,7 @@ pub struct Args {
     pub disable_download: bool,  // 是否禁用下载测速
     
     // 输出相关
+    pub target_num: Option<u32>,  // 当Ping到指定可用数量时提前结束Ping
     pub print_num: u16,        // 显示结果数量
     pub ip_file: String,         // IP段数据文件
     pub ip_text: String,         // 指定IP段数据
@@ -69,6 +70,7 @@ impl Args {
             timeout_duration: Some(Duration::from_secs(10)),
             min_speed: 0.0,
             disable_download: false,
+            target_num: None,
             
             print_num: 10,
             ip_file: String::new(),
@@ -221,6 +223,11 @@ impl Args {
                     "hu" => {
                         parsed.httping_urls = args[i + 1].clone();
                     },
+                    "tn" => {
+                        if let Ok(val) = args[i + 1].parse::<u32>() {
+                            parsed.target_num = Some(val);
+                        }
+                    },
                     _ => {}
                 }
                 i += 2;  // 跳过参数名和值
@@ -274,7 +281,6 @@ pub fn print_help() {
     print_arg!("-f", "从文件或文件路径读取 IP 或 CIDR", "[默认: 未指定]");
     print_arg!("-ip", "直接指定 IP 或 CIDR (多个用逗号分隔)", "[默认: 未指定]");
     print_arg!("-ipurl", "从URL读取 IP 或 CIDR (https://example.com/ip_list.txt)", "[默认: 未指定]");
-    print_arg!("-o", "输出结果文件（文件名或文件路径）", "[默认: result.csv]");
     print_arg!("-h", "打印帮助说明", "[默认: 否]");
     print_arg!("-timeout", "程序超时退出时间（示例：1h3m6s）", "[默认: 不限制]");
     
@@ -286,6 +292,7 @@ pub fn print_help() {
     print_arg!("-tp", "测速端口", "[默认: 443]");
     print_arg!("-dd", "禁用下载测速", "[默认: 否]");
     print_arg!("-all4", "测速全部IPv4", "[默认: 否]");
+    print_arg!("-tn", "当 Ping 到指定可用数量，提前结束 Ping", "[默认: 否]");
     
     // 测速选项
     println!("\n{}:", "测速选项".bold());
@@ -296,13 +303,14 @@ pub fn print_help() {
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]");
     print_arg!("-n", "动态线程池的线程数量上限", "[默认: 1024]");
     
-    // 筛选参数
+    // 结果参数
     println!("\n{}:", "筛选参数".bold());
     print_arg!("-tl", "延迟上限（毫秒）", "[默认: 2000]");
     print_arg!("-tll", "延迟下限（毫秒）", "[默认: 0]");
     print_arg!("-tlr", "丢包率上限", "[默认: 1.00]");
     print_arg!("-sl", "下载速度下限（MB/s）", "[默认: 0.00]");
     print_arg!("-p", "终端显示结果数量", "[默认: 10]");
+    print_arg!("-o", "输出结果文件（文件名或文件路径）", "[默认: result.csv]");
 }
 
 pub fn parse_args() -> Args {
