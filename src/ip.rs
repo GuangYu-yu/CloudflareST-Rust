@@ -232,9 +232,19 @@ fn process_ip_range_to_channel(ip_range: &str, test_all: bool, ip_tx: &Sender<Ip
         return;
     }
     
+    // 解析自定义IP数量（仅当包含等号时）
+    let (ip_range, custom_count) = if let Some(pos) = ip_range.find('=') {
+        let ip_part = ip_range[..pos].to_string();
+        let count = ip_range[pos+1..].parse::<usize>().ok()
+            .map(|c| c.max(1).min(u32::MAX as usize));
+        (ip_part, count)
+    } else {
+        (ip_range.to_string(), None)
+    };
+    
     // 尝试直接解析为单个IP地址
     if !ip_range.contains('/') {
-        if let Ok(ip) = IpAddr::from_str(ip_range) {
+        if let Ok(ip) = IpAddr::from_str(&ip_range) {
             let _ = ip_tx.send(ip);
             return;
         }
@@ -242,7 +252,7 @@ fn process_ip_range_to_channel(ip_range: &str, test_all: bool, ip_tx: &Sender<Ip
     }
     
     // 处理CIDR格式的IP段
-    if let Ok(network) = IpNetwork::from_str(ip_range) {
+    if let Ok(network) = IpNetwork::from_str(&ip_range) {
         // 直接处理单IP的CIDR格式（/32或/128）
         match network {
             IpNetwork::V4(ipv4_net) if ipv4_net.prefix() == 32 => {
@@ -255,10 +265,10 @@ fn process_ip_range_to_channel(ip_range: &str, test_all: bool, ip_tx: &Sender<Ip
             },
             _ => {
                 // 处理其他CIDR格式
-                if is_ipv4(ip_range) {
-                    stream_ipv4_to_channel(&network, test_all, ip_tx, req_rx);
+                if is_ipv4(&ip_range) {
+                    stream_ipv4_to_channel(&network, test_all, ip_tx, req_rx, custom_count);
                 } else {
-                    stream_ipv6_to_channel(&network, ip_tx, req_rx);
+                    stream_ipv6_to_channel(&network, ip_tx, req_rx, custom_count);
                 }
             }
         }
@@ -270,7 +280,7 @@ fn is_ipv4(ip: &str) -> bool {
     ip.contains('.')
 }
 // 流式处理IPv4地址并发送到通道
-fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>) {
+fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
     if let IpNetwork::V4(ipv4_net) = network {
         if test_all {
             // 测试所有IP时，严格按照请求信号发送
@@ -287,7 +297,11 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
             }
         } else {
             let prefix = ipv4_net.prefix();
-            let ip_count = calculate_sample_count(prefix, true);
+            // 优先使用自定义数量
+            let ip_count = match custom_count {
+                Some(count) => count,
+                None => calculate_sample_count(prefix, true)
+            };
 
             // 直接枚举所有IP再随机采样
             if prefix >= 23 {
@@ -338,10 +352,14 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
 }
 
 // 流式处理IPv6地址并发送到通道
-fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>) {
+fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
     if let IpNetwork::V6(ipv6_net) = network {
         let prefix = ipv6_net.prefix();
-        let ip_count = calculate_sample_count(prefix, false);
+        // 优先使用自定义数量
+        let ip_count = match custom_count {
+            Some(count) => count,
+            None => calculate_sample_count(prefix, false)
+        };
 
         // 直接枚举所有IP再随机采样
         if prefix >= 117 {
