@@ -144,7 +144,8 @@ impl ThreadPool {
         // 启动后台调整任务
         let pool_clone = pool.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            // 线程数调整间隔
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
             loop {
                 interval.tick().await;
                 pool_clone.adjust_threads();
@@ -239,14 +240,6 @@ impl ThreadPool {
     // 动态调整线程数（基于CPU时间）
     pub fn adjust_threads(&self) {
         let now = Instant::now();
-        
-        // 先检查是否需要调整
-        {
-            let stats = self.stats.lock().unwrap();
-            if now.duration_since(stats.last_adjust) < Duration::from_secs(5) {
-                return;
-            }
-        }
         
         // 获取当前活跃任务数
         let active_tasks = self.active_tasks.load(Ordering::SeqCst);
