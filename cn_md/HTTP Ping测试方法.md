@@ -111,7 +111,6 @@ HTTP ping测试(与TCP和ICMP相比)的一个独特功能是能够识别处理�
 | 格式 | 示例 | 提取的数据中心 |
 | --- | --- | --- |
 | ID-位置 | 7b3f1cdd3a61c31f-IAD | IAD |
-| ID-位置-额外 | 7b3f1ce3cd9b8121-SJC04-C1 | SJC04 |
 
 来源: [src/httping.rs309-325](https://github.com/GuangYu-yu/CloudflareST-Rust/blob/57de4236/src/httping.rs#L309-L325) [src/common.rs166-175](https://github.com/GuangYu-yu/CloudflareST-Rust/blob/57de4236/src/common.rs#L166-L175)
 
