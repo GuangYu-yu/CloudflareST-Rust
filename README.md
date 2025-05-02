@@ -2,6 +2,8 @@
 
 **对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
+## [Deepwiki](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
+
 ***工具仅用于简单的网络测速，造成的一切后果自负***
 
 > 建议指定大范围 CIDR 较大测速数量，并使用 -tn 参数。例如：-ip 2606:4700::/48=100000 -tn 30000
