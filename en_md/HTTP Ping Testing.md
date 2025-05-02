@@ -111,7 +111,6 @@ This allows users to target tests to specific Cloudflare regions.
 | Format | Example | Extracted Data Center |
 | --- | --- | --- |
 | ID-LOCATION | 7b3f1cdd3a61c31f-IAD | IAD |
-| ID-LOCATION-EXTRA | 7b3f1ce3cd9b8121-SJC04-C1 | SJC04 |
 
 Sources: [src/httping.rs309-325](https://github.com/GuangYu-yu/CloudflareST-Rust/blob/57de4236/src/httping.rs#L309-L325) [src/common.rs166-175](https://github.com/GuangYu-yu/CloudflareST-Rust/blob/57de4236/src/common.rs#L166-L175)
 
