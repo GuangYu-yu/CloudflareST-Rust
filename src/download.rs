@@ -13,49 +13,13 @@ use crate::args::Args;
 use crate::PingResult;
 use crate::common::{self, PingData};
 
-// 指数加权移动平均
-struct Ewma {
-    value: f32,
-    alpha: f32,
-    initialized: bool,
-}
-
-impl Ewma {
-    fn new(alpha: f32) -> Self {
-        Self {
-            value: 0.0,
-            alpha,
-            initialized: false,
-        }
-    }
-
-    fn add(&mut self, value: f32) {
-        if !self.initialized {
-            self.value = value;
-            self.initialized = true;
-        } else {
-            self.value = self.alpha * value + (1.0 - self.alpha) * self.value;
-        }
-    }
-
-    fn value(&self) -> f32 {
-        self.value
-    }
-}
-
 // 定义下载处理器来处理下载数据
 struct DownloadHandler {
     data_received: u64,
     headers: std::collections::HashMap<String, String>,
     last_update: Instant,
     current_speed: Arc<Mutex<f32>>,
-    start_time: Instant,
-    time_slice: Duration,
-    next_slice: Instant,
-    last_content_read: u64,
-    time_counter: u32,
     speed_samples: VecDeque<(Instant, u64)>,
-    ewma: Ewma,
 }
 
 impl DownloadHandler {
@@ -66,13 +30,7 @@ impl DownloadHandler {
             headers: std::collections::HashMap::new(),
             last_update: now,
             current_speed,
-            start_time: now,
-            time_slice: Duration::from_millis(100),
-            next_slice: now + Duration::from_millis(100),
-            last_content_read: 0,
-            time_counter: 1,
             speed_samples: VecDeque::new(),
-            ewma: Ewma::new(0.3),
         }
     }
 
@@ -117,23 +75,6 @@ impl DownloadHandler {
 
             // 更新上次显示更新的时间
             self.last_update = now;
-        }
-
-        // --- EWMA 计算部分 ---
-        // 时间片计算 - 使用EWMA计算平均速度
-        let current_time = Instant::now();
-        
-        if current_time >= self.next_slice {
-            // 计算这个时间片内的下载量
-            let content_diff = self.data_received - self.last_content_read;
-            
-            // 添加到EWMA中
-            self.ewma.add(content_diff as f32);
-            
-            // 更新计数器和下一个时间片
-            self.time_counter += 1;
-            self.next_slice = self.start_time + self.time_slice * self.time_counter;
-            self.last_content_read = self.data_received;
         }
     }
 
@@ -281,6 +222,7 @@ impl DownloadTest {
                 self.tcp_port,
                 need_colo,
                 Arc::clone(&self.timeout_flag),
+                &self.colo_filter,
             ).await;
             
             // 无论速度如何，都更新下载速度和可能的数据中心信息
@@ -345,18 +287,19 @@ async fn download_handler(
     current_speed: Arc<Mutex<f32>>,
     tcp_port: u16,
     need_colo: bool,
-    timeout_flag: Arc<AtomicBool>
-) -> (f32, Option<String>) {
+    timeout_flag: Arc<AtomicBool>,
+    colo_filter: &str,
+) -> (Option<f32>, Option<String>) {
     
     // 解析原始URL以获取主机名和路径
     let url_parts = match url::Url::parse(url) {
         Ok(parts) => parts,
-        Err(_) => return (0.0, None),
+        Err(_) => return (None, None),
     };
     
     let host = match url_parts.host_str() {
         Some(host) => host,
-        None => return (0.0, None),
+        None => return (None, None),
     };
     
     let path = url_parts.path();
@@ -366,7 +309,7 @@ async fn download_handler(
     // 创建客户端进行下载测速
     let client = match build_reqwest_client(ip, url, tcp_port, download_duration).await {
         Some(client) => client,
-        None => return (0.0, None),
+        None => return (None, None),
     };
     
     // 创建下载处理器
@@ -383,64 +326,43 @@ async fn download_handler(
         // 如果需要获取数据中心信息，从响应头中提取
         if need_colo {
             data_center = common::extract_data_center(&resp);
+            // 如果数据中心不符合要求，速度返回None，数据中心正常返回
+            if let Some(dc) = &data_center {
+                let colo_filters = common::parse_colo_filters(colo_filter);
+                if !colo_filters.is_empty() && !colo_filters.iter().any(|f| dc.contains(f)) {
+                    return (None, data_center);
+                }
+            }
         }
-        
-        // 使用reqwest的内置超时功能
-        // 设置一个取消点，当达到下载时间时取消
-        let cancel_at = tokio::time::Instant::now() + download_duration;
         
         // 读取响应体
+        let time_start = Instant::now();
+        let mut content_read: u64 = 0;
+        
         loop {
-            // 检查是否超时或收到全局超时信号
-            if tokio::time::Instant::now() >= cancel_at || timeout_flag.load(Ordering::SeqCst) {
+            let current_time = Instant::now();
+            if current_time >= time_start + download_duration || timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
-            
-            // 获取下一个数据块
-            match tokio::time::timeout(Duration::from_secs(1), resp.chunk()).await {
-                Ok(Ok(Some(chunk))) => {
+        
+            // 读取数据块
+            match resp.chunk().await {
+                Ok(Some(chunk)) => {
                     let size = chunk.len() as u64;
+                    content_read += size;
                     handler.update_data_received(size);
                 },
-                Ok(Ok(None)) => break, // 数据读取完毕
-                _ => break, // 出错或超时
-            }
-        }
-
-        let now = Instant::now();
-        // 确保 time_counter > 0 避免 u16 减法溢出
-        if handler.time_counter > 0 {
-            // 计算上一个完整时间片的结束时间点
-            let last_slice_end_time = handler.start_time + handler.time_slice * (handler.time_counter - 1);
-            // 计算最后一个不完整时间片的实际持续时间
-            let last_slice_duration = now.duration_since(last_slice_end_time);
-            // 计算最后一个不完整时间片下载的数据量
-            let last_content_diff = handler.data_received - handler.last_content_read;
-
-            if last_content_diff > 0 && last_slice_duration.as_secs_f32() > 0.0 {
-                // 计算实际持续时间与标准时间片的比例
-                let time_ratio = last_slice_duration.as_secs_f32() / handler.time_slice.as_secs_f32();
-                if time_ratio > 0.0 {
-                    // 根据比例调整数据量并添加到EWMA
-                    handler.ewma.add(last_content_diff as f32 / time_ratio);
-                } else {
-                     // 如果时间比例过小或为0，直接添加原始数据量
-                     handler.ewma.add(last_content_diff as f32);
-                }
-            } else if last_content_diff > 0 {
-                 // 如果时间差为0但有数据，直接添加
-                 handler.ewma.add(last_content_diff as f32);
+                Ok(None) => break,
+                Err(_) => break,
             }
         }
         
-        // 使用EWMA计算的平均速度
-        let final_ewma_value = handler.ewma.value();
-        let time_factor = download_duration.as_secs_f32() / 120.0;
-
-        if time_factor > 0.0 {
-             final_ewma_value / time_factor
+        // 计算总速度
+        let elapsed = time_start.elapsed().as_secs_f32();
+        if elapsed > 0.0 {
+            content_read as f32 / elapsed
         } else {
-             0.0 // 避免除以零
+            0.0
         }
     } else {
         0.0
@@ -449,5 +371,5 @@ async fn download_handler(
     // 重置当前速度显示
     *current_speed.lock().unwrap() = 0.0;
     
-    (avg_speed, data_center)
+    (Some(avg_speed), data_center)
 }

@@ -329,12 +329,12 @@ pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
 /// 检查并处理下载测速结果，返回是否满足条件
 pub fn process_download_result(
     data: &mut PingData,
-    speed: f32,
+    speed: Option<f32>,
     maybe_colo: Option<String>,
     min_speed: f32,
     colo_filters: &[String],
 ) -> bool {
-    data.download_speed = Some(speed);
+    data.download_speed = speed;
     
     // 如果数据中心为空且获取到了新的数据中心信息，则更新
     if data.data_center.is_empty() {
@@ -344,7 +344,10 @@ pub fn process_download_result(
     }
     
     // 检查速度是否符合要求
-    let speed_match = speed >= min_speed * 1024.0 * 1024.0;
+    let speed_match = match speed {
+        Some(s) => s >= min_speed * 1024.0 * 1024.0,
+        None => false,  // 如果速度为None，视为不符合要求
+    };
     
     // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
     if !colo_filters.is_empty() {

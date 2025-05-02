@@ -24,7 +24,6 @@ pub struct Args {
     
     // 下载测速相关
     pub test_count: u16,       // 下载测速数量
-    pub timeout: String,         // 下载测速时间(字符串)
     pub timeout_duration: Option<Duration>, // 下载测速时间
     pub min_speed: f32,          // 下载速度下限
     pub disable_download: bool,  // 是否禁用下载测速
@@ -66,7 +65,6 @@ impl Args {
             max_loss_rate: 1.0,
             
             test_count: 10,
-            timeout: "10s".to_string(),
             timeout_duration: Some(Duration::from_secs(10)),
             min_speed: 0.0,
             disable_download: false,
@@ -148,7 +146,6 @@ impl Args {
                         }
                     },
                     "dt" => {
-                        parsed.timeout = args[i + 1].clone();
                         if let Ok(val) = args[i + 1].parse::<u64>() {
                             parsed.timeout_duration = Some(Duration::from_secs(val));
                         }
