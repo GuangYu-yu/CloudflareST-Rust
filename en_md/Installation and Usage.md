@@ -68,38 +68,6 @@ Sources: Binary files from various platforms
 ```text
 CloudflareST-Rust [OPTIONS]
 ```
-
-### Common Usage Examples
-
-1.  **Basic HTTP ping test with default settings**:
-    
-    ```text
-    ./CloudflareST-Rust
-    ```
-    
-2.  **TCP ping test with custom port**:
-    
-    ```text
-    ./CloudflareST-Rust -tcp -tp 443
-    ```
-    
-3.  **ICMP ping test with 10 pings per IP**:
-    
-    ```text
-    ./CloudflareST-Rust -icmp -n 10
-    ```
-    
-4.  **Test with a specific IP file**:
-    
-    ```text
-    ./CloudflareST-Rust -f ip.txt
-    ```
-    
-5.  **Test and filter results by delay**:
-    
-    ```text
-    ./CloudflareST-Rust -sl 30 -tl 200
-    ```
     
 
 ## Command-Line Arguments
@@ -112,8 +80,8 @@ CloudflareST-Rust provides numerous command-line arguments to customize testing 
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `-http` | Use HTTP ping method | Enabled by default |
-| `-tcp` | Use TCP ping method | Disabled |
+| `-http` | Use HTTP ping method | Disabled |
+| `tcp` | Use TCP ping method | Enabled by default |
 | `-icmp` | Use ICMP ping method | Disabled |
 
 ### IP Source Options
