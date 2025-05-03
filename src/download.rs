@@ -338,31 +338,57 @@ async fn download_handler(
         // 读取响应体
         let time_start = Instant::now();
         let mut content_read: u64 = 0;
+        let mut actual_content_read: u64 = 0;
+        let mut actual_start_time: Option<Instant> = None;
+        let warm_up_duration = Duration::from_secs(3); // 3秒预热时间
+        let extended_duration = download_duration + warm_up_duration; // 延长总下载时间
         
         loop {
             let current_time = Instant::now();
-            if current_time >= time_start + download_duration || timeout_flag.load(Ordering::SeqCst) {
+            let elapsed = current_time.duration_since(time_start);
+            
+            // 检查是否超过总下载时间或收到超时信号
+            if elapsed >= extended_duration || timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
-        
+            
             // 读取数据块
             match resp.chunk().await {
                 Ok(Some(chunk)) => {
                     let size = chunk.len() as u64;
                     content_read += size;
                     handler.update_data_received(size);
+                    
+                    // 如果已经过了预热时间，开始记录实际下载数据
+                    if elapsed >= warm_up_duration {
+                        // 如果这是第一次超过预热时间，记录实际开始时间
+                        if actual_start_time.is_none() {
+                            actual_start_time = Some(current_time);
+                        }
+                        actual_content_read += size;
+                    }
                 },
                 Ok(None) => break,
                 Err(_) => break,
             }
         }
         
-        // 计算总速度
-        let elapsed = time_start.elapsed().as_secs_f32();
-        if elapsed > 0.0 {
-            content_read as f32 / elapsed
+        // 计算实际速度（只计算预热后的数据）
+        if let Some(start) = actual_start_time {
+            let actual_elapsed = Instant::now().duration_since(start).as_secs_f32();
+            if actual_elapsed > 0.0 {
+                actual_content_read as f32 / actual_elapsed
+            } else {
+                0.0
+            }
         } else {
-            0.0
+            // 如果没有记录到预热后的数据，使用总数据计算
+            let elapsed = time_start.elapsed().as_secs_f32();
+            if elapsed > 0.0 {
+                content_read as f32 / elapsed
+            } else {
+                0.0
+            }
         }
     } else {
         0.0
