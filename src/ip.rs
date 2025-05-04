@@ -4,7 +4,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::str::FromStr;
 use rand::Rng;
-use ipnetwork::IpNetwork;
+use ipnet::IpNet;
 use reqwest;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
@@ -241,10 +241,10 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<usize>, test_all: boo
     }
     
     // 如果不是单个IP，再尝试解析为CIDR
-    if let Ok(network) = IpNetwork::from_str(ip_range) {
-        if is_ipv4(ip_range) {
-            if let IpNetwork::V4(ipv4_net) = network {
-                let prefix = ipv4_net.prefix();
+    if let Ok(network) = ip_range.parse::<IpNet>() {
+        match network {
+            IpNet::V4(ipv4_net) => {
+                let prefix = ipv4_net.prefix_len();
                 if test_all {
                     return if prefix < 32 { 2u32.pow((32 - prefix) as u32) as usize } else { 1 };
                 } else if let Some(count) = custom_count {
@@ -254,9 +254,8 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<usize>, test_all: boo
                     return calculate_sample_count(prefix, true);
                 }
             }
-        } else {
-            if let IpNetwork::V6(ipv6_net) = network {
-                let prefix = ipv6_net.prefix();
+            IpNet::V6(ipv6_net) => {
+                let prefix = ipv6_net.prefix_len();
                 if let Some(count) = custom_count {
                     // 使用自定义数量
                     return count;
@@ -279,51 +278,46 @@ fn process_ip_range_to_channel(ip_range: &str, test_all: bool, ip_tx: &Sender<Ip
     };
     
     // 处理CIDR格式的IP段
-    if let Ok(network) = IpNetwork::from_str(&ip_range_str) {
+    if let Ok(network) = ip_range_str.parse::<IpNet>() {
         // 直接处理单IP的CIDR格式（/32或/128）
         match network {
-            IpNetwork::V4(ipv4_net) if ipv4_net.prefix() == 32 => {
-                let _ = ip_tx.send(IpAddr::V4(ipv4_net.ip()));
+            IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
+                let _ = ip_tx.send(IpAddr::V4(ipv4_net.addr()));
                 return;
             },
-            IpNetwork::V6(ipv6_net) if ipv6_net.prefix() == 128 => {
-                let _ = ip_tx.send(IpAddr::V6(ipv6_net.ip()));
+            IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
+                let _ = ip_tx.send(IpAddr::V6(ipv6_net.addr()));
                 return;
             },
             _ => {
                 // 处理其他CIDR格式
-                if is_ipv4(&ip_range_str) {
-                    stream_ipv4_to_channel(&network, test_all, ip_tx, req_rx, custom_count);
-                } else {
-                    stream_ipv6_to_channel(&network, ip_tx, req_rx, custom_count);
+                match network {
+                    IpNet::V4(_) => stream_ipv4_to_channel(&network, test_all, ip_tx, req_rx, custom_count),
+                    IpNet::V6(_) => stream_ipv6_to_channel(&network, ip_tx, req_rx, custom_count),
                 }
             }
         }
     }
 }
 
-// 判断是否为IPv4
-fn is_ipv4(ip: &str) -> bool {
-    ip.contains('.')
-}
 // 流式处理IPv4地址并发送到通道
-fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
-    if let IpNetwork::V4(ipv4_net) = network {
+fn stream_ipv4_to_channel(network: &IpNet, test_all: bool, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
+    if let IpNet::V4(ipv4_net) = network {
         if test_all {
-            // 测试所有IP时，严格按照请求信号发送
-            let mut iter = ipv4_net.iter();
-            while let Some(ip) = iter.next() {
+            // 使用 hosts() 方法直接获取所有 IP 地址
+            let all_ips: Vec<Ipv4Addr> = ipv4_net.hosts().collect();
+            for ip_addr in all_ips {
                 // 等待请求信号
                 if req_rx.recv().is_err() {
                     return;
                 }
                 // 发送IP
-                if ip_tx.send(IpAddr::V4(ip)).is_err() {
+                if ip_tx.send(IpAddr::V4(ip_addr)).is_err() {
                     return;
                 }
             }
         } else {
-            let prefix = ipv4_net.prefix();
+            let prefix = ipv4_net.prefix_len();
             // 使用自定义数量或计算采样数量
             let ip_count = custom_count.unwrap_or_else(|| calculate_sample_count(prefix, true));
 
@@ -332,8 +326,8 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
 
             // 直接枚举所有IP再随机采样
             if prefix >= 23 && custom_count.is_none() {
-                // 先准备好采样的IP列表
-                let all_ips: Vec<Ipv4Addr> = ipv4_net.iter().collect();
+                // 使用 hosts() 方法直接获取所有 IP 地址
+                let all_ips: Vec<Ipv4Addr> = ipv4_net.hosts().collect();
                 use rand::seq::SliceRandom;
                 let sample_count = ip_count.min(all_ips.len());
                 let mut sampled = all_ips;
@@ -376,9 +370,9 @@ fn stream_ipv4_to_channel(network: &IpNetwork, test_all: bool, ip_tx: &Sender<Ip
 }
 
 // 流式处理IPv6地址并发送到通道
-fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
-    if let IpNetwork::V6(ipv6_net) = network {
-        let prefix = ipv6_net.prefix();
+fn stream_ipv6_to_channel(network: &IpNet, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
+    if let IpNet::V6(ipv6_net) = network {
+        let prefix = ipv6_net.prefix_len();
         // 使用自定义数量或计算采样数量
         let ip_count = custom_count.unwrap_or_else(|| calculate_sample_count(prefix, false));
 
@@ -387,8 +381,8 @@ fn stream_ipv6_to_channel(network: &IpNetwork, ip_tx: &Sender<IpAddr>, req_rx: &
 
         // 直接枚举所有IP再随机采样
         if prefix >= 117 && custom_count.is_none() {
-            // 先准备好采样的IP列表
-            let all_ips: Vec<Ipv6Addr> = ipv6_net.iter().collect();
+            // 使用 hosts() 方法直接获取所有 IP 地址
+            let all_ips: Vec<Ipv6Addr> = ipv6_net.hosts().collect();
             use rand::seq::SliceRandom;
             let sample_count = ip_count.min(all_ips.len());
             let mut sampled = all_ips;
@@ -479,9 +473,9 @@ pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
 }
 
 // 通用的IPv4地址生成函数
-pub fn generate_random_ipv4_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> Option<IpAddr> {
+pub fn generate_random_ipv4_address(ip_net: &IpNet, rng: &mut impl Rng) -> Option<IpAddr> {
     match ip_net {
-        IpNetwork::V4(ipv4_net) => {
+        IpNet::V4(ipv4_net) => {
             let network_addr = ipv4_net.network();
             let broadcast_addr = ipv4_net.broadcast();
             
@@ -501,9 +495,9 @@ pub fn generate_random_ipv4_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> O
 }
 
 // 通用的IPv6地址生成函数
-pub fn generate_random_ipv6_address(ip_net: &IpNetwork, rng: &mut impl Rng) -> Option<IpAddr> {
+pub fn generate_random_ipv6_address(ip_net: &IpNet, rng: &mut impl Rng) -> Option<IpAddr> {
     match ip_net {
-        IpNetwork::V6(ipv6_net) => {
+        IpNet::V6(ipv6_net) => {
             let network_addr = ipv6_net.network();
             let broadcast_addr = ipv6_net.broadcast();
             
