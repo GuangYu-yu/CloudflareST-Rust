@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use num_cpus;
-use lazy_static::lazy_static;
+use std::sync::OnceLock;
 use std::mem::ManuallyDrop;
 use crate::args::Args;
 
@@ -269,8 +269,8 @@ impl ThreadPool {
             let cpu_ratio = p90_cpu_duration / cpu_duration;
             
             // 根据CPU时间和负载因子综合调整
-            let min_factor = 0.4;
-            let max_factor = 1.6;
+            let min_factor = 0.6;
+            let max_factor = 1.2;
             
             let cpu_weight = (cpu_ratio - 1.0).min(100.0).max(0.0);
             adjustment_factor = min_factor + (max_factor - min_factor) * 
@@ -353,8 +353,11 @@ impl ThreadPool {
 }
 
 // 全局线程池
-lazy_static! {
-    pub static ref GLOBAL_POOL: ThreadPool = ThreadPool::new();
+pub static GLOBAL_POOL: OnceLock<ThreadPool> = OnceLock::new();
+
+// 获取全局线程池实例
+pub fn global_pool() -> &'static ThreadPool {
+    GLOBAL_POOL.get_or_init(ThreadPool::new)
 }
 
 // 执行带线程池控制的操作
@@ -364,7 +367,7 @@ where
     Fut: std::future::Future<Output = Result<T, E>>,
 {
     // 开始任务（内部会处理活跃任务计数）
-    let _permit = GLOBAL_POOL.acquire().await;
+    let _permit = global_pool().acquire().await;
     
     // 记录开始时间
     let start_time = Instant::now();
@@ -373,7 +376,7 @@ where
     let result = f().await;
     
     // 记录总任务执行时间
-    GLOBAL_POOL.record_task_duration(start_time.elapsed());
+    global_pool().record_task_duration(start_time.elapsed());
     
     // 结束任务（CustomPermit的Drop实现会自动处理）
     result

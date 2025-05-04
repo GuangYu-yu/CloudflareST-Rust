@@ -325,7 +325,7 @@ fn stream_ipv4_to_channel(network: &IpNet, test_all: bool, ip_tx: &Sender<IpAddr
             let mut rng = rand::rng();
 
             // 直接枚举所有IP再随机采样
-            if prefix >= 23 && custom_count.is_none() {
+            if prefix >= 21 && custom_count.is_none() {
                 // 使用 hosts() 方法直接获取所有 IP 地址
                 let all_ips: Vec<Ipv4Addr> = ipv4_net.hosts().collect();
                 use rand::seq::SliceRandom;
@@ -380,7 +380,7 @@ fn stream_ipv6_to_channel(network: &IpNet, ip_tx: &Sender<IpAddr>, req_rx: &Rece
         let mut rng = rand::rng();
 
         // 直接枚举所有IP再随机采样
-        if prefix >= 117 && custom_count.is_none() {
+        if prefix >= 115 && custom_count.is_none() {
             // 使用 hosts() 方法直接获取所有 IP 地址
             let all_ips: Vec<Ipv6Addr> = ipv6_net.hosts().collect();
             use rand::seq::SliceRandom;
@@ -436,7 +436,9 @@ pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
             26 => 48,   // /26 测试 48 个 IP
             25 => 96,  // /25 测试 96 个 IP
             24 => 200,  // /24 测试 200 个 IP
-            23 => 400,  // /23 测试 400 个 IP
+            23 => 300,  // /23 测试 300 个 IP
+            22 => 400,  // /22 测试 400 个 IP
+            21 => 500,  // /21 测试 500 个 IP
             _ => {
                 // 对于更大范围的 CIDR，使用指数函数计算
                 let a = 800_000.0;
@@ -460,6 +462,8 @@ pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
             119 => 400,  // /119 测试 400 个 IP
             118 => 800,  // /118 测试 800 个 IP
             117 => 1600, // /117 测试 1600 个 IP
+            116 => 1800, // /116 测试 1800 个 IP
+            115 => 2000, // /115 测试 2000 个 IP
             _ => {
                 // 对于更大范围的 CIDR，使用指数函数计算
                 let a = 800_000.0;

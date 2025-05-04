@@ -5,7 +5,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 use rand::random;
-use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
+use crate::pool::{execute_with_rate_limit, global_pool};
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -73,7 +73,7 @@ impl Ping {
         let mut tasks = FuturesUnordered::new();
         
         // 获取当前线程池的并发能力
-        let initial_tasks = GLOBAL_POOL.get_concurrency_level();
+        let initial_tasks = global_pool().get_concurrency_level();
 
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
@@ -147,8 +147,11 @@ impl Ping {
         // 更新进度条为完成状态
         self.bar.done();
 
-        // 收集所有测试结果，排序后返回
+        // 收集所有测试结果
         let mut results = self.csv.lock().unwrap().clone();
+        
+        // 合并重复IP的结果
+        common::merge_duplicate_ips(&mut results);
         
         // 使用common模块的排序函数
         common::sort_ping_results(&mut results);
@@ -221,7 +224,7 @@ async fn icmp_ping(ip: IpAddr, args: &Args, client_v4: Arc<Client>, client_v6: A
         IpAddr::V4(_) => client_v4,
         IpAddr::V6(_) => client_v6,
     };
-    let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    let mut cpu_timer = global_pool().start_cpu_timer();
 
     let client = Arc::clone(&client);
     let payload = [0; 56];

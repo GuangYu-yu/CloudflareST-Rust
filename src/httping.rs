@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 
 use crate::progress::Bar;
 use crate::args::Args;
-use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
+use crate::pool::{execute_with_rate_limit, global_pool};
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
 
@@ -132,7 +132,7 @@ impl Ping {
         let mut tasks = FuturesUnordered::new();
         
         // 获取当前线程池的并发能力
-        let initial_tasks = GLOBAL_POOL.get_concurrency_level();
+        let initial_tasks = global_pool().get_concurrency_level();
         let mut url_index = 0;
 
         let add_task = |ip: IpAddr, url_index: &mut usize, tasks: &mut FuturesUnordered<_>| {
@@ -212,8 +212,11 @@ impl Ping {
         // 更新进度条为完成状态
         self.bar.done();
 
-        // 收集所有测试结果，排序后返回
+        // 收集所有测试结果
         let mut results = self.csv.lock().unwrap().clone();
+        
+        // 合并重复IP的结果
+        common::merge_duplicate_ips(&mut results);
         
         // 使用common模块的排序函数
         common::sort_ping_results(&mut results);
@@ -272,10 +275,10 @@ async fn httping(
 ) -> Option<(u16, f32, String)> {
     
     // 开始任务
-    GLOBAL_POOL.start_task();
+    global_pool().start_task();
     
     // 创建CPU计时器（仅测量本地CPU计算）
-    let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    let mut cpu_timer = global_pool().start_cpu_timer();
     
     // 解析URL获取主机名（仅用于客户端构建）
     let host = {
@@ -284,7 +287,7 @@ async fn httping(
             Ok(parts) => parts,
             Err(_) => {
                 // 结束任务
-                GLOBAL_POOL.end_task();
+                global_pool().end_task();
                 return None;
             }
         };
@@ -293,7 +296,7 @@ async fn httping(
             Some(host) => host.to_string(),
             None => {
                 // 结束任务
-                GLOBAL_POOL.end_task();
+                global_pool().end_task();
                 return None;
             }
         }
@@ -356,7 +359,7 @@ async fn httping(
                         if !data_center.is_empty() && !colo_filters.is_empty() {
                             let dc_upper = data_center.to_uppercase();
                             if !colo_filters.iter().any(|filter| dc_upper == *filter) {
-                                GLOBAL_POOL.end_task();
+                                global_pool().end_task();
                                 return None;
                             }
                         }
@@ -373,7 +376,7 @@ async fn httping(
     cpu_timer.finish();
 
     // 结束任务
-    GLOBAL_POOL.end_task();
+    global_pool().end_task();
 
     // 返回结果
     if success > 0 {

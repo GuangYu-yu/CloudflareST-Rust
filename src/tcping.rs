@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 
 use crate::progress::Bar;
 use crate::args::Args;
-use crate::pool::{execute_with_rate_limit, GLOBAL_POOL};
+use crate::pool::{execute_with_rate_limit, global_pool};
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
 
@@ -67,7 +67,7 @@ impl Ping {
         let mut tasks = FuturesUnordered::new();
         
         // 获取当前线程池的并发能力
-        let initial_tasks = GLOBAL_POOL.get_concurrency_level();
+        let initial_tasks = global_pool().get_concurrency_level();
 
         let add_task = |ip: IpAddr, tasks: &mut FuturesUnordered<_>| {
             let csv_clone = Arc::clone(&csv);
@@ -131,6 +131,9 @@ impl Ping {
         // 收集所有测试结果，排序后返回
         let mut results = self.csv.lock().unwrap().clone();
         
+        // 合并重复IP的结果
+        common::merge_duplicate_ips(&mut results);
+        
         // 使用common模块的排序函数
         common::sort_ping_results(&mut results);
         
@@ -191,10 +194,10 @@ async fn tcping_handler(
 // TCP连接测试函数
 async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
     // 开始任务
-    GLOBAL_POOL.start_task();
+    global_pool().start_task();
     
     // 创建CPU计时器
-    let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
+    let mut cpu_timer = global_pool().start_cpu_timer();
     
     let connect_result = tokio::time::timeout(
         args.max_delay,
@@ -220,7 +223,7 @@ async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
     }).await;
     
     // 结束任务
-    GLOBAL_POOL.end_task();
+    global_pool().end_task();
     
     connect_result.unwrap_or(None)
 }
