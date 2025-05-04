@@ -487,7 +487,7 @@ pub fn generate_random_ipv4_address(ip_net: &IpNet, rng: &mut impl Rng) -> Optio
             let random_ip =rng.random_range(start..=end);
             
             // 转回IPv4地址
-            let ip = Ipv4Addr::from(random_ip.to_be_bytes());
+            let ip = Ipv4Addr::from(random_ip);
             Some(IpAddr::V4(ip))
         }
         _ => None,
@@ -509,7 +509,7 @@ pub fn generate_random_ipv6_address(ip_net: &IpNet, rng: &mut impl Rng) -> Optio
             let random_ip =rng.random_range(start..=end);
             
             // 转回IPv6地址
-            let ip = Ipv6Addr::from(random_ip.to_be_bytes());
+            let ip = Ipv6Addr::from(random_ip);
             Some(IpAddr::V6(ip))
         }
         _ => None,
