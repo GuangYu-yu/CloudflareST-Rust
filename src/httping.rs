@@ -346,11 +346,10 @@ async fn httping(
 
     while let Some(result) = tasks.next().await {
         if let Ok((Some(response), start_time)) = result {
-            
-            if !first_request_success {
-                first_request_success = true;
-                // 从响应中提取数据中心信息
-                if let Some(dc) = common::extract_data_center(&response) {
+            // 使用 common::extract_data_center 提取数据中心信息
+            if let Some(dc) = common::extract_data_center(&response) {
+                if !first_request_success {
+                    first_request_success = true;
                     data_center = dc;
                     
                     if !args.httping_cf_colo.is_empty() {
@@ -363,10 +362,10 @@ async fn httping(
                         }
                     }
                 }
+                
+                success += 1;
+                total_delay_ms += start_time.elapsed().as_secs_f32() * 1000.0;
             }
-            
-            success += 1;
-            total_delay_ms += start_time.elapsed().as_secs_f32() * 1000.0;
         }
     }
 
