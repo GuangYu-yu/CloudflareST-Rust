@@ -138,24 +138,12 @@ pub async fn send_head_request(
 
 /// 从响应中提取数据中心信息
 pub fn extract_data_center(resp: &Response) -> Option<String> {
-    resp.headers().get("cf-ray")
-        .and_then(|cf_ray| cf_ray.to_str().ok())
-        .map(|cf_ray_str| {
-            let colo = extract_colo(cf_ray_str);
-            if !colo.is_empty() { Some(colo) } else { None }
-        })
-        .flatten()
-}
-
-/// 提取 Cloudflare 数据中心信息
-pub fn extract_colo(cf_ray: &str) -> String {
-    if let Some(last_dash_index) = cf_ray.rfind('-') {
-        let data_center = &cf_ray[last_dash_index + 1..];
-        if !data_center.is_empty() {
-            return data_center.to_string();
-        }
-    }
-    String::new()
+    resp.headers().get("cf-ray")?
+        .to_str()
+        .ok()?
+        .rsplit('-')
+        .next()
+        .map(str::to_owned)
 }
 
 /// 获取TCP端口
