@@ -2,6 +2,8 @@
 
 **对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
+自建测速地址 [点击前往](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)
+
 ## [Deepwiki](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
 
 ![时序图](https://gitee.com/zhxdcyy/cfurl/raw/master/4ce77970-3d26-4553-90e9-1d15c65da238.png)
