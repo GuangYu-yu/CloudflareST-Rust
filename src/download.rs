@@ -317,7 +317,7 @@ async fn download_handler(
     
     // 使用公共模块发送请求
     let url_with_port = format!("{}://{}:{}{}", scheme, host, tcp_port, path);
-    let response = common::send_request(&client, &url_with_port, "GET").await;
+    let response = common::send_request(&client, &url_with_port).await;
     
     // 如果获取到响应，开始下载
     let avg_speed = if let Some(mut resp) = response {

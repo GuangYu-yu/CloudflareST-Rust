@@ -111,14 +111,9 @@ pub async fn build_reqwest_client_with_host(ip: IpAddr, port: u16, host: &str, t
     }
 }
 
-/// 根据协议类型和方法发送请求
-pub async fn send_request(client: &Client, url: &str, method: &str) -> Option<Response> {
-    let result = match method {
-        "GET" => client.get(url).send().await,
-        _ => return None, // 不支持的方法
-    };
-    
-    match result {
+/// 发送GET请求
+pub async fn send_request(client: &Client, url: &str) -> Option<Response> {
+    match client.get(url).send().await {
         Ok(resp) => Some(resp),
         Err(_) => None,
     }
