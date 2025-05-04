@@ -382,25 +382,25 @@ async fn download_handler(
         if let Some(start) = actual_start_time {
             let actual_elapsed = Instant::now().duration_since(start).as_secs_f32();
             if actual_elapsed > 0.0 {
-                actual_content_read as f32 / actual_elapsed
+                Some(actual_content_read as f32 / actual_elapsed)
             } else {
-                0.0
+                None
             }
         } else {
             // 如果没有记录到预热后的数据，使用总数据计算
             let elapsed = time_start.elapsed().as_secs_f32();
             if elapsed > 0.0 {
-                content_read as f32 / elapsed
+                Some(content_read as f32 / elapsed)
             } else {
-                0.0
+                None
             }
         }
     } else {
-        0.0
+        None
     };
     
     // 重置当前速度显示
     *current_speed.lock().unwrap() = 0.0;
     
-    (Some(avg_speed), data_center)
+    (avg_speed, data_center)
 }
