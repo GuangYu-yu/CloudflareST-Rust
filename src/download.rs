@@ -327,6 +327,10 @@ async fn download_handler(
         // 如果需要获取数据中心信息，从响应头中提取
         if need_colo {
             data_center = common::extract_data_center(&resp);
+            // 如果没有提取到数据中心信息，直接返回None
+            if data_center.is_none() {
+                return (None, None);
+            }
             // 如果数据中心不符合要求，速度返回None，数据中心正常返回
             if let Some(dc) = &data_center {
                 let colo_filters = common::parse_colo_filters(colo_filter);
