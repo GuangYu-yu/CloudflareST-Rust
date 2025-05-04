@@ -22,22 +22,56 @@ pub struct Ping {
     urlist: Vec<String>,
     success_count: Arc<AtomicUsize>,
     timeout_flag: Arc<AtomicBool>,
+    use_https: bool,
 }
 
 impl Ping {
     pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
-        // 优先使用-hu参数指定的URL列表
-        let urlist = if !args.httping_urls.is_empty() {
-            args.httping_urls.split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
+        // 判断是否使用-hu参数（无论是否传值）
+        let use_https = !args.httping_urls.is_empty() || args.httping_urls_flag;
+        
+        let urlist = if use_https {
+            // 使用HTTPS模式
+            if !args.httping_urls.is_empty() {
+                // -hu参数有值，使用指定的URL列表，使用路径/cdn-cgi/trace
+                args.httping_urls.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .map(|url| {
+                        // 尝试解析URL，提取域名部分
+                        if let Ok(parsed) = Url::parse(&url) {
+                            if let Some(host) = parsed.host_str() {
+                                // 返回标准化的URL格式
+                                return format!("https://{}/cdn-cgi/trace", host);
+                            }
+                        }
+                        // 如果无法解析，假设整个字符串是域名
+                        format!("https://{}/cdn-cgi/trace", url)
+                    })
+                    .collect()
+            } else {
+                // -hu参数无值，从-url或-urlist获取域名列表
+                let url_list = common::get_url_list(&args.url, &args.urlist).await;
+                // 只提取域名部分，并构建https://<域名>/cdn-cgi/trace
+                url_list.iter()
+                    .map(|url| {
+                        if let Ok(parsed) = Url::parse(url) {
+                            if let Some(host) = parsed.host_str() {
+                                return format!("https://{}/cdn-cgi/trace", host);
+                            }
+                        }
+                        // 如果无法解析为有效URL，则将整个字符串视为域名
+                        format!("https://{}/cdn-cgi/trace", url)
+                    })
+                    .collect()
+            }
         } else {
-            // 如果没有-hu参数，则使用-url或-urlist
-            common::get_url_list(&args.url, &args.urlist).await
+            // 不使用HTTPS模式，无需获取URL列表
+            Vec::new()
         };
         
-        if urlist.is_empty() {
+        // 如果使用HTTPS模式但URL列表为空，返回错误
+        if use_https && urlist.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "警告：URL列表为空"));
         }
         
@@ -61,6 +95,7 @@ impl Ping {
             urlist,
             success_count: Arc::new(AtomicUsize::new(0)),
             timeout_flag,
+            use_https,
         })
     }
 
@@ -91,6 +126,7 @@ impl Ping {
         let urlist = self.urlist.clone();
         let success_count = Arc::clone(&self.success_count);
         let timeout_flag = Arc::clone(&self.timeout_flag);
+        let use_https = self.use_https;
 
         // 使用FuturesUnordered来动态管理任务
         let mut tasks = FuturesUnordered::new();
@@ -100,9 +136,22 @@ impl Ping {
         let mut url_index = 0;
 
         let add_task = |ip: IpAddr, url_index: &mut usize, tasks: &mut FuturesUnordered<_>| {
-            // 选择URL (轮询)
-            let url = urlist[*url_index % urlist.len()].clone();
-            *url_index += 1;
+            // 根据是否使用HTTPS模式选择URL
+            let url = if use_https {
+                // HTTPS模式：从URL列表中选择（轮询）
+                urlist[*url_index % urlist.len()].clone()
+            } else {
+                // 非HTTPS模式：直接使用IP构建URL
+                match ip {
+                    IpAddr::V4(_) => format!("http://{}/cdn-cgi/trace", ip),
+                    IpAddr::V6(_) => format!("http://[{}]/cdn-cgi/trace", ip),
+                }
+            };
+            
+            // 只有在HTTPS模式下才增加URL索引
+            if use_https && !urlist.is_empty() {
+                *url_index += 1;
+            }
 
             let csv_clone = Arc::clone(&csv);
             let bar_clone = Arc::clone(&bar);
@@ -219,7 +268,7 @@ async fn httping(
     ip: IpAddr, 
     args: &Args,
     colo_filters: &[String],
-    url: &str
+    url: &str,
 ) -> Option<(u16, f32, String)> {
     
     // 开始任务
@@ -228,28 +277,30 @@ async fn httping(
     // 创建CPU计时器（仅测量本地CPU计算）
     let mut cpu_timer = GLOBAL_POOL.start_cpu_timer();
     
-    // 解析URL（CPU计算部分）
-    let url_parts = match Url::parse(url) {
-        Ok(parts) => parts,
-        Err(_) => {
-            // 结束任务
-            GLOBAL_POOL.end_task();
-            return None;
+    // 解析URL获取主机名（仅用于客户端构建）
+    let host = {
+        // 解析URL
+        let url_parts = match Url::parse(url) {
+            Ok(parts) => parts,
+            Err(_) => {
+                // 结束任务
+                GLOBAL_POOL.end_task();
+                return None;
+            }
+        };
+        
+        match url_parts.host_str() {
+            Some(host) => host.to_string(),
+            None => {
+                // 结束任务
+                GLOBAL_POOL.end_task();
+                return None;
+            }
         }
     };
     
-    let host = match url_parts.host_str() {
-        Some(host) => host,
-        None => {
-            // 结束任务
-            GLOBAL_POOL.end_task();
-            return None;
-        }
-    };
-    
-    let path = url_parts.path();
+    // 获取端口
     let port = common::get_tcp_port(args);
-    let is_https = url_parts.scheme() == "https";
     
     // URL解析完成，暂停CPU计时
     cpu_timer.pause();
@@ -261,25 +312,22 @@ async fn httping(
     for _ in 0..ping_times {
         // 恢复CPU计时（客户端构建是CPU计算）
         cpu_timer.resume();
-        let client = match common::build_reqwest_client_with_host(ip, port, host, args.max_delay.as_millis().try_into().unwrap()).await {
+        let client = match common::build_reqwest_client_with_host(ip, port, &host, args.max_delay.as_millis().try_into().unwrap()).await {
             Some(client) => client,
             None => continue,
         };
         // 客户端构建完成，暂停CPU计时
         cpu_timer.pause();
         
-        let host = host.to_string();
-        let path = path.to_string();
-        let is_https = is_https;
-        let port = port;
+        let url_clone = url.to_string();
     
         tasks.push(tokio::spawn({
             async move {
                 let start_time = Instant::now();
                 
                 let result = async {
-                    // 直接等待请求完成
-                    common::send_head_request(&client, is_https, &host, port, &path).await
+                    // 直接使用原始URL
+                    common::send_head_request(&client, &url_clone).await
                 }.await;
         
                 (result, start_time)
@@ -298,26 +346,19 @@ async fn httping(
 
     while let Some(result) = tasks.next().await {
         if let Ok((Some(response), start_time)) = result {
-            // 获取状态码
-            let status_code = response.status().as_u16();
-            
-            if !common::is_valid_status_code(status_code, args) {
-                continue;
-            }
             
             if !first_request_success {
                 first_request_success = true;
-                if let Some(cf_ray) = response.headers().get("cf-ray") {
-                    if let Ok(cf_ray_str) = cf_ray.to_str() {
-                        data_center = common::extract_colo(cf_ray_str);
-                        
-                        if !args.httping_cf_colo.is_empty() {
-                            if !data_center.is_empty() && !colo_filters.is_empty() {
-                                let dc_upper = data_center.to_uppercase();
-                                if !colo_filters.iter().any(|filter| dc_upper == *filter) {
-                                    GLOBAL_POOL.end_task();
-                                    return None;
-                                }
+                // 从响应中提取数据中心信息
+                if let Some(dc) = common::extract_data_center(&response) {
+                    data_center = dc;
+                    
+                    if !args.httping_cf_colo.is_empty() {
+                        if !data_center.is_empty() && !colo_filters.is_empty() {
+                            let dc_upper = data_center.to_uppercase();
+                            if !colo_filters.iter().any(|filter| dc_upper == *filter) {
+                                GLOBAL_POOL.end_task();
+                                return None;
                             }
                         }
                     }

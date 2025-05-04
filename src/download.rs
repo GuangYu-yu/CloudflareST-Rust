@@ -303,7 +303,7 @@ async fn download_handler(
     };
     
     let path = url_parts.path();
-    let is_https = url_parts.scheme() == "https";
+    let scheme = url_parts.scheme();
     let mut data_center = None;
     
     // 创建客户端进行下载测速
@@ -316,7 +316,8 @@ async fn download_handler(
     let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
     
     // 使用公共模块发送请求
-    let response = common::send_request(&client, is_https, host, tcp_port, path, "GET").await;
+    let url_with_port = format!("{}://{}:{}{}", scheme, host, tcp_port, path);
+    let response = common::send_request(&client, &url_with_port, "GET").await;
     
     // 如果获取到响应，开始下载
     let avg_speed = if let Some(mut resp) = response {

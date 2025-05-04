@@ -100,7 +100,7 @@ pub async fn build_reqwest_client_with_host(ip: IpAddr, port: u16, host: &str, t
         .resolve(host, SocketAddr::new(ip, port))
         .timeout(Duration::from_millis(timeout_ms))
         .user_agent(USER_AGENT)  // 使用常量
-        .danger_accept_invalid_certs(true)  // 跳过证书验证
+//        .danger_accept_invalid_certs(true)  // 跳过证书验证
         .pool_max_idle_per_host(0) // 禁用连接复用
         .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
         .build();
@@ -112,15 +112,9 @@ pub async fn build_reqwest_client_with_host(ip: IpAddr, port: u16, host: &str, t
 }
 
 /// 根据协议类型和方法发送请求
-pub async fn send_request(client: &Client, is_https: bool, host: &str, port: u16, path: &str, method: &str) -> Option<Response> {
-    let url = if is_https {
-        format!("https://{}:{}{}", host, port, path)
-    } else {
-        format!("http://{}:{}{}", host, port, path)
-    };
-    
+pub async fn send_request(client: &Client, url: &str, method: &str) -> Option<Response> {
     let result = match method {
-        "GET" => client.get(&url).send().await,
+        "GET" => client.get(url).send().await,
         _ => return None, // 不支持的方法
     };
     
@@ -133,18 +127,13 @@ pub async fn send_request(client: &Client, is_https: bool, host: &str, port: u16
 // 发送GET请求但只获取响应头
 pub async fn send_head_request(
     client: &reqwest::Client,
-    is_https: bool,
-    host: &str,
-    port: u16,
-    path: &str,
+    url: &str,
 ) -> Option<reqwest::Response> {
-    // 构建URL
-    let scheme = if is_https { "https" } else { "http" };
-    let url = format!("{}://{}:{}{}", scheme, host, port, path);
-    
-    // 添加Range头，只请求前几个字节，减少数据传输
-    let response = client.get(&url)
-        .header("Range", "bytes=0-1024")
+    // 使用GET方法，但设置Connection: close头部，并且只读取到头部结束
+    let response = client.get(url)
+        .header("Connection", "close")
+        .header("Accept-Encoding", "identity") // 禁用压缩，便于找到头部结束位置
+        .header("Range", "bytes=0-1") // 只请求极少量数据
         .send()
         .await
         .ok()?;
@@ -172,29 +161,6 @@ pub fn extract_colo(cf_ray: &str) -> String {
         }
     }
     String::new()
-}
-
-/// 验证 HTTP 状态码是否有效
-pub fn is_valid_status_code(status_code: u16, args: &Args) -> bool {
-    match args.httping_status_code {
-        None => status_code == 200 || status_code == 301 || status_code == 302,
-        Some(code) => {
-            if !is_valid_httping_status_code(args) {
-                // 如果状态码无效，使用默认行为
-                status_code == 200 || status_code == 301 || status_code == 302
-            } else {
-                status_code == code
-            }
-        }
-    }
-}
-
-/// 检查 httping 状态码是否有效
-pub fn is_valid_httping_status_code(args: &Args) -> bool {
-    match args.httping_status_code {
-        None => true,
-        Some(code) => (100..=599).contains(&code)
-    }
 }
 
 /// 获取TCP端口

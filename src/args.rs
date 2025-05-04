@@ -13,9 +13,9 @@ pub struct Args {
     
     // HTTP测速相关
     pub httping: bool,           // 是否使用HTTP测速
-    pub httping_status_code: Option<u16>, // HTTP有效状态码，None表示接受200、301、302
     pub httping_cf_colo: String, // 匹配指定地区
     pub httping_urls: String,    // 指定Httping模式的测速地址
+    pub httping_urls_flag: bool, // 是否使用-hu参数（无论是否有值）
     
     // 延迟过滤相关
     pub max_delay: Duration,     // 平均延迟上限
@@ -56,9 +56,9 @@ impl Args {
             urlist: String::new(),
             
             httping: false,
-            httping_status_code: None,
             httping_cf_colo: String::new(),
             httping_urls: String::new(),
+            httping_urls_flag: false,
             
             max_delay: Duration::from_millis(2000),
             min_delay: Duration::from_millis(0),
@@ -129,6 +129,19 @@ impl Args {
                     i += 1;
                     continue;
                 },
+                // -hu 参数处理带值或不带值
+                "hu" => {
+                    parsed.httping_urls_flag = true;
+                    
+                    // 检查下一个参数是否存在且不是以'-'开头的值
+                    if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                        parsed.httping_urls = args[i + 1].clone();
+                        i += 2;  // 跳过参数名和值
+                    } else {
+                        i += 1;  // 只跳过参数名
+                    }
+                    continue;
+                },
                 _ => {}
             }
             
@@ -160,11 +173,6 @@ impl Args {
                     },
                     "urlist" => {
                         parsed.urlist = args[i + 1].clone();
-                    },
-                    "hc" => {
-                        if let Ok(val) = args[i + 1].parse::<u16>() {
-                            parsed.httping_status_code = Some(val);
-                        }
                     },
                     "colo" => {
                         parsed.httping_cf_colo = args[i + 1].clone();
@@ -217,9 +225,6 @@ impl Args {
                         // 解析超时时间
                         parsed.global_timeout_duration = parse_duration(&args[i + 1]);
                     },
-                    "hu" => {
-                        parsed.httping_urls = args[i + 1].clone();
-                    },
                     "tn" => {
                         if let Ok(val) = args[i + 1].parse::<u32>() {
                             parsed.target_num = Some(val);
@@ -233,7 +238,15 @@ impl Args {
             }
         }
 
+        parsed.use_tls_httping_args();
         parsed
+    }
+
+    fn use_tls_httping_args(&mut self) {
+        // 如果使用了 -hu 参数，确保 httping 为 true
+        if self.httping_urls_flag {
+            self.httping = true;
+        }
     }
 }
 
@@ -273,12 +286,11 @@ pub fn print_help() {
     
     // 基本参数
     println!("\n{}:", "基本参数".bold());
-    print_arg!("-url", "Httping模式和下载测速所使用的测速地址 (https://example.com/file)", "[默认: 未指定]");
+    print_arg!("-url", " TLS 模式的 Httping 或下载测速所使用的测速地址 (https://example.com/file)", "[默认: 未指定]");
     print_arg!("-urlist", "从 URL 内读取测速地址列表 (https://example.com/url_list.txt)", "[默认: 未指定]");
     print_arg!("-f", "从文件或文件路径读取 IP 或 CIDR", "[默认: 未指定]");
     print_arg!("-ip", "直接指定 IP 或 CIDR (多个用逗号分隔)", "[默认: 未指定]");
     print_arg!("-ipurl", "从URL读取 IP 或 CIDR (https://example.com/ip_list.txt)", "[默认: 未指定]");
-    print_arg!("-h", "打印帮助说明", "[默认: 否]");
     print_arg!("-timeout", "程序超时退出时间（示例：1h3m6s）", "[默认: 不限制]");
     
     // 测速参数
@@ -287,16 +299,15 @@ pub fn print_help() {
     print_arg!("-dn", "所需下载测速结果数量", "[默认: 10]");
     print_arg!("-dt", "下载测速时间（秒）", "[默认: 10]");
     print_arg!("-tp", "测速端口", "[默认: 443]");
-    print_arg!("-dd", "禁用下载测速", "[默认: 否]");
     print_arg!("-all4", "测速全部IPv4", "[默认: 否]");
     print_arg!("-tn", "当 Ping 到指定可用数量，提前结束 Ping", "[默认: 否]");
     
     // 测速选项
     println!("\n{}:", "测速选项".bold());
-    print_arg!("-httping", "Httping模式", "[默认: 否]");
+    print_arg!("-httping", "使用非 TLS 模式的 Httping ，无需测速地址", "[默认: 否]");
     print_arg!("-ping", "ICMP-Ping测速模式", "[默认: 否]");
-    print_arg!("-hc", "Httping模式的有效状态码", "[默认: 接受200/301/302]");
-    print_arg!("-hu", "只使用这条参数所指定的 URL 作为Httping模式的测速地址，多条用逗号分隔", "[默认: 未指定]");
+    print_arg!("-dd", "禁用下载测速", "[默认: 否]");
+    print_arg!("-hu", "使用 TLS 模式的 Httping ，可指定其 URL 测速地址，或作为无参数命令，使用其他测速地址", "[默认: 否]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]");
     print_arg!("-n", "动态线程池的线程数量上限", "[默认: 1024]");
     
@@ -324,10 +335,10 @@ pub fn parse_args() -> Args {
         println!("{}", "使用 -h 参数查看帮助".red());
         std::process::exit(1);
     }
-    
-    // 检查HTTP测速地址（当使用-httping时）
-    if args.httping && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {
-        println!("错误: 使用 -httping 参数时，请使用 -hu, -url 或 -urlist 参数指定Httping模式的测速地址");
+
+    // 检查-hu参数：如果使用了-hu但没有提供URL，也没有设置-url或-urlist
+    if args.httping_urls_flag && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {
+        println!("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 指定测速地址");
         println!("{}", "使用 -h 参数查看帮助".red());
         std::process::exit(1);
     }
