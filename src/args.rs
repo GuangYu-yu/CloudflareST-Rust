@@ -299,13 +299,13 @@ pub fn print_help() {
     print_arg!("-dn", "所需下载测速结果数量", "[默认: 10]");
     print_arg!("-dt", "下载测速时间（秒）", "[默认: 10]");
     print_arg!("-tp", "测速端口", "[默认: 443]");
-    print_arg!("-all4", "测速全部IPv4", "[默认: 否]");
+    print_arg!("-all4", "测速全部 IPv4 ", "[默认: 否]");
     print_arg!("-tn", "当 Ping 到指定可用数量，提前结束 Ping", "[默认: 否]");
     
     // 测速选项
     println!("\n{}:", "测速选项".bold());
     print_arg!("-httping", "使用非 TLS 模式的 Httping ，无需测速地址", "[默认: 否]");
-    print_arg!("-ping", "ICMP-Ping测速模式", "[默认: 否]");
+    print_arg!("-ping", "ICMP-Ping 测速模式", "[默认: 否]");
     print_arg!("-dd", "禁用下载测速", "[默认: 否]");
     print_arg!("-hu", "使用 TLS 模式的 Httping ，可指定其 URL 测速地址，或作为无参数命令，使用其他测速地址", "[默认: 否]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]");
