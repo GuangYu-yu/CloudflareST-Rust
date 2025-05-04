@@ -286,7 +286,7 @@ pub fn print_help() {
     
     // 基本参数
     println!("\n{}:", "基本参数".bold());
-    print_arg!("-url", " TLS 模式的 Httping 或下载测速所使用的测速地址 (https://example.com/file)", "[默认: 未指定]");
+    print_arg!("-url", "TLS 模式的 Httping 或下载测速所使用的测速地址 (https://example.com/file)", "[默认: 未指定]");
     print_arg!("-urlist", "从 URL 内读取测速地址列表 (https://example.com/url_list.txt)", "[默认: 未指定]");
     print_arg!("-f", "从文件或文件路径读取 IP 或 CIDR", "[默认: 未指定]");
     print_arg!("-ip", "直接指定 IP 或 CIDR (多个用逗号分隔)", "[默认: 未指定]");
