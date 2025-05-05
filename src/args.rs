@@ -175,7 +175,7 @@ impl Args {
                         parsed.urlist = args[i + 1].clone();
                     },
                     "colo" => {
-                        parsed.httping_cf_colo = args[i + 1].clone();
+                        parsed.httping_cf_colo = args[i + 1].clone().to_uppercase();
                     },
                     "tl" => {
                         if let Ok(val) = args[i + 1].parse::<u64>() {
