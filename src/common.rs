@@ -45,14 +45,14 @@ impl PingData {
 pub type PingDelaySet = Vec<PingData>;
 
 // 打印测速信息的通用函数
-pub fn print_speed_test_info(mode: &str, port: u16, min_delay: Duration, max_delay: Duration, loss_rate: f32) {
+pub fn print_speed_test_info(mode: &str, args: &Args) {
     println!(
         "开始延迟测速（模式：{}, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2})",
         mode,
-        port,
-        min_delay.as_millis(),
-        max_delay.as_millis(),
-        loss_rate
+        args.tcp_port,
+        args.min_delay.as_millis(),
+        args.max_delay.as_millis(),
+        args.max_loss_rate
     );
 }
 
@@ -146,28 +146,8 @@ pub fn extract_data_center(resp: &Response) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// 获取TCP端口
-pub fn get_tcp_port(args: &Args) -> u16 {
-    args.tcp_port
-}
-
-/// 获取Ping次数
-pub fn get_ping_times(args: &Args) -> u16 {
-    args.ping_times
-}
-
-/// 获取延迟下限
-pub fn get_min_delay(args: &Args) -> Duration {
-    args.min_delay
-}
-
-/// 获取延迟上限
-pub fn get_max_delay(args: &Args) -> Duration {
-    args.max_delay
-}
-
 /// 初始化 Ping 测试的基本参数
-pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelaySet>>, Arc<Bar>, f32) {
+pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelaySet>>, Arc<Bar>) {
     // 加载 IP 缓冲区
     let ip_buffer = load_ip_to_buffer(args);
 
@@ -183,8 +163,7 @@ pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelay
     (
         ip_buffer_arc,
         Arc::new(Mutex::new(Vec::new())),
-        bar,
-        args.max_loss_rate
+        bar
     )
 }
 

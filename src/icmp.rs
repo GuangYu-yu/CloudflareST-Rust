@@ -16,7 +16,6 @@ pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
     csv: Arc<Mutex<PingDelaySet>>,
     bar: Arc<Bar>,
-    max_loss_rate: f32,
     args: Args,
     success_count: Arc<AtomicUsize>,
     client_v4: Arc<Client>,
@@ -26,7 +25,10 @@ pub struct Ping {
 
 impl Ping {
     pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
-        let (ip_buffer, csv, bar, max_loss_rate) = common::init_ping_test(args);
+        // 打印开始延迟测试的信息
+        common::print_speed_test_info("ICMP-Ping", args);
+        // 初始化测试环境
+        let (ip_buffer, csv, bar) = common::init_ping_test(args);
         let client_v4 = Arc::new(Client::new(&Config::default())?);
         let client_v6 = Arc::new(Client::new(&Config::builder().kind(ICMP::V6).build())?);
 
@@ -34,7 +36,6 @@ impl Ping {
             ip_buffer,
             csv,
             bar,
-            max_loss_rate,
             args: args.clone(),
             success_count: Arc::new(AtomicUsize::new(0)),
             client_v4,
@@ -51,15 +52,6 @@ impl Ping {
                 return Ok(Vec::new());
             }
         }
-
-        // 打印开始延迟测试的信息
-        common::print_speed_test_info(
-            "ICMP-Ping",
-            common::get_tcp_port(&self.args),
-            common::get_min_delay(&self.args),
-            common::get_max_delay(&self.args),
-            self.max_loss_rate
-        );
    
         // 准备工作数据
         let ip_buffer = Arc::clone(&self.ip_buffer);
@@ -167,7 +159,7 @@ async fn icmp_handler(
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
 ) {
-    let ping_times = common::get_ping_times(args);
+    let ping_times = args.ping_times;
     let mut tasks = FuturesUnordered::new();
 
     // 使用FuturesUnordered来动态管理并发测试

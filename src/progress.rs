@@ -6,7 +6,6 @@ use terminal_size::{terminal_size, Width};
 pub struct Bar {
     progress_bar: Arc<ProgressBar>,
     is_done: Arc<Mutex<bool>>,
-    is_active: Arc<Mutex<bool>>,
 }
 
 impl Bar {
@@ -47,11 +46,12 @@ impl Bar {
                 })
         );
         
-        // 创建进度条但不启用刷新
+        // 创建进度条并立即启用刷新
+        pb.enable_steady_tick(Duration::from_millis(120));
+        
         Self {
             progress_bar: Arc::new(pb),
             is_done: Arc::new(Mutex::new(false)),
-            is_active: Arc::new(Mutex::new(false)),
         }
     }
     
@@ -66,15 +66,6 @@ impl Bar {
             return;
         }
         
-        // 检查并激活进度条（仅首次）
-        {
-            let mut is_active = self.is_active.lock().unwrap();
-            if !*is_active {
-                *is_active = true;
-                // 首次更新时启用稳定刷新
-                self.progress_bar.enable_steady_tick(Duration::from_millis(120));
-            }
-        }
         
         self.progress_bar.set_message(msg);
         self.progress_bar.inc(num);

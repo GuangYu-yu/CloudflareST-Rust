@@ -16,7 +16,6 @@ pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
     csv: Arc<Mutex<PingDelaySet>>,
     bar: Arc<Bar>,
-    max_loss_rate: f32,
     args: Args,
     colo_filters: Vec<String>,
     urlist: Vec<String>,
@@ -81,15 +80,17 @@ impl Ping {
         } else {
             Vec::new()
         };
+
+        // 打印开始延迟测试的信息
+        common::print_speed_test_info("Httping", args);
         
         // 初始化测试环境
-        let (ip_buffer, csv, bar, max_loss_rate) = common::init_ping_test(args);
+        let (ip_buffer, csv, bar) = common::init_ping_test(args);
         
         Ok(Ping {
             ip_buffer,
             csv,
             bar,
-            max_loss_rate,
             args: args.clone(),
             colo_filters,
             urlist,
@@ -107,15 +108,6 @@ impl Ping {
                 return Ok(Vec::new());
             }
         }
-
-        // 打印开始延迟测试的信息
-        common::print_speed_test_info(
-            "Httping",
-            common::get_tcp_port(&self.args),
-            common::get_min_delay(&self.args),
-            common::get_max_delay(&self.args),
-            self.max_loss_rate
-        );
    
         // 准备工作数据
         let ip_buffer = Arc::clone(&self.ip_buffer);
@@ -249,7 +241,7 @@ async fn httping_handler(
     let (recv, avg_delay, data_center) = result.unwrap();
     
     // 创建测试数据
-    let ping_times = common::get_ping_times(args);
+    let ping_times = args.ping_times;
     let mut data = PingData::new(ip, ping_times, recv, avg_delay);
     data.data_center = data_center;
     
@@ -300,13 +292,13 @@ async fn httping(
     };
     
     // 获取端口
-    let port = common::get_tcp_port(args);
+    let port = args.tcp_port;
     
     // URL解析完成，暂停CPU计时
     cpu_timer.pause();
 
     // 进行多次测速（并发执行）
-    let ping_times = common::get_ping_times(args);
+    let ping_times = args.ping_times;
     let mut tasks = FuturesUnordered::new();
 
     for _ in 0..ping_times {
