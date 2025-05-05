@@ -329,31 +329,3 @@ pub fn sort_ping_results(results: &mut PingDelaySet) {
 pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
     if timeout_flag.load(Ordering::SeqCst) {true} else {false}
 }
-
-// 合并重复 IP 的结果
-pub fn merge_duplicate_ips(results: &mut PingDelaySet) {
-    use std::collections::HashMap;
-    
-    let mut ip_map = HashMap::new();
-    
-    // 遍历所有结果，按IP合并数据
-    for data in results.drain(..) {
-        let entry = ip_map.entry(data.ip).or_insert((0, 0, 0.0, String::new()));
-        entry.0 += data.sent;  // 总发送次数
-        entry.1 += data.received;  // 总接收次数
-        entry.2 += data.delay * data.received as f32;  // 延迟总和(加权)
-        
-        // 保留第一个非空的数据中心信息
-        if entry.3.is_empty() && !data.data_center.is_empty() {
-            entry.3 = data.data_center.clone();
-        }
-    }
-    
-    // 重新生成合并后的结果
-    for (ip, (sent, received, total_delay, data_center)) in ip_map {
-        let avg_delay = if received > 0 { total_delay / received as f32 } else { 0.0 };
-        let mut ping_data = PingData::new(ip, sent, received, avg_delay);
-        ping_data.data_center = data_center;
-        results.push(ping_data);
-    }
-}
