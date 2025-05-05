@@ -150,20 +150,10 @@ impl Ping {
         // 收集所有测试结果
         let mut results = self.csv.lock().unwrap().clone();
         
-        // 使用common模块的排序函数
+        // 使用common模块的排序函数并去除重复IP
         common::sort_ping_results(&mut results);
-        
-        // 去除重复IP，只保留首个出现的IP
-        let mut unique_results = Vec::new();
-        let mut seen_ips = std::collections::HashSet::new();
 
-        for data in results {
-            if seen_ips.insert(data.ip) {
-                unique_results.push(data);
-            }
-        }
-
-        Ok(unique_results)
+        Ok(results)
     }
 }
 
