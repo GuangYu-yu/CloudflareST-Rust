@@ -357,8 +357,7 @@ async fn httping(
                     
                     if !args.httping_cf_colo.is_empty() {
                         if !data_center.is_empty() && !colo_filters.is_empty() {
-                            let dc_upper = data_center.to_uppercase();
-                            if !colo_filters.iter().any(|filter| dc_upper == *filter) {
+                            if !colo_filters.iter().any(|filter| data_center == *filter) {
                                 global_pool().end_task();
                                 return None;
                             }
