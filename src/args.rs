@@ -116,7 +116,7 @@ impl Args {
                 },
 /*
                 "ping" => {
-                   parsed.icmp_ping = true;
+                    parsed.icmp_ping = true;
                     i += 1;
                     continue;
                 },
