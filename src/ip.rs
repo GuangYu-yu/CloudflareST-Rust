@@ -233,7 +233,7 @@ fn parse_ip_range(ip_range: &str) -> (String, Option<usize>) {
     }
 }
 
-// 计算给定IP范围的采样数量
+// 获取给定IP范围的采样数量
 fn calculate_ip_count(ip_range: &str, custom_count: Option<usize>, test_all: bool) -> usize {
     // 先尝试解析为单个IP
     if IpAddr::from_str(ip_range).is_ok() {
@@ -425,21 +425,16 @@ fn stream_ipv6_to_channel(network: &IpNet, ip_tx: &Sender<IpAddr>, req_rx: &Rece
 
 // 采样数量
 pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
-    if is_ipv4 {
-        match prefix {
-            31 => 1,    30 => 2,    29 => 4,    28 => 8,    27 => 16,
-            26 => 48,   25 => 96,   24 => 200,  23 => 400,  22 => 800,
-            21 => 1600, 20 => 1800, 19 => 2000, 18 => 3000, 17 => 4000,
-            16 => 6000, 15 => 10000,14 => 30000,13 => 50000,_ => 80000,
-        }
-    } else {
-        match prefix {
-            127 => 1,   126 => 2,   125 => 4,   124 => 8,   123 => 16,
-            122 => 48,  121 => 96,  120 => 200, 119 => 400, 118 => 800,
-            117 => 1600,116 => 1800,115 => 2000,114 => 3000,113 => 4000,
-            112 => 6000,111 => 10000,110 => 30000,109 => 50000,_ => 80000,
-        }
-    }
+    // IPv4 和 IPv6 的采样数量数组
+    static SAMPLES: [usize; 19] = [
+        1, 2, 4, 8, 16, 48, 96, 200, 400, 800,
+        1600, 1800, 2000, 3000, 4000, 6000,
+        10000, 30000, 50000
+    ];
+    
+    let base: usize = if is_ipv4 { 31 } else { 127 };
+    let index = base.saturating_sub(prefix as usize);
+    if index > 18 { 80000 } else { SAMPLES[index] }
 }
 
 // 通用的IPv4地址生成函数
