@@ -325,7 +325,7 @@ fn stream_ipv4_to_channel(network: &IpNet, test_all: bool, ip_tx: &Sender<IpAddr
             let mut rng = rand::rng();
 
             // 直接枚举所有IP再随机采样
-            if prefix >= 21 && custom_count.is_none() {
+            if prefix >= 17 && custom_count.is_none() {
                 // 使用 hosts() 方法直接获取所有 IP 地址
                 let all_ips: Vec<Ipv4Addr> = ipv4_net.hosts().collect();
                 use rand::seq::SliceRandom;
@@ -380,7 +380,7 @@ fn stream_ipv6_to_channel(network: &IpNet, ip_tx: &Sender<IpAddr>, req_rx: &Rece
         let mut rng = rand::rng();
 
         // 直接枚举所有IP再随机采样
-        if prefix >= 115 && custom_count.is_none() {
+        if prefix >= 113 && custom_count.is_none() {
             // 使用 hosts() 方法直接获取所有 IP 地址
             let all_ips: Vec<Ipv6Addr> = ipv6_net.hosts().collect();
             use rand::seq::SliceRandom;
@@ -423,56 +423,29 @@ fn stream_ipv6_to_channel(network: &IpNet, ip_tx: &Sender<IpAddr>, req_rx: &Rece
     }
 }
 
-// 统一的采样数量计算函数
+// 采样数量
 pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
-    if is_ipv4 {
-        // IPv4 小范围 CIDR 手动控制数量
-        match prefix {
-            31 => 1,    // /31 只测试 1 个 IP
-            30 => 2,    // /30 测试 2 个 IP
-            29 => 4,    // /29 测试 4 个 IP
-            28 => 8,    // /28 测试 8 个 IP
-            27 => 16,   // /27 测试 16 个 IP
-            26 => 48,   // /26 测试 48 个 IP
-            25 => 96,  // /25 测试 96 个 IP
-            24 => 200,  // /24 测试 200 个 IP
-            23 => 300,  // /23 测试 300 个 IP
-            22 => 400,  // /22 测试 400 个 IP
-            21 => 500,  // /21 测试 500 个 IP
-            _ => {
-                // 对于更大范围的 CIDR，使用指数函数计算
-                let a = 800_000.0;
-                let k = 0.35;
-                let c = 0.0;
-                let result = a * (-k * prefix as f64).exp() + c;
-                result.round() as usize
-            }
-        }
-    } else {
-        // IPv6 小范围 CIDR 手动控制数量
-        match prefix {
-            127 => 1,    // /127 只测试 1 个 IP
-            126 => 2,    // /126 测试 2 个 IP
-            125 => 4,    // /125 测试 4 个 IP
-            124 => 8,    // /124 测试 8 个 IP
-            123 => 16,   // /123 测试 16 个 IP
-            122 => 48,   // /122 测试 48 个 IP
-            121 => 96,  // /121 测试 96 个 IP
-            120 => 200,  // /120 测试 200 个 IP
-            119 => 400,  // /119 测试 400 个 IP
-            118 => 800,  // /118 测试 800 个 IP
-            117 => 1600, // /117 测试 1600 个 IP
-            116 => 1800, // /116 测试 1800 个 IP
-            115 => 2000, // /115 测试 2000 个 IP
-            _ => {
-                // 对于更大范围的 CIDR，使用指数函数计算
-                let a = 800_000.0;
-                let k = 0.05;
-                let c = 0.0;
-                let result = a * (-k * prefix as f64).exp() + c;
-                result.round() as usize
-            }
-        }
+    match (is_ipv4, prefix) {
+        (true, 31) | (false, 127) => 1,
+        (true, 30) | (false, 126) => 2,
+        (true, 29) | (false, 125) => 4,
+        (true, 28) | (false, 124) => 8,
+        (true, 27) | (false, 123) => 16,
+        (true, 26) | (false, 122) => 48,
+        (true, 25) | (false, 121) => 96,
+        (true, 24) | (false, 120) => 200,
+        (true, 23) | (false, 119) => 400,
+        (true, 22) | (false, 118) => 800,
+        (true, 21) | (false, 117) => 1600,
+        (true, 20) | (false, 116) => 1800,
+        (true, 19) | (false, 115) => 2000,
+        (true, 18) | (false, 114) => 3000,
+        (true, 17) | (false, 113) => 4000,
+        (true, 16) | (false, 112) => 6000,
+        (true, 15) | (false, 111) => 10000,
+        (true, 14) | (false, 110) => 30000,
+        (true, 13) | (false, 109) => 50000,
+        _ => 80000
     }
 }
 
