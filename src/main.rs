@@ -1,7 +1,7 @@
 mod args;
 mod tcping;
 mod httping;
-mod icmp;
+// mod icmp;
 mod download;
 mod csv;
 mod progress;
@@ -41,15 +41,16 @@ async fn main() {
     println!("# CloudflareST-Rust\n");
     
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
-    let ping_result: Vec<PingResult> = match (args.httping, args.icmp_ping) {
-        (true, _) => {
+    let ping_result: Vec<PingResult> = match (args.httping, /*args.icmp_ping*/) {
+        (true, /*_*/) => {
             httping::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
                 .into_iter().map(PingResult::Http).collect()
         }
-        (_, true) => {
+/*        (_, true) => {
             icmp::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
                 .into_iter().map(PingResult::Icmp).collect()
         }
+*/
         _ => {
             tcping::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
                 .into_iter().map(PingResult::Tcp).collect()

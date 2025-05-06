@@ -5,7 +5,7 @@ use colored::*;
 #[derive(Clone)]
 pub struct Args {
     // 延迟测速相关
-    pub icmp_ping: bool,        // 是否使用ICMP Ping测速
+//    pub icmp_ping: bool,        // 是否使用ICMP Ping测速
     pub ping_times: u16,        // 延迟测速次数
     pub tcp_port: u16,           // 指定测速端口
     pub url: String,             // 指定测速地址
@@ -49,7 +49,7 @@ pub struct Args {
 impl Args {
     pub fn new() -> Self {
         Self {
-            icmp_ping: false,
+//            icmp_ping: false,
             ping_times: 4,
             tcp_port: 443,
             url: String::new(),
@@ -114,11 +114,13 @@ impl Args {
                     i += 1;
                     continue;
                 },
+/*
                 "ping" => {
-                    parsed.icmp_ping = true;
+                   parsed.icmp_ping = true;
                     i += 1;
                     continue;
                 },
+*/
                 "dd" => {
                     parsed.disable_download = true;
                     i += 1;
@@ -305,7 +307,7 @@ pub fn print_help() {
     // 测速选项
     println!("\n{}:", "测速选项".bold());
     print_arg!("-httping", "使用非 TLS 模式的 Httping ，无需测速地址 ", "[默认: 否]");
-    print_arg!("-ping", "ICMP-Ping 测速模式 ", "[默认: 否]");
+//    print_arg!("-ping", "ICMP-Ping 测速模式 ", "[默认: 否]");
     print_arg!("-dd", "禁用下载测速 ", "[默认: 否]");
     print_arg!("-hu", "使用 TLS 模式的 Httping ，可指定其 URL 测速地址，或作为无参数命令，使用其他测速地址 ", "[默认: 否]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认: 未指定]");

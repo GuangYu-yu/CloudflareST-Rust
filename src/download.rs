@@ -97,7 +97,7 @@ pub struct DownloadTest {
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
     httping: bool,
-    icmp_ping: bool,
+//    icmp_ping: bool,
     colo_filter: String,
     ping_results: Vec<PingResult>,
     timeout_flag: Arc<AtomicBool>,
@@ -149,7 +149,7 @@ impl DownloadTest {
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
             httping,
-            icmp_ping: args.icmp_ping,
+//            icmp_ping: args.icmp_ping,
             colo_filter,
             ping_results,
             timeout_flag,
@@ -241,8 +241,8 @@ impl DownloadTest {
 
             match ping_result {
                 PingResult::Http(data) if self.httping => process_ping_data(data),
-                PingResult::Tcp(data) if !self.httping && !self.icmp_ping => process_ping_data(data),
-                PingResult::Icmp(data) if self.icmp_ping => process_ping_data(data),
+                PingResult::Tcp(data) if !self.httping /*&& !self.icmp_ping*/=> process_ping_data(data),
+//                PingResult::Icmp(data) if self.icmp_ping => process_ping_data(data),
                 _ => {}
             }
             

@@ -31,14 +31,16 @@ pub fn export_csv(results: &[PingResult], args: &Args) -> io::Result<()> {
                 let record = common::ping_data_to_csv_record(data);
                 writer.write_record(&record)?;
             },
-            PingResult::Tcp(data) if !args.httping && !args.icmp_ping => {
+            PingResult::Tcp(data) if !args.httping /* && !args.icmp_ping */=> {
                 let record = common::ping_data_to_csv_record(data);
                 writer.write_record(&record)?;
             },
+/*
             PingResult::Icmp(data) if args.icmp_ping => {
                 let record = common::ping_data_to_csv_record(data);
                 writer.write_record(&record)?;
             },
+*/
             _ => {} // 忽略不匹配的情况
         }
     }
@@ -84,12 +86,14 @@ impl PrintResult for Vec<PingResult> {
                 PingResult::Http(data) if args.httping => {
                     table.add_row(common::ping_data_to_table_row(data));
                 },
-                PingResult::Tcp(data) if !args.httping && !args.icmp_ping => {
+                PingResult::Tcp(data) if !args.httping /* && !args.icmp_ping */=> {
                     table.add_row(common::ping_data_to_table_row(data));
                 },
+/*
                 PingResult::Icmp(data) if args.icmp_ping => {
                     table.add_row(common::ping_data_to_table_row(data));
                 },
+*/
                 _ => {} // 忽略不匹配的情况
             }
         }
