@@ -12,8 +12,6 @@ use crate::args::Args;
 pub struct ThreadPool {
     // 使用信号量控制并发
     semaphore: Arc<Semaphore>,
-    // 任务计数器
-    task_counter: Arc<AtomicUsize>,
     // 活跃任务数
     active_tasks: Arc<AtomicUsize>,
     // 保留一些统计信息
@@ -123,7 +121,6 @@ impl ThreadPool {
         
         let pool = Self {
             semaphore: Arc::new(Semaphore::new(initial_threads)),
-            task_counter: Arc::new(AtomicUsize::new(1)), // 从1开始
             active_tasks: Arc::new(AtomicUsize::new(0)),
             max_permits: Arc::new(AtomicUsize::new(initial_threads)),
             current_permits: Arc::new(AtomicUsize::new(0)),
@@ -159,7 +156,6 @@ impl ThreadPool {
     fn clone(&self) -> Self {
         Self {
             semaphore: self.semaphore.clone(),
-            task_counter: self.task_counter.clone(),
             active_tasks: self.active_tasks.clone(),
             stats: self.stats.clone(),
             cpu_count: self.cpu_count,

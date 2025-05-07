@@ -259,9 +259,11 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     for ip_range in &ip_sources {
         // 检查注释并解析IP范围
         if let Some((ip_range_str, custom_count)) = parse_ip_range_with_comment_check(ip_range) {
-            let count = calculate_ip_count(&ip_range_str, custom_count, test_all);
-            total_expected += count;
-            cidr_info.push((ip_range_str.clone(), count));
+            if let Ok(network) = ip_range_str.parse::<IpNet>() {
+                let count = calculate_ip_count(&network.to_string(), custom_count, test_all);
+                total_expected += count;
+                cidr_info.push((network, count));
+            }
         }
     }
     
@@ -277,7 +279,7 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
 }
 
 fn process_ip_sources_with_cidr_info(
-    cidr_info: Vec<(String, usize)>,  
+    cidr_info: Vec<(IpNet, usize)>,
     ip_tx: Sender<IpAddr>, 
     req_rx: Receiver<()>,
     producer_active: Arc<AtomicBool>
@@ -288,23 +290,20 @@ fn process_ip_sources_with_cidr_info(
     // 处理所有IP源，创建CIDR状态列表
     let mut cidr_states = Vec::new();
     
-    for (ip_range_str, ip_count) in cidr_info {
-        if let Ok(network) = ip_range_str.parse::<IpNet>() {
-            // 处理单IP的CIDR格式（/32或/128）
-            match network {
-                IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
-                    let _ = ip_tx.send(IpAddr::V4(ipv4_net.addr()));
-                    continue;
-                },
-                IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
-                    let _ = ip_tx.send(IpAddr::V6(ipv6_net.addr()));
-                    continue;
-                },
-                _ => {
-                    // 使用传递的 ip_count
-                    if ip_count > 0 {
-                        cidr_states.push(CidrState::new(network, ip_count));
-                    }
+    for (network, ip_count) in cidr_info {
+        // 处理单IP的CIDR格式（/32或/128）
+        match network {
+            IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
+                let _ = ip_tx.send(IpAddr::V4(ipv4_net.addr()));
+                continue;
+            },
+            IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
+                let _ = ip_tx.send(IpAddr::V6(ipv6_net.addr()));
+                continue;
+            },
+            _ => {
+                if ip_count > 0 {
+                    cidr_states.push(CidrState::new(network, ip_count));
                 }
             }
         }

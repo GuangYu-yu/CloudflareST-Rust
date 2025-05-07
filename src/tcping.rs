@@ -16,7 +16,7 @@ pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
     csv: Arc<Mutex<PingDelaySet>>,
     bar: Arc<Bar>,
-    args: Args,
+    args: Arc<Args>,
     success_count: Arc<AtomicUsize>,
     timeout_flag: Arc<AtomicBool>,
 }
@@ -32,7 +32,7 @@ impl Ping {
             ip_buffer,
             csv,
             bar,
-            args: args.clone(),
+            args: Arc::new(args.clone()),
             success_count: Arc::new(AtomicUsize::new(0)),
             timeout_flag,
         })
@@ -51,7 +51,7 @@ impl Ping {
         let ip_buffer = Arc::clone(&self.ip_buffer);
         let csv = Arc::clone(&self.csv);
         let bar = Arc::clone(&self.bar);
-        let args = self.args.clone();
+        let args = Arc::clone(&self.args);
         let success_count = Arc::clone(&self.success_count);
         let timeout_flag = Arc::clone(&self.timeout_flag);
 
@@ -64,7 +64,7 @@ impl Ping {
         let add_task = |ip: IpAddr, tasks: &mut FuturesUnordered<_>| {
             let csv_clone = Arc::clone(&csv);
             let bar_clone = Arc::clone(&bar);
-            let args_clone = args.clone();
+            let args_clone = Arc::clone(&args);
             let success_count_clone = Arc::clone(&success_count);
 
             tasks.push(tokio::spawn(async move {
@@ -135,7 +135,7 @@ async fn tcping_handler(
     ip: IpAddr, 
     csv: Arc<Mutex<PingDelaySet>>, 
     bar: Arc<Bar>, 
-    args: &Args,
+    args: &Arc<Args>,
     success_count: Arc<AtomicUsize>,
 ) {
     let ping_times = args.ping_times;
@@ -143,7 +143,7 @@ async fn tcping_handler(
 
     // 使用FuturesUnordered来动态管理并发测试
     for _ in 0..ping_times {
-        let args_clone = args.clone();
+        let args_clone = Arc::clone(args);
         tasks.push(tokio::spawn(async move {
             let port = args_clone.tcp_port;
             let addr = SocketAddr::new(ip, port);
@@ -181,7 +181,7 @@ async fn tcping_handler(
 }
 
 // TCP连接测试函数
-async fn tcping(addr: SocketAddr, args: &Args) -> Option<f32> {
+async fn tcping(addr: SocketAddr, args: &Arc<Args>) -> Option<f32> {
     // 开始任务
     global_pool().start_task();
     

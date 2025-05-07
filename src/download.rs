@@ -105,52 +105,54 @@ pub struct DownloadTest {
 
 // 按下载速度（降序）、延迟（升序）、丢包率（升序）
 fn sort_ping_results(results: &mut Vec<PingResult>) {
+    // 计算平均值
+    let total_count = results.len() as f32;
+    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, result| {
+        let (speed, loss, delay) = common::extract_ping_metrics(result);
+        (acc.0 + speed.unwrap_or(0.0), acc.1 + loss, acc.2 + delay)
+    });
+
+    let avg_speed = total_speed / total_count;
+    let avg_loss = total_loss / total_count;
+    let avg_delay = total_delay / total_count;
+
+    // 计算分数并排序
     results.sort_by(|a, b| {
         let (a_speed, a_loss, a_delay) = common::extract_ping_metrics(a);
         let (b_speed, b_loss, b_delay) = common::extract_ping_metrics(b);
-        match b_speed.partial_cmp(&a_speed).unwrap() {
-            std::cmp::Ordering::Equal => {
-                match a_delay.partial_cmp(&b_delay).unwrap() {  // 先比较延迟
-                    std::cmp::Ordering::Equal => {
-                        a_loss.partial_cmp(&b_loss).unwrap()  // 最后比较丢包率
-                    },
-                    other => other,
-                }
-            },
-            other => other,
-        }
+
+        let a_score = (a_speed.unwrap_or(0.0) - avg_speed) * 0.5
+            - (a_delay - avg_delay) * 0.2
+            - (a_loss - avg_loss) * 0.3;
+
+        let b_score = (b_speed.unwrap_or(0.0) - avg_speed) * 0.5
+            - (b_delay - avg_delay) * 0.2
+            - (b_loss - avg_loss) * 0.3;
+
+        b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
     });
 }
 
 impl DownloadTest {
     pub async fn new(args: &Args, ping_results: Vec<PingResult>, timeout_flag: Arc<AtomicBool>) -> Self {
-        let url = args.url.clone();
-        let urlist = args.urlist.clone();
-        let timeout = args.timeout_duration;
-        let test_count = args.test_count;
-        let min_speed = args.min_speed;
-        let tcp_port = args.tcp_port;
-        let httping = args.httping;
-        let colo_filter = args.httping_cf_colo.clone();
-        
         // 使用 common 模块获取 URL 列表
-        let urlist_vec = common::get_url_list(&url, &urlist).await;
+        let urlist_vec = common::get_url_list(&args.url, &args.urlist).await;
 
         // 计算实际需要测试的数量
-        let test_num = min(test_count as u32, ping_results.len() as u32);
+        let test_num = min(args.test_count as u32, ping_results.len() as u32);
         
         Self {
-            url,
+            url: args.url.to_string(),
             urlist: urlist_vec,
-            timeout,
-            test_count,
-            min_speed,
-            tcp_port,
+            timeout: args.timeout_duration,
+            test_count: args.test_count,
+            min_speed: args.min_speed,
+            tcp_port: args.tcp_port,
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
-            httping,
+            httping: args.httping,
 //            icmp_ping: args.icmp_ping,
-            colo_filter,
+            colo_filter: args.httping_cf_colo.to_string(),
             ping_results,
             timeout_flag,
         }
@@ -169,7 +171,7 @@ impl DownloadTest {
         let mut qualified_indices = Vec::new();
         
         // 数据中心过滤条件
-        let colo_filters = common::parse_colo_filters(&self.colo_filter);
+        let colo_filters = Arc::new(common::parse_colo_filters(&self.colo_filter));
         
         // 创建一个任务来更新进度条的速度显示
         let current_speed: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
@@ -222,7 +224,7 @@ impl DownloadTest {
                 self.tcp_port,
                 need_colo,
                 Arc::clone(&self.timeout_flag),
-                &self.colo_filter,
+                Arc::clone(&colo_filters),
             ).await;
             
             // 无论速度如何，都更新下载速度和可能的数据中心信息
@@ -235,7 +237,7 @@ impl DownloadTest {
                     &colo_filters,
                 ) {
                     qualified_indices.push(i);
-                    self.bar.as_ref().grow(1, "".to_string());
+                    self.bar.as_ref().grow(1, "");
                 }
             };
 
@@ -288,7 +290,7 @@ async fn download_handler(
     tcp_port: u16,
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
-    colo_filter: &str,
+    colo_filters: Arc<Vec<String>>,
 ) -> (Option<f32>, Option<String>) {
     
     // 解析原始URL以获取主机名和路径
@@ -333,7 +335,6 @@ async fn download_handler(
             }
             // 如果数据中心不符合要求，速度返回None，数据中心正常返回
             if let Some(dc) = &data_center {
-                let colo_filters = common::parse_colo_filters(colo_filter);
                 if !colo_filters.is_empty() && !colo_filters.iter().any(|f| dc.contains(f)) {
                     return (None, data_center);
                 }

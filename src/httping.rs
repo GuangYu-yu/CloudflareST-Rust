@@ -16,7 +16,7 @@ pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
     csv: Arc<Mutex<PingDelaySet>>,
     bar: Arc<Bar>,
-    args: Args,
+    args: Arc<Args>,
     colo_filters: Vec<String>,
     urlist: Vec<String>,
     success_count: Arc<AtomicUsize>,
@@ -86,12 +86,14 @@ impl Ping {
         
         // 初始化测试环境
         let (ip_buffer, csv, bar) = common::init_ping_test(args);
+
+        let args = Arc::new(args.clone());
         
         Ok(Ping {
             ip_buffer,
             csv,
             bar,
-            args: args.clone(),
+            args,
             colo_filters,
             urlist,
             success_count: Arc::new(AtomicUsize::new(0)),
@@ -113,9 +115,9 @@ impl Ping {
         let ip_buffer = Arc::clone(&self.ip_buffer);
         let csv = Arc::clone(&self.csv);
         let bar = Arc::clone(&self.bar);
-        let args = self.args.clone();
-        let colo_filters = self.colo_filters.clone();
-        let urlist = self.urlist.clone();
+        let args = Arc::clone(&self.args);
+        let colo_filters = Arc::new(self.colo_filters);
+        let urlist = Arc::new(self.urlist);
         let success_count = Arc::clone(&self.success_count);
         let timeout_flag = Arc::clone(&self.timeout_flag);
         let use_https = self.use_https;
@@ -131,13 +133,14 @@ impl Ping {
             // 根据是否使用HTTPS模式选择URL
             let url = if use_https {
                 // HTTPS模式：从URL列表中选择（轮询）
-                urlist[*url_index % urlist.len()].clone()
+                Arc::new(urlist[*url_index % urlist.len()].clone())
             } else {
                 // 非HTTPS模式：直接使用IP构建URL
-                match ip {
+                let url_str = match ip {
                     IpAddr::V4(_) => format!("http://{}/cdn-cgi/trace", ip),
                     IpAddr::V6(_) => format!("http://[{}]/cdn-cgi/trace", ip),
-                }
+                };
+                Arc::new(url_str)
             };
             
             // 只有在HTTPS模式下才增加URL索引
@@ -147,13 +150,13 @@ impl Ping {
 
             let csv_clone = Arc::clone(&csv);
             let bar_clone = Arc::clone(&bar);
-            let args_clone = args.clone();
-            let colo_filters_clone = colo_filters.clone();
+            let args_clone = Arc::clone(&args);
+            let colo_filters_clone = Arc::clone(&colo_filters);
             let success_count_clone = Arc::clone(&success_count);
 
             tasks.push(tokio::spawn(async move {
                 execute_with_rate_limit(|| async move {
-                    httping_handler(ip, csv_clone, bar_clone, &args_clone, colo_filters_clone, &url, success_count_clone).await;
+                    httping_handler(ip, csv_clone, bar_clone, &args_clone, &colo_filters_clone, &url, success_count_clone).await;
                     Ok::<(), io::Error>(())
                 }).await.unwrap();
             }));
@@ -219,9 +222,9 @@ async fn httping_handler(
     ip: IpAddr, 
     csv: Arc<Mutex<PingDelaySet>>, 
     bar: Arc<Bar>, 
-    args: &Args,
-    colo_filters: Vec<String>,
-    url: &str,
+    args: &Arc<Args>,
+    colo_filters: &Arc<Vec<String>>,
+    url: &Arc<String>,
     success_count: Arc<AtomicUsize>,
 ) {
     // 执行 HTTP 连接测试
@@ -258,9 +261,9 @@ async fn httping_handler(
 // HTTP 测速函数
 async fn httping(
     ip: IpAddr, 
-    args: &Args,
-    colo_filters: &[String],
-    url: &str,
+    args: &Arc<Args>,
+    colo_filters: &Arc<Vec<String>>,
+    url: &Arc<String>,
 ) -> Option<(u16, f32, String)> {
     
     // 开始任务
@@ -272,7 +275,7 @@ async fn httping(
     // 解析URL获取主机名（仅用于客户端构建）
     let host = {
         // 解析URL
-        let url_parts = match Url::parse(url) {
+        let url_parts = match Url::parse(url.as_str()) {
             Ok(parts) => parts,
             Err(_) => {
                 // 结束任务
@@ -311,7 +314,7 @@ async fn httping(
         // 客户端构建完成，暂停CPU计时
         cpu_timer.pause();
         
-        let url_clone = url.to_string();
+        let url_clone = Arc::clone(url);
     
         tasks.push(tokio::spawn({
             async move {
@@ -319,7 +322,7 @@ async fn httping(
                 
                 let result = async {
                     // 直接使用原始URL
-                    common::send_head_request(&client, &url_clone).await
+                    common::send_head_request(&client, url_clone.as_str()).await
                 }.await;
         
                 (result, start_time)

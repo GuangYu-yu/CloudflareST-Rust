@@ -1,4 +1,5 @@
 use indicatif::{ProgressBar, ProgressStyle};
+use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use terminal_size::{terminal_size, Width};
@@ -60,18 +61,17 @@ impl Bar {
         *self.is_done.lock().unwrap()
     }
     
-    pub fn grow(&self, num: u64, msg: String) {
+    pub fn grow(&self, num: u64, msg: impl Into<Cow<'static, str>>) {
         // 检查是否已完成，如果已完成则不更新
         if self.is_done() {
             return;
         }
         
-        
         self.progress_bar.set_message(msg);
         self.progress_bar.inc(num);
     }
     
-    pub fn set_suffix(&self, suffix: String) {
+    pub fn set_suffix(&self, suffix: impl Into<Cow<'static, str>>) {
         // 检查状态
         if self.is_done() {
             return;

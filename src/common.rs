@@ -293,15 +293,21 @@ pub fn process_download_result(
 
 /// 按延迟和丢包率排序Ping结果
 pub fn sort_ping_results(results: &mut PingDelaySet) {
-    // 按延迟和丢包率排序
+    // 计算平均值
+    let total_count = results.len() as f32;
+    let (total_loss, total_delay) = results.iter().fold((0.0, 0.0), |acc, result| {
+        (acc.0 + result.loss_rate(), acc.1 + result.delay)
+    });
+
+    let avg_loss = total_loss / total_count;
+    let avg_delay = total_delay / total_count;
+
+    // 计算分数并排序
     results.sort_by(|a, b| {
-        a.delay.partial_cmp(&b.delay)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                let a_loss = a.loss_rate();
-                let b_loss = b.loss_rate();
-                a_loss.partial_cmp(&b_loss).unwrap_or(std::cmp::Ordering::Equal)
-            })
+        let a_score = (avg_delay - a.delay) * 0.4 + (avg_loss - a.loss_rate()) * 0.6;
+        let b_score = (avg_delay - b.delay) * 0.4 + (avg_loss - b.loss_rate()) * 0.6;
+
+        b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
     });
 }
 
