@@ -293,7 +293,7 @@ pub fn process_download_result(
 
 /// 按延迟和丢包率排序Ping结果
 pub fn sort_ping_results(results: &mut PingDelaySet) {
-    // 先按延迟和丢包率排序
+    // 按延迟和丢包率排序
     results.sort_by(|a, b| {
         a.delay.partial_cmp(&b.delay)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -303,10 +303,6 @@ pub fn sort_ping_results(results: &mut PingDelaySet) {
                 a_loss.partial_cmp(&b_loss).unwrap_or(std::cmp::Ordering::Equal)
             })
     });
-
-    // 然后去除重复IP，只保留首个出现的IP
-    let mut seen_ips = std::collections::HashSet::new();
-    results.retain(|data| seen_ips.insert(data.ip));
 }
 
 /// 检查是否收到超时信号，如果是则打印信息并返回 true

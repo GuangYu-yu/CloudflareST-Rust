@@ -142,7 +142,7 @@ impl Ping {
         // 收集所有测试结果
         let mut results = self.csv.lock().unwrap().clone();
         
-        // 使用common模块的排序函数并去除重复IP
+        // 使用common模块的排序函数
         common::sort_ping_results(&mut results);
 
         Ok(results)

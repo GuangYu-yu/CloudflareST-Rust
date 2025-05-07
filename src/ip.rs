@@ -20,6 +20,77 @@ pub struct IpBuffer {
     producer_active: Arc<AtomicBool>,    // 生产者是否仍在活动
 }
 
+// CIDR状态跟踪结构体
+struct CidrState {
+    network: IpNet,
+    current_index: usize,
+    total_count: usize,
+    interval_size: u128,
+    start: u128,
+    end: u128,
+}
+
+impl CidrState {
+    fn new(network: IpNet, count: usize) -> Self {
+        let (start, end, interval_size) = match &network {
+            IpNet::V4(ipv4_net) => {
+                let network_addr = ipv4_net.network();
+                let broadcast_addr = ipv4_net.broadcast();
+                let start = u32::from_be_bytes(network_addr.octets()) as u128;
+                let end = u32::from_be_bytes(broadcast_addr.octets()) as u128;
+                let range_size = end - start + 1;
+                let interval_size = range_size / count as u128;
+                (start, end, interval_size)
+            },
+            IpNet::V6(ipv6_net) => {
+                let network_addr = ipv6_net.network();
+                let broadcast_addr = ipv6_net.broadcast();
+                let start = u128::from_be_bytes(network_addr.octets());
+                let end = u128::from_be_bytes(broadcast_addr.octets());
+                let range_size = end - start + 1;
+                let interval_size = range_size / count as u128;
+                (start, end, interval_size)
+            }
+        };
+
+        Self {
+            network,
+            current_index: 0,
+            total_count: count,
+            interval_size,
+            start,
+            end,
+        }
+    }
+
+    // 生成下一个IP
+    fn next_ip(&mut self, rng: &mut impl Rng) -> Option<IpAddr> {
+        if self.current_index >= self.total_count {
+            return None;
+        }
+
+        // 计算当前区间的起始和结束
+        let interval_start = self.start + (self.current_index as u128 * self.interval_size);
+        let interval_end = if self.current_index == self.total_count - 1 {
+            self.end // 最后一个区间使用广播地址作为结束
+        } else {
+            self.start + ((self.current_index + 1) as u128 * self.interval_size - 1)
+        };
+
+        // 在当前区间内随机选择一个IP
+        let random_ip = rng.random_range(interval_start..=interval_end);
+        
+        // 增加索引，为下次生成做准备
+        self.current_index += 1;
+
+        // 根据网络类型转换IP地址
+        match self.network {
+            IpNet::V4(_) => Some(IpAddr::V4(Ipv4Addr::from(random_ip as u32))),
+            IpNet::V6(_) => Some(IpAddr::V6(Ipv6Addr::from(random_ip))),
+        }
+    }
+}
+
 impl IpBuffer {
     // 创建默认的空缓冲区
     fn new(ip_rx: Receiver<IpAddr>, req_tx: Option<Sender<()>>, producer_active: Arc<AtomicBool>) -> Self {
@@ -61,11 +132,6 @@ impl IpBuffer {
     // 获取预计总IP数量
     pub fn total_expected(&self) -> usize {
         self.total_expected
-    }
-    
-    // 设置预计总IP数量
-    pub fn set_total_expected(&mut self, count: usize) {
-        self.total_expected = count;
     }
 
     // 判断是否已读取完所有IP
@@ -188,30 +254,101 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     
     // 先计算总IP数量
     let mut total_expected = 0;
-    
+    let mut cidr_info = Vec::new();
+
     for ip_range in &ip_sources {
         // 检查注释并解析IP范围
         if let Some((ip_range_str, custom_count)) = parse_ip_range_with_comment_check(ip_range) {
-            // 使用已解析的结果计算IP数量
-            total_expected += calculate_ip_count(&ip_range_str, custom_count, test_all);
+            let count = calculate_ip_count(&ip_range_str, custom_count, test_all);
+            total_expected += count;
+            cidr_info.push((ip_range_str.clone(), count));
         }
     }
     
     // 设置预计总IP数量
-    ip_buffer.set_total_expected(total_expected);
+    ip_buffer.total_expected = total_expected;
     
     // 启动生产者线程来处理IP
     thread::spawn(move || {
-        // 处理所有IP源
-        for ip_range in ip_sources {
-            process_ip_range_to_channel(&ip_range, test_all, &ip_tx, &req_rx);
-        }
-        
-        // 标记生产者已完成
-        producer_active_clone.store(false, Ordering::Relaxed);
+        process_ip_sources_with_cidr_info(cidr_info, ip_tx, req_rx, producer_active_clone);
     });
     
     ip_buffer
+}
+
+fn process_ip_sources_with_cidr_info(
+    cidr_info: Vec<(String, usize)>,  
+    ip_tx: Sender<IpAddr>, 
+    req_rx: Receiver<()>,
+    producer_active: Arc<AtomicBool>
+) {
+    // 创建随机数生成器
+    let mut rng = rand::rng();
+    
+    // 处理所有IP源，创建CIDR状态列表
+    let mut cidr_states = Vec::new();
+    
+    for (ip_range_str, ip_count) in cidr_info {
+        if let Ok(network) = ip_range_str.parse::<IpNet>() {
+            // 处理单IP的CIDR格式（/32或/128）
+            match network {
+                IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
+                    let _ = ip_tx.send(IpAddr::V4(ipv4_net.addr()));
+                    continue;
+                },
+                IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
+                    let _ = ip_tx.send(IpAddr::V6(ipv6_net.addr()));
+                    continue;
+                },
+                _ => {
+                    // 使用传递的 ip_count
+                    if ip_count > 0 {
+                        cidr_states.push(CidrState::new(network, ip_count));
+                    }
+                }
+            }
+        }
+    }
+    
+    // 轮询生成IP
+    let mut current_index = 0;
+    let mut remaining_ips = cidr_states.iter().map(|state| state.total_count).sum::<usize>();
+    
+    while remaining_ips > 0 && !cidr_states.is_empty() {
+        // 等待请求信号
+        if req_rx.recv().is_err() {
+            break;
+        }
+        
+        // 确保索引在有效范围内
+        if current_index >= cidr_states.len() {
+            current_index = 0;
+        }
+        
+        // 获取当前CIDR状态
+        let state = &mut cidr_states[current_index];
+        
+        // 生成下一个IP
+        if let Some(ip) = state.next_ip(&mut rng) {
+            if ip_tx.send(ip).is_err() {
+                break;
+            }
+            remaining_ips -= 1;
+            
+            // 检查当前CIDR是否已经生成完所有IP
+            if state.current_index >= state.total_count {
+                // 移除当前CIDR
+                cidr_states.remove(current_index);
+                continue;
+            }
+        }
+        
+        // 移动到下一个CIDR
+        current_index = (current_index + 1) % cidr_states.len();
+    }
+    
+    // 标记生产者已完成
+    producer_active.store(false, Ordering::Relaxed);
 }
 
 // 自定义采样数量
@@ -222,10 +359,10 @@ fn parse_ip_range(ip_range: &str) -> (String, Option<usize>) {
         let count_str = parts[1].trim();
         
         // 尝试解析数量
-        let count = match count_str.parse::<usize>() {
-            Ok(n) if n > 0 => Some(n.min(u32::MAX as usize)),
-            _ => None
-        };
+        let count = count_str.parse::<usize>()
+            .ok()
+            .filter(|&n| n > 0)
+            .map(|n| n.min(u32::MAX as usize));
         
         (ip_part.to_string(), count)
     } else {
@@ -270,159 +407,6 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<usize>, test_all: boo
     0
 }
 
-// 处理IP范围并发送到通道
-fn process_ip_range_to_channel(ip_range: &str, test_all: bool, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>) {
-    // 检查注释并解析IP范围
-    let Some((ip_range_str, custom_count)) = parse_ip_range_with_comment_check(ip_range) else {
-        return;
-    };
-    
-    // 处理CIDR格式的IP段
-    if let Ok(network) = ip_range_str.parse::<IpNet>() {
-        // 直接处理单IP的CIDR格式（/32或/128）
-        match network {
-            IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
-                let _ = ip_tx.send(IpAddr::V4(ipv4_net.addr()));
-                return;
-            },
-            IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
-                let _ = ip_tx.send(IpAddr::V6(ipv6_net.addr()));
-                return;
-            },
-            _ => {
-                // 处理其他CIDR格式
-                match network {
-                    IpNet::V4(_) => stream_ipv4_to_channel(&network, test_all, ip_tx, req_rx, custom_count),
-                    IpNet::V6(_) => stream_ipv6_to_channel(&network, ip_tx, req_rx, custom_count),
-                }
-            }
-        }
-    }
-}
-
-// 流式处理IPv4地址并发送到通道
-fn stream_ipv4_to_channel(network: &IpNet, test_all: bool, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
-    if let IpNet::V4(ipv4_net) = network {
-        if test_all {
-            // 使用 hosts() 方法直接获取所有 IP 地址
-            let all_ips: Vec<Ipv4Addr> = ipv4_net.hosts().collect();
-            for ip_addr in all_ips {
-                // 等待请求信号
-                if req_rx.recv().is_err() {
-                    return;
-                }
-                // 发送IP
-                if ip_tx.send(IpAddr::V4(ip_addr)).is_err() {
-                    return;
-                }
-            }
-        } else {
-            let prefix = ipv4_net.prefix_len();
-            // 使用自定义数量或计算采样数量
-            let ip_count = custom_count.unwrap_or_else(|| calculate_sample_count(prefix, true));
-
-            // 创建一个随机数生成器实例
-            let mut rng = rand::rng();
-
-            // 直接枚举所有IP再随机采样
-            if prefix >= 17 && custom_count.is_none() {
-                // 使用 hosts() 方法直接获取所有 IP 地址
-                let all_ips: Vec<Ipv4Addr> = ipv4_net.hosts().collect();
-                use rand::seq::SliceRandom;
-                let sample_count = ip_count.min(all_ips.len());
-                let mut sampled = all_ips;
-                sampled.shuffle(&mut rng);
-                
-                // 只保留需要的IP，释放多余内存
-                let sampled = sampled.into_iter().take(sample_count).collect::<Vec<_>>();
-                
-                // 严格按照请求信号发送IP
-                for ip in sampled {
-                    // 等待请求信号
-                    if req_rx.recv().is_err() {
-                        return;
-                    }
-                    // 发送IP
-                    if ip_tx.send(IpAddr::V4(ip)).is_err() {
-                        return;
-                    }
-                }
-            } else {
-                // 其他范围直接随机生成，不去重
-                let mut sent_count = 0;
-                
-                while sent_count < ip_count {
-                    // 等待请求信号
-                    if req_rx.recv().is_err() {
-                        return;
-                    }
-                    // 传递随机数生成器的引用，避免重复创建
-                    if let Some(ip) = generate_random_ipv4_address(network, &mut rng) {
-                        if ip_tx.send(ip).is_err() {
-                            return;
-                        }
-                        sent_count += 1;
-                    }
-                }
-            }
-        }
-    }
-}
-
-// 流式处理IPv6地址并发送到通道
-fn stream_ipv6_to_channel(network: &IpNet, ip_tx: &Sender<IpAddr>, req_rx: &Receiver<()>, custom_count: Option<usize>) {
-    if let IpNet::V6(ipv6_net) = network {
-        let prefix = ipv6_net.prefix_len();
-        // 使用自定义数量或计算采样数量
-        let ip_count = custom_count.unwrap_or_else(|| calculate_sample_count(prefix, false));
-
-        // 创建一个随机数生成器实例
-        let mut rng = rand::rng();
-
-        // 直接枚举所有IP再随机采样
-        if prefix >= 113 && custom_count.is_none() {
-            // 使用 hosts() 方法直接获取所有 IP 地址
-            let all_ips: Vec<Ipv6Addr> = ipv6_net.hosts().collect();
-            use rand::seq::SliceRandom;
-            let sample_count = ip_count.min(all_ips.len());
-            let mut sampled = all_ips;
-            sampled.shuffle(&mut rng);
-            
-            // 只保留需要的IP，释放多余内存
-            let sampled = sampled.into_iter().take(sample_count).collect::<Vec<_>>();
-            
-            // 严格按照请求信号发送IP
-            for ip in sampled {
-                // 等待请求信号
-                if req_rx.recv().is_err() {
-                    return;
-                }
-                // 发送IP
-                if ip_tx.send(IpAddr::V6(ip)).is_err() {
-                    return;
-                }
-            }
-        } else {
-            // 其他范围直接随机生成，不去重
-            let mut sent_count = 0;
-            
-            while sent_count < ip_count {
-                // 等待请求信号
-                if req_rx.recv().is_err() {
-                    return;
-                }
-                // 传递随机数生成器的引用，避免重复创建
-                if let Some(ip) = generate_random_ipv6_address(network, &mut rng) {
-                    if ip_tx.send(ip).is_err() {
-                        return;
-                    }
-                    sent_count += 1;
-                }
-            }
-        }
-    }
-}
-
 // 采样数量
 pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
     // IPv4 和 IPv6 的采样数量数组
@@ -435,50 +419,6 @@ pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
     let base: usize = if is_ipv4 { 31 } else { 127 };
     let index = base.saturating_sub(prefix as usize);
     if index > 18 { 80000 } else { SAMPLES[index] }
-}
-
-// 通用的IPv4地址生成函数
-pub fn generate_random_ipv4_address(ip_net: &IpNet, rng: &mut impl Rng) -> Option<IpAddr> {
-    match ip_net {
-        IpNet::V4(ipv4_net) => {
-            let network_addr = ipv4_net.network();
-            let broadcast_addr = ipv4_net.broadcast();
-            
-            // 将IP地址转换为u32
-            let start = u32::from_be_bytes(network_addr.octets());
-            let end = u32::from_be_bytes(broadcast_addr.octets());
-            
-            // 在范围内生成随机数
-            let random_ip =rng.random_range(start..=end);
-            
-            // 转回IPv4地址
-            let ip = Ipv4Addr::from(random_ip);
-            Some(IpAddr::V4(ip))
-        }
-        _ => None,
-    }
-}
-
-// 通用的IPv6地址生成函数
-pub fn generate_random_ipv6_address(ip_net: &IpNet, rng: &mut impl Rng) -> Option<IpAddr> {
-    match ip_net {
-        IpNet::V6(ipv6_net) => {
-            let network_addr = ipv6_net.network();
-            let broadcast_addr = ipv6_net.broadcast();
-            
-            // 将IPv6地址转换为u128
-            let start = u128::from_be_bytes(network_addr.octets());
-            let end = u128::from_be_bytes(broadcast_addr.octets());
-            
-            // 在范围内生成随机数
-            let random_ip =rng.random_range(start..=end);
-            
-            // 转回IPv6地址
-            let ip = Ipv6Addr::from(random_ip);
-            Some(IpAddr::V6(ip))
-        }
-        _ => None,
-    }
 }
 
 // 读取文件行
