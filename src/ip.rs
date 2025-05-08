@@ -32,31 +32,37 @@ struct CidrState {
 
 impl CidrState {
     fn new(network: IpNet, count: usize) -> Self {
-        let (start, end, interval_size) = match &network {
+        let (start, end) = match &network {
             IpNet::V4(ipv4_net) => {
                 let network_addr = ipv4_net.network();
                 let broadcast_addr = ipv4_net.broadcast();
                 let start = u32::from_be_bytes(network_addr.octets()) as u128;
                 let end = u32::from_be_bytes(broadcast_addr.octets()) as u128;
-                let range_size = end - start + 1;
-                let interval_size = range_size / count as u128;
-                (start, end, interval_size)
+                (start, end)
             },
             IpNet::V6(ipv6_net) => {
                 let network_addr = ipv6_net.network();
                 let broadcast_addr = ipv6_net.broadcast();
                 let start = u128::from_be_bytes(network_addr.octets());
                 let end = u128::from_be_bytes(broadcast_addr.octets());
-                let range_size = end - start + 1;
-                let interval_size = range_size / count as u128;
-                (start, end, interval_size)
+                (start, end)
             }
+        };
+
+        let range_size = end - start + 1;
+        // 确保count不超过实际IP数量
+        let adjusted_count = count.min(range_size as usize);
+        // 确保interval_size至少为1
+        let interval_size = if adjusted_count > 0 {
+            (range_size / adjusted_count as u128).max(1)
+        } else {
+            1 // 防止除以零
         };
 
         Self {
             network,
             current_index: 0,
-            total_count: count,
+            total_count: adjusted_count,
             interval_size,
             start,
             end,
