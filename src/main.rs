@@ -41,20 +41,18 @@ async fn main() {
     println!("# CloudflareST-Rust\n");
     
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
-    let ping_result: Vec<PingResult> = match (args.httping, /*args.icmp_ping*/) {
-        (true, /*_*/) => {
-            httping::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
-                .into_iter().map(PingResult::Http).collect()
-        }
-/*        (_, true) => {
-            icmp::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
-                .into_iter().map(PingResult::Icmp).collect()
-        }
-*/
-        _ => {
-            tcping::Ping::new(&args, Arc::clone(&timeout_flag)).await.unwrap().run().await.unwrap()
-                .into_iter().map(PingResult::Tcp).collect()
-        }
+    let ping_result: Vec<PingData> = if args.httping {
+        httping::Ping::new(&args, Arc::clone(&timeout_flag))
+            .await.unwrap()
+            .run().await.unwrap()
+    } /* else if args.icmp_ping {
+        icmp::Ping::new(&args, Arc::clone(&timeout_flag))
+            .await.unwrap()
+            .run().await.unwrap()
+    } */ else {
+        tcping::Ping::new(&args, Arc::clone(&timeout_flag))
+            .await.unwrap()
+            .run().await.unwrap()
     };
     
     // 检查是否在 ping 阶段被超时中断
@@ -89,12 +87,4 @@ async fn main() {
 fn init_rand_seed() {
     let mut rng = rand::rng();
     let _: u32 = rng.random();
-}
-
-// 定义一个枚举来封装不同的 PingData 类型
-#[derive(Clone, Debug)]
-pub enum PingResult {
-    Tcp(PingData),
-    Http(PingData),
-    Icmp(PingData),
 }

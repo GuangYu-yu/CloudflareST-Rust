@@ -10,7 +10,6 @@ use url;
 
 use crate::progress::Bar;
 use crate::args::Args;
-use crate::PingResult;
 use crate::common::{self, PingData};
 
 // 定义下载处理器来处理下载数据
@@ -96,20 +95,18 @@ pub struct DownloadTest {
     tcp_port: u16,
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
-    httping: bool,
 //    icmp_ping: bool,
     colo_filter: String,
-    ping_results: Vec<PingResult>,
+    ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
 }
 
 // 按下载速度（降序）、延迟（升序）、丢包率（升序）
-fn sort_ping_results(results: &mut Vec<PingResult>) {
+fn sort_ping_results(results: &mut Vec<PingData>) {
     // 计算平均值
     let total_count = results.len() as f32;
-    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, result| {
-        let (speed, loss, delay) = common::extract_ping_metrics(result);
-        (acc.0 + speed.unwrap_or(0.0), acc.1 + loss, acc.2 + delay)
+    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, data| {
+        (acc.0 + data.download_speed.unwrap_or(0.0), acc.1 + data.loss_rate(), acc.2 + data.delay)
     });
 
     let avg_speed = total_speed / total_count;
@@ -118,23 +115,23 @@ fn sort_ping_results(results: &mut Vec<PingResult>) {
 
     // 计算分数并排序
     results.sort_by(|a, b| {
-        let (a_speed, a_loss, a_delay) = common::extract_ping_metrics(a);
-        let (b_speed, b_loss, b_delay) = common::extract_ping_metrics(b);
+        let calculate_score = |data: &PingData| {
+            let speed_diff = data.download_speed.unwrap_or(0.0) - avg_speed;
+            let delay_diff = data.delay - avg_delay;
+            let loss_diff = data.loss_rate() - avg_loss;
+            
+            speed_diff * 0.5 - delay_diff * 0.2 - loss_diff * 0.3
+        };
 
-        let a_score = (a_speed.unwrap_or(0.0) - avg_speed) * 0.5
-            - (a_delay - avg_delay) * 0.2
-            - (a_loss - avg_loss) * 0.3;
-
-        let b_score = (b_speed.unwrap_or(0.0) - avg_speed) * 0.5
-            - (b_delay - avg_delay) * 0.2
-            - (b_loss - avg_loss) * 0.3;
+        let a_score = calculate_score(a);
+        let b_score = calculate_score(b);
 
         b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
     });
 }
 
 impl DownloadTest {
-    pub async fn new(args: &Args, ping_results: Vec<PingResult>, timeout_flag: Arc<AtomicBool>) -> Self {
+    pub async fn new(args: &Args, ping_results: Vec<PingData>, timeout_flag: Arc<AtomicBool>) -> Self {
         // 使用 common 模块获取 URL 列表
         let urlist_vec = common::get_url_list(&args.url, &args.urlist).await;
 
@@ -150,7 +147,6 @@ impl DownloadTest {
             tcp_port: args.tcp_port,
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
-            httping: args.httping,
 //            icmp_ping: args.icmp_ping,
             colo_filter: args.httping_cf_colo.to_string(),
             ping_results,
@@ -158,7 +154,7 @@ impl DownloadTest {
         }
     }
 
-    pub async fn test_download_speed(&mut self) -> (Vec<PingResult>, bool) {
+    pub async fn test_download_speed(&mut self) -> (Vec<PingData>, bool) {
         // 先检查队列数量是否足够
         if self.test_count as usize > self.ping_results.len() {
             println!("\n[信息] {}", "队列数量不足所需数量！");
@@ -202,11 +198,7 @@ impl DownloadTest {
             let ping_result = &mut self.ping_results[i];
             
             // 获取IP地址和检查是否需要获取 colo
-            let (ip, need_colo) = match ping_result {
-                PingResult::Http(data) => (data.ip, data.data_center.is_empty()),
-                PingResult::Tcp(data) => (data.ip, data.data_center.is_empty()),
-                PingResult::Icmp(data) => (data.ip, data.data_center.is_empty()),
-            };
+            let (ip, need_colo) = (ping_result.ip, ping_result.data_center.is_empty());
             
             // 执行下载测速
             let test_url = if !self.urlist.is_empty() {
@@ -241,12 +233,7 @@ impl DownloadTest {
                 }
             };
 
-            match ping_result {
-                PingResult::Http(data) if self.httping => process_ping_data(data),
-                PingResult::Tcp(data) if !self.httping /*&& !self.icmp_ping*/=> process_ping_data(data),
-//                PingResult::Icmp(data) if self.icmp_ping => process_ping_data(data),
-                _ => {}
-            }
+            process_ping_data(ping_result);
             
             // 如果已经找到足够数量的合格结果，提前结束测试
             if qualified_indices.len() >= self.test_count as usize {

@@ -3,7 +3,6 @@ use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use reqwest::{Client, Response};
-use crate::PingResult;
 use crate::args::Args;
 use crate::progress::Bar;
 use prettytable::{Row, Cell};
@@ -54,15 +53,6 @@ pub fn print_speed_test_info(mode: &str, args: &Args) {
         args.max_delay.as_millis(),
         args.max_loss_rate
     );
-}
-
-/// 从 PingResult 中提取速度、丢包率和延迟信息
-pub fn extract_ping_metrics(result: &PingResult) -> (Option<f32>, f32, f32) {
-    match result {
-        PingResult::Http(data) => (data.download_speed, data.loss_rate(), data.delay),
-        PingResult::Tcp(data) => (data.download_speed, data.loss_rate(), data.delay),
-        PingResult::Icmp(data) => (data.download_speed, data.loss_rate(), data.delay),
-    }
 }
 
 /// 计算平均延迟，精确到两位小数
@@ -304,8 +294,12 @@ pub fn sort_ping_results(results: &mut PingDelaySet) {
 
     // 计算分数并排序
     results.sort_by(|a, b| {
-        let a_score = (avg_delay - a.delay) * 0.4 + (avg_loss - a.loss_rate()) * 0.6;
-        let b_score = (avg_delay - b.delay) * 0.4 + (avg_loss - b.loss_rate()) * 0.6;
+        let calculate_score = |data: &PingData| {
+            (avg_delay - data.delay) * 0.4 + (avg_loss - data.loss_rate()) * 0.6
+        };
+
+        let a_score = calculate_score(a);
+        let b_score = calculate_score(b);
 
         b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
     });

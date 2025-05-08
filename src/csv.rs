@@ -2,17 +2,21 @@ use std::fs::File;
 use std::io::{self, BufWriter};
 use prettytable::{Table, Row, Cell, format};
 use crate::args::Args;
-use crate::PingResult;
 use crate::common;
+use crate::PingData;
 
-macro_rules! table_headers {
-    () => {
-        ["IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度 (MB/s)", "数据中心"]
-    };
-}
+const TABLE_HEADERS: [&str; 7] = [
+    "IP 地址", 
+    "已发送", 
+    "已接收", 
+    "丢包率", 
+    "平均延迟", 
+    "下载速度 (MB/s)", 
+    "数据中心"
+];
 
 /// 从 PingResult 导出 CSV 文件
-pub fn export_csv(results: &[PingResult], args: &Args) -> io::Result<()> {
+pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
     if results.is_empty() || args.output.is_empty() {
         return Ok(());
     }
@@ -21,28 +25,12 @@ pub fn export_csv(results: &[PingResult], args: &Args) -> io::Result<()> {
     let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(32 * 1024, file));
 
     // 写入表头
-    writer.write_record(&table_headers!())?;
+    writer.write_record(&TABLE_HEADERS)?;
 
     // 写入数据
     for result in results {
-        // 使用模式匹配处理不同类型的结果
-        match result {
-            PingResult::Http(data) if args.httping => {
-                let record = common::ping_data_to_csv_record(data);
-                writer.write_record(&record)?;
-            },
-            PingResult::Tcp(data) if !args.httping /* && !args.icmp_ping */=> {
-                let record = common::ping_data_to_csv_record(data);
-                writer.write_record(&record)?;
-            },
-/*
-            PingResult::Icmp(data) if args.icmp_ping => {
-                let record = common::ping_data_to_csv_record(data);
-                writer.write_record(&record)?;
-            },
-*/
-            _ => {} // 忽略不匹配的情况
-        }
+        let record = common::ping_data_to_csv_record(result);
+        writer.write_record(&record)?;
     }
 
     writer.flush()?;
@@ -54,8 +42,7 @@ pub trait PrintResult {
     fn print(&self, args: &Args, no_qualified: bool);
 }
 
-/// 为 Vec<PingResult> 实现 PrintResult trait
-impl PrintResult for Vec<PingResult> {
+impl PrintResult for Vec<PingData> {
     /// 实现结果打印功能
     fn print(&self, args: &Args, no_qualified: bool) {
         if self.is_empty() {
@@ -74,28 +61,14 @@ impl PrintResult for Vec<PingResult> {
         
         // 添加表头，使用青色
         table.add_row(Row::new(
-            table_headers!().iter()
+            TABLE_HEADERS.iter()
                 .map(|&h| Cell::new(h).style_spec("Fc"))
                 .collect::<Vec<_>>()
         ));
 
         // 添加数据行，最多显示 args.print_num 条
         for result in self.iter().take(args.print_num.into()) {
-            // 使用模式匹配处理不同类型的结果
-            match result {
-                PingResult::Http(data) if args.httping => {
-                    table.add_row(common::ping_data_to_table_row(data));
-                },
-                PingResult::Tcp(data) if !args.httping /* && !args.icmp_ping */=> {
-                    table.add_row(common::ping_data_to_table_row(data));
-                },
-/*
-                PingResult::Icmp(data) if args.icmp_ping => {
-                    table.add_row(common::ping_data_to_table_row(data));
-                },
-*/
-                _ => {} // 忽略不匹配的情况
-            }
+            table.add_row(common::ping_data_to_table_row(result));
         }
 
         // 打印表格

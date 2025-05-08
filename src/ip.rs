@@ -31,38 +31,11 @@ struct CidrState {
 }
 
 impl CidrState {
-    fn new(network: IpNet, count: usize) -> Self {
-        let (start, end) = match &network {
-            IpNet::V4(ipv4_net) => {
-                let network_addr = ipv4_net.network();
-                let broadcast_addr = ipv4_net.broadcast();
-                let start = u32::from_be_bytes(network_addr.octets()) as u128;
-                let end = u32::from_be_bytes(broadcast_addr.octets()) as u128;
-                (start, end)
-            },
-            IpNet::V6(ipv6_net) => {
-                let network_addr = ipv6_net.network();
-                let broadcast_addr = ipv6_net.broadcast();
-                let start = u128::from_be_bytes(network_addr.octets());
-                let end = u128::from_be_bytes(broadcast_addr.octets());
-                (start, end)
-            }
-        };
-
-        let range_size = end - start + 1;
-        // 确保count不超过实际IP数量
-        let adjusted_count = count.min(range_size as usize);
-        // 确保interval_size至少为1
-        let interval_size = if adjusted_count > 0 {
-            (range_size / adjusted_count as u128).max(1)
-        } else {
-            1 // 防止除以零
-        };
-
+    fn new(network: IpNet, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
         Self {
             network,
             current_index: 0,
-            total_count: adjusted_count,
+            total_count: count,
             interval_size,
             start,
             end,
@@ -267,8 +240,35 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
         if let Some((ip_range_str, custom_count)) = parse_ip_range_with_comment_check(ip_range) {
             if let Ok(network) = ip_range_str.parse::<IpNet>() {
                 let count = calculate_ip_count(&network.to_string(), custom_count, test_all);
-                total_expected += count;
-                cidr_info.push((network, count));
+                
+                // 计算start和end
+                let (start, end) = match &network {
+                    IpNet::V4(ipv4_net) => {
+                        let network_addr = ipv4_net.network();
+                        let broadcast_addr = ipv4_net.broadcast();
+                        let start = u32::from_be_bytes(network_addr.octets()) as u128;
+                        let end = u32::from_be_bytes(broadcast_addr.octets()) as u128;
+                        (start, end)
+                    },
+                    IpNet::V6(ipv6_net) => {
+                        let network_addr = ipv6_net.network();
+                        let broadcast_addr = ipv6_net.broadcast();
+                        let start = u128::from_be_bytes(network_addr.octets());
+                        let end = u128::from_be_bytes(broadcast_addr.octets());
+                        (start, end)
+                    }
+                };
+                
+                let range_size = end - start + 1;
+                let adjusted_count = count.min(range_size as usize);
+                let interval_size = if adjusted_count > 0 {
+                    (range_size / adjusted_count as u128).max(1)
+                } else {
+                    1
+                };
+                
+                total_expected += adjusted_count;
+                cidr_info.push((network, adjusted_count, start, end, interval_size));
             }
         }
     }
@@ -285,7 +285,7 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
 }
 
 fn process_ip_sources_with_cidr_info(
-    cidr_info: Vec<(IpNet, usize)>,
+    cidr_info: Vec<(IpNet, usize, u128, u128, u128)>,
     ip_tx: Sender<IpAddr>, 
     req_rx: Receiver<()>,
     producer_active: Arc<AtomicBool>
@@ -296,7 +296,7 @@ fn process_ip_sources_with_cidr_info(
     // 处理所有IP源，创建CIDR状态列表
     let mut cidr_states = Vec::new();
     
-    for (network, ip_count) in cidr_info {
+    for (network, ip_count, start, end, interval_size) in cidr_info {
         // 处理单IP的CIDR格式（/32或/128）
         match network {
             IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
@@ -309,7 +309,7 @@ fn process_ip_sources_with_cidr_info(
             },
             _ => {
                 if ip_count > 0 {
-                    cidr_states.push(CidrState::new(network, ip_count));
+                    cidr_states.push(CidrState::new(network, ip_count, start, end, interval_size));
                 }
             }
         }
