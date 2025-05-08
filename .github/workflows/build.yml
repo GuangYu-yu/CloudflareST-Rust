@@ -135,7 +135,7 @@ jobs:
       name: 构建 Windows ARM64
       needs: validate_inputs
       if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
-      runs-on: windows-latest  # 改用 Windows 运行器
+      runs-on: windows-latest
       steps:  
         - name: 检出代码  
           uses: actions/checkout@v4  
