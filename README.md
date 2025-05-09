@@ -32,43 +32,43 @@
 -ip 2606:4700:100::/48=120000,2606:4700:102::/48=120000 -tn 20000 -dn 20 -sl 18 -tl 200 -tlr 0 -url https://example.com
 ```
 
-```
+``` yaml
 # CloudflareST-Rust
 
 基本参数:
-  -url         TLS 模式的 Httping 或下载测速所使用的测速地址（https://example.com/file）[默认: 未指定]
-  -urlist      从 URL 内读取测速地址列表（https://example.com/url_list.txt）[默认: 未指定]
-  -f           从文件或文件路径读取 IP 或 CIDR [默认: 未指定]
-  -ip          直接指定 IP 或 CIDR（多个用逗号分隔）[默认: 未指定]
-  -ipurl       从URL读取 IP 或 CIDR （https://example.com/ip_list.txt) [默认: 未指定]
-  -timeout     程序超时退出时间（示例：1h3m6s）[默认: 不限制]
+  -url         TLS 模式的 Httping 或下载测速所使用的测速地址（https://example.com/file）[默认：未指定]
+  -urlist      从 URL 内读取测速地址列表（https://example.com/url_list.txt）[默认：未指定]
+  -f           从文件或文件路径读取 IP 或 CIDR [默认：未指定]
+  -ip          直接指定 IP 或 CIDR（多个用逗号分隔）[默认：未指定]
+  -ipurl       从URL读取 IP 或 CIDR （https://example.com/ip_list.txt) [默认：未指定]
+  -timeout     程序超时退出时间（示例：1h3m6s）[默认：不限制]
 
 测速参数:
-  -t           延迟测速次数 [默认: 4]
-  -dn          所需下载测速结果数量 [默认: 10]
-  -dt          下载测速时间（秒）[默认: 10]
-  -tp          测速端口 [默认: 443]
-  -all4        测速全部 IPv4 [默认: 否]
-  -tn          当 Ping 到指定可用数量，提前结束 Ping [默认: 否]
+  -t           延迟测速次数 [默认：4]
+  -dn          所需下载测速结果数量 [默认：10]
+  -dt          下载测速时间（秒）[默认：10]
+  -tp          测速端口 [默认：443]
+  -all4        测速全部 IPv4 [默认：否]
+  -tn          当 Ping 到指定可用数量，提前结束 Ping [默认：否]
 
 测速选项:
-  -httping     使用非 TLS 模式的 Httping ，无需测速地址 [默认: 否]
-  -ping        ICMP-Ping 测速模式 [默认: 否]
-  -dd          禁用下载测速 [默认: 否]
-  -hu          使用 TLS 模式的 Httping ，可指定其 URL 测速地址，或作为无参数命令，使用其他测速地址 [默认: 否]
-  -colo        匹配指定地区（示例：HKG,SJC）[默认: 未指定]
-  -n           动态线程池的线程数量上限 [默认: 1024]
+  -httping     使用非 TLS 模式的 Httping ，无需测速地址 [默认：否]
+  -ping        ICMP-Ping 测速模式 [默认：否]
+  -dd          禁用下载测速 [默认：否]
+  -hu          使用 TLS 模式的 Httping ，可指定其 URL 测速地址，或作为无参数命令，使用其他测速地址 [默认：否]
+  -colo        匹配指定地区（示例：HKG,SJC）[默认：未指定]
+  -n           动态线程池的线程数量上限 [默认：1024]
 
 结果参数:
-  -tl          延迟上限（毫秒）[默认: 2000]
-  -tll         延迟下限（毫秒）[默认: 0]
-  -tlr         丢包率上限 [默认: 1.00]
-  -sl          下载速度下限（MB/s）[默认: 0.00]
-  -p           终端显示结果数量 [默认: 10]
-  -o           输出结果文件（文件名或文件路径）[默认: result.csv]
+  -tl          延迟上限（毫秒）[默认：2000]
+  -tll         延迟下限（毫秒）[默认：0]
+  -tlr         丢包率上限 [默认：1.00]
+  -sl          下载速度下限（MB/s）[默认：0.00]
+  -p           终端显示结果数量 [默认：10]
+  -o           输出结果文件（文件名或文件路径）[默认：result.csv]
 ```
 
-```
+``` yaml
 # CloudflareST-Rust
 
 开始延迟测速（模式：Tcping, 端口：443, 范围：0 ~ 300 ms, 丢包：0.20)
