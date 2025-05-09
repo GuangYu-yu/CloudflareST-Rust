@@ -41,7 +41,7 @@
   -f           从文件或文件路径读取 IP 或 CIDR [默认：未指定]
   -ip          直接指定 IP 或 CIDR（多个用逗号分隔）[默认：未指定]
   -ipurl       从URL读取 IP 或 CIDR （https://example.com/ip_list.txt) [默认：未指定]
-  -timeout     程序超时退出时间（示例：1h3m6s）[默认：不限制]
+  -timeout     程序超时退出时间（秒）[默认：不限制]
 
 测速参数:
   -t           延迟测速次数 [默认：4]
@@ -53,9 +53,8 @@
 
 测速选项:
   -httping     使用非 TLS 模式的 Httping ，无需测速地址 [默认：否]
-  -ping        ICMP-Ping 测速模式 [默认：否]
   -dd          禁用下载测速 [默认：否]
-  -hu          使用 TLS 模式的 Httping ，可指定其 URL 测速地址，或作为无参数命令，使用其他测速地址 [默认：否]
+  -hu          使用 TLS 模式的 Httping ，可指定其 URL 测速地址或使用-url 或 -urlist 指定 [默认：否]
   -colo        匹配指定地区（示例：HKG,SJC）[默认：未指定]
   -n           动态线程池的线程数量上限 [默认：1024]
 
