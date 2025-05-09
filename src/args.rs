@@ -88,193 +88,97 @@ impl Args {
     pub fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
         let mut parsed = Self::new();
-        let mut i = 1;  // 跳过程序名
+        
+        // 将参数重组为参数组（可能是单参数或参数+值）
+        let mut arg_groups: Vec<Vec<String>> = Vec::new();
+        let mut i = 1; // 跳过程序名
         
         while i < args.len() {
             let arg = &args[i];
             
-            // 确保是参数标志，统一处理单破折号和双破折号
-            if !arg.starts_with('-') {
-                i += 1;
-                continue;
-            }
-
-            // 去除所有前导破折号
-            let name = arg.trim_start_matches('-').to_string();
-            
-            // 检查是否是无值标志参数
-            match name.as_str() {
-                "h" | "help" => {
-                    parsed.help = true;
-                    i += 1;
-                    continue;
-                },
-                "httping" => {
-                    parsed.httping = true;
-                    i += 1;
-                    continue;
-                },
-/*
-                "ping" => {
-                    parsed.icmp_ping = true;
-                    i += 1;
-                    continue;
-                },
-*/
-                "dd" => {
-                    parsed.disable_download = true;
-                    i += 1;
-                    continue;
-                },
-                "all4" => {
-                    parsed.test_all = true;
-                    i += 1;
-                    continue;
-                },
-                // -hu 参数处理带值或不带值
-                "hu" => {
-                    parsed.httping_urls_flag = true;
-                    
-                    // 检查下一个参数是否存在且不是以'-'开头的值
-                    if i + 1 < args.len() && !args[i + 1].starts_with('-') {
-                        parsed.httping_urls = args[i + 1].clone();
-                        i += 2;  // 跳过参数名和值
-                    } else {
-                        i += 1;  // 只跳过参数名
-                    }
-                    continue;
-                },
-                _ => {}
-            }
-            
-            // 处理带值的参数
-            if i + 1 < args.len() && !args[i + 1].starts_with('-') {
-                match name.as_str() {
-                    "t" => {
-                        if let Ok(val) = args[i + 1].parse::<u16>() {
-                            parsed.ping_times = val;
-                        }
-                    },
-                    "dn" => {
-                        if let Ok(val) = args[i + 1].parse::<u16>() {
-                            parsed.test_count = val;
-                        }
-                    },
-                    "dt" => {
-                        if let Ok(val) = args[i + 1].parse::<u64>() {
-                            parsed.timeout_duration = Some(Duration::from_secs(val));
-                        }
-                    },
-                    "tp" => {
-                        if let Ok(val) = args[i + 1].parse::<u16>() {
-                            parsed.tcp_port = val;
-                        }
-                    },
-                    "url" => {
-                        parsed.url = args[i + 1].clone();
-                    },
-                    "urlist" => {
-                        parsed.urlist = args[i + 1].clone();
-                    },
-                    "colo" => {
-                        parsed.httping_cf_colo = args[i + 1].clone().to_uppercase();
-                    },
-                    "tl" => {
-                        if let Ok(val) = args[i + 1].parse::<u64>() {
-                            parsed.max_delay = Duration::from_millis(val);
-                        }
-                    },
-                    "tll" => {
-                        if let Ok(val) = args[i + 1].parse::<u64>() {
-                            parsed.min_delay = Duration::from_millis(val);
-                        }
-                    },
-                    "tlr" => {
-                        if let Ok(val) = args[i + 1].parse::<f32>() {
-                            parsed.max_loss_rate = val;
-                        }
-                    },
-                    "sl" => {
-                        if let Ok(val) = args[i + 1].parse::<f32>() {
-                            parsed.min_speed = val;
-                        }
-                    },
-                    "p" => {
-                        if let Ok(val) = args[i + 1].parse::<u16>() {
-                            parsed.print_num = val;
-                        }
-                    },
-                    "n" => {
-                        if let Ok(val) = args[i + 1].parse::<usize>() {
-                            // 检查并调整 max_threads 的值
-                            parsed.max_threads = val.clamp(5, 2048);
-                        }
-                    },
-                    "f" => {
-                        parsed.ip_file = args[i + 1].clone();
-                    },
-                    "ip" => {
-                        parsed.ip_text = args[i + 1].clone();
-                    },
-                    "ipurl" => {
-                        parsed.ip_url = args[i + 1].clone();
-                    },
-                    "o" => {
-                        parsed.output = args[i + 1].clone();
-                    },
-                    "timeout" => {
-                        parsed.global_timeout = args[i + 1].clone();
-                        // 解析超时时间
-                        parsed.global_timeout_duration = parse_duration(&args[i + 1]);
-                    },
-                    "tn" => {
-                        if let Ok(val) = args[i + 1].parse::<u32>() {
-                            parsed.target_num = Some(val);
-                        }
-                    },
-                    _ => {}
+            // 确保是参数标志
+            if arg.starts_with('-') {
+                let mut group = vec![arg.clone()];
+                
+                // 检查下一个参数是否是值（不以'-'开头）
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    group.push(args[i + 1].clone());
+                    i += 2; // 跳过参数和值
+                } else {
+                    i += 1; // 只跳过参数
                 }
-                i += 2;  // 跳过参数名和值
+                
+                arg_groups.push(group);
             } else {
+                // 跳过非参数标志
                 i += 1;
             }
         }
+        
+        // 处理重组后的参数组
+        for group in arg_groups {
+            let name = group[0].trim_start_matches('-').to_string();
+            let value = if group.len() > 1 { Some(&group[1]) } else { None };
+            
+            Self::handle_arg(&name, value, &mut parsed);
+        }
 
-        parsed.use_tls_httping_args();
         parsed
     }
-
-    fn use_tls_httping_args(&mut self) {
-        // 如果使用了 -hu 参数，确保 httping 为 true
-        if self.httping_urls_flag {
-            self.httping = true;
+    
+    // 统一处理所有参数
+    fn handle_arg(name: &str, value: Option<&String>, parsed: &mut Self) {
+        match name {
+            // 无值标志参数
+            "h" | "help" => parsed.help = true,
+            "httping" => parsed.httping = true,
+//            "ping" => parsed.icmp_ping = true,
+            "dd" => parsed.disable_download = true,
+            "all4" => parsed.test_all = true,
+            
+            // -hu 参数可以有值也可以没有值
+            "hu" => {
+                parsed.httping_urls_flag = true;
+                parsed.httping = true; // 设置httping为true
+                if let Some(val) = value {
+                    parsed.httping_urls = val.clone();
+                }
+            },
+            
+            // 带值参数
+            "t" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.ping_times = num; } },
+            "dn" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.test_count = num; } },
+            "dt" => if let Some(val) = value { if let Ok(num) = val.parse::<u64>() { parsed.timeout_duration = Some(Duration::from_secs(num)); } },
+            "tp" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.tcp_port = num; } },
+            "url" => if let Some(val) = value { parsed.url = val.clone(); },
+            "urlist" => if let Some(val) = value { parsed.urlist = val.clone(); },
+            "colo" => if let Some(val) = value { parsed.httping_cf_colo = val.clone().to_uppercase(); },
+            "tl" => if let Some(val) = value { if let Ok(num) = val.parse::<u64>() { parsed.max_delay = Duration::from_millis(num); } },
+            "tll" => if let Some(val) = value { if let Ok(num) = val.parse::<u64>() { parsed.min_delay = Duration::from_millis(num); } },
+            "tlr" => if let Some(val) = value { if let Ok(num) = val.parse::<f32>() { parsed.max_loss_rate = num; } },
+            "sl" => if let Some(val) = value { if let Ok(num) = val.parse::<f32>() { parsed.min_speed = num; } },
+            "p" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.print_num = num; } },
+            "n" => if let Some(val) = value { if let Ok(num) = val.parse::<usize>() { parsed.max_threads = num.clamp(5, 2048); } },
+            "f" => if let Some(val) = value { parsed.ip_file = val.clone(); },
+            "ip" => if let Some(val) = value { parsed.ip_text = val.clone(); },
+            "ipurl" => if let Some(val) = value { parsed.ip_url = val.clone(); },
+            "o" => if let Some(val) = value { parsed.output = val.clone(); },
+            "timeout" => if let Some(val) = value { parsed.global_timeout = val.clone(); parsed.global_timeout_duration = parse_duration(val); },
+            "tn" => if let Some(val) = value { if let Ok(num) = val.parse::<u32>() { parsed.target_num = Some(num); } },
+            _ => { print_help(); eprintln!("错误: 不支持的参数: {}", name); std::process::exit(1); }
         }
     }
 }
 
-// 解析时间字符串为Duration
+// 解析时间
 fn parse_duration(duration_str: &str) -> Option<Duration> {
-    // 如果是空字符串，表示不限制时间
-    if duration_str.is_empty() {
-        return None;
-    }
-
-    // 检查是否为纯数字
-    if duration_str.chars().all(char::is_numeric) {
-        // 将纯数字视为秒数
-        if let Ok(seconds) = duration_str.parse::<u64>() {
-            return Some(Duration::from_secs(seconds));
-        }
+    if let Ok(seconds) = duration_str.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
     }
     
-    // 尝试使用humantime库解析时间字符串
-    match humantime::parse_duration(duration_str) {
-        Ok(duration) => Some(duration),
-        Err(err) => {
-            println!("解析超时时间失败: {}，将不限制运行时间", err);
-            None
-        }
-    }
+    // 如果解析失败，打印错误信息并返回None
+    println!("错误：没有正确设置程序超时时间");
+    None
 }
 
 macro_rules! print_arg {
@@ -293,7 +197,7 @@ pub fn print_help() {
     print_arg!("-f", "从文件或文件路径读取 IP 或 CIDR ", "[默认：未指定]");
     print_arg!("-ip", "直接指定 IP 或 CIDR（多个用逗号分隔）", "[默认：未指定]");
     print_arg!("-ipurl", "从URL读取 IP 或 CIDR （https://example.com/ip_list.txt) ", "[默认：未指定]");
-    print_arg!("-timeout", "程序超时退出时间（示例：1h3m6s）", "[默认：不限制]");
+    print_arg!("-timeout", "程序超时退出时间（秒）", "[默认：不限制]");
     
     // 测速参数
     println!("\n{}:", "测速参数".bold());
@@ -309,7 +213,7 @@ pub fn print_help() {
     print_arg!("-httping", "使用非 TLS 模式的 Httping ，无需测速地址 ", "[默认：否]");
 //    print_arg!("-ping", "ICMP-Ping 测速模式 ", "[默认：否]");
     print_arg!("-dd", "禁用下载测速 ", "[默认：否]");
-    print_arg!("-hu", "使用 TLS 模式的 Httping ，可指定其 URL 测速地址，或作为无参数命令，使用其他测速地址 ", "[默认：否]");
+    print_arg!("-hu", "使用 TLS 模式的 Httping ，可指定其 URL 测速地址或使用-url 或 -urlist 指定 ", "[默认：否]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认：未指定]");
     print_arg!("-n", "动态线程池的线程数量上限 ", "[默认：1024]");
     
@@ -334,21 +238,18 @@ pub fn parse_args() -> Args {
     // 检查IP来源参数是否至少指定了一个
     if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
         println!("错误: 必须指定一个或多个IP来源参数 (-f, -ipurl 或 -ip)");
-        println!("{}", "使用 -h 参数查看帮助".red());
         std::process::exit(1);
     }
 
     // 检查-hu参数：如果使用了-hu但没有提供URL，也没有设置-url或-urlist
     if args.httping_urls_flag && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {
         println!("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 指定测速地址");
-        println!("{}", "使用 -h 参数查看帮助".red());
         std::process::exit(1);
     }
     
     // 检查下载测速地址（当没有使用-dd时）
     if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
         println!("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址");
-        println!("{}", "使用 -h 参数查看帮助".red());
         std::process::exit(1);
     }
     
