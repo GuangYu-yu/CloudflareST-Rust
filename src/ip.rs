@@ -239,7 +239,7 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
         // 检查注释并解析IP范围
         if let Some((ip_range_str, custom_count)) = parse_ip_range_with_comment_check(ip_range) {
             if let Ok(network) = ip_range_str.parse::<IpNet>() {
-                let count = calculate_ip_count(&network.to_string(), custom_count, test_all);
+                let count = custom_count.map(|c| c as u128).unwrap_or_else(|| calculate_ip_count(&network.to_string(), None, test_all) as u128);
                 
                 // 计算start和end
                 let (start, end) = match &network {
@@ -260,15 +260,16 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
                 };
                 
                 let range_size = end - start + 1;
-                let adjusted_count = count.min(range_size as usize);
+                let adjusted_count = count.min(range_size);
+                
                 let interval_size = if adjusted_count > 0 {
-                    (range_size / adjusted_count as u128).max(1)
+                    (range_size / adjusted_count).max(1)
                 } else {
                     1
                 };
                 
-                total_expected += adjusted_count;
-                cidr_info.push((network, adjusted_count, start, end, interval_size));
+                total_expected += adjusted_count as usize;
+                cidr_info.push((network, adjusted_count as usize, start, end, interval_size));
             }
         }
     }
