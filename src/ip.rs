@@ -191,7 +191,7 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
 }
 
 // 检查是否为注释行并解析IP范围
-fn parse_ip_range_with_comment_check(ip_range: &str) -> Option<(String, Option<usize>)> {
+fn parse_ip_range_with_comment_check(ip_range: &str) -> Option<(String, Option<u128>)> {
     // 忽略注释行
     if ip_range.starts_with('#') || ip_range.starts_with("//") {
         return None;
@@ -200,6 +200,25 @@ fn parse_ip_range_with_comment_check(ip_range: &str) -> Option<(String, Option<u
     // 解析IP范围和自定义数量
     let (ip_range_str, custom_count) = parse_ip_range(ip_range);
     Some((ip_range_str, custom_count))
+}
+
+// 自定义采样数量
+fn parse_ip_range(ip_range: &str) -> (String, Option<u128>) {
+    let parts: Vec<&str> = ip_range.split('=').collect();
+    if parts.len() > 1 {
+        let ip_part = parts[0].trim();
+        let count_str = parts[1].trim();
+        
+        // 尝试解析数量
+        let count = count_str.parse::<u128>()
+            .ok()
+            .filter(|&n| n > 0)
+            .map(|n| n.min(u128::MAX));
+        
+        (ip_part.to_string(), count)
+    } else {
+        (ip_range.to_string(), None)
+    }
 }
 
 // 加载IP列表到缓存
@@ -239,7 +258,7 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
         // 检查注释并解析IP范围
         if let Some((ip_range_str, custom_count)) = parse_ip_range_with_comment_check(ip_range) {
             if let Ok(network) = ip_range_str.parse::<IpNet>() {
-                let count = custom_count.map(|c| c as u128).unwrap_or_else(|| calculate_ip_count(&network.to_string(), None, test_all) as u128);
+                let count = calculate_ip_count(&network.to_string(), custom_count, test_all);
                 
                 // 计算start和end
                 let (start, end) = match &network {
@@ -357,27 +376,8 @@ fn process_ip_sources_with_cidr_info(
     producer_active.store(false, Ordering::Relaxed);
 }
 
-// 自定义采样数量
-fn parse_ip_range(ip_range: &str) -> (String, Option<usize>) {
-    let parts: Vec<&str> = ip_range.split('=').collect();
-    if parts.len() > 1 {
-        let ip_part = parts[0].trim();
-        let count_str = parts[1].trim();
-        
-        // 尝试解析数量
-        let count = count_str.parse::<usize>()
-            .ok()
-            .filter(|&n| n > 0)
-            .map(|n| n.min(u32::MAX as usize));
-        
-        (ip_part.to_string(), count)
-    } else {
-        (ip_range.to_string(), None)
-    }
-}
-
 // 获取给定IP范围的采样数量
-fn calculate_ip_count(ip_range: &str, custom_count: Option<usize>, test_all: bool) -> usize {
+fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all: bool) -> u128 {
     // 先尝试解析为单个IP
     if IpAddr::from_str(ip_range).is_ok() {
         return 1;
@@ -389,7 +389,7 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<usize>, test_all: boo
             IpNet::V4(ipv4_net) => {
                 let prefix = ipv4_net.prefix_len();
                 if test_all {
-                    return if prefix < 32 { 2u32.pow((32 - prefix) as u32) as usize } else { 1 };
+                    return if prefix < 32 { 2u128.pow((32 - prefix) as u32) } else { 1 };
                 } else if let Some(count) = custom_count {
                     // 使用自定义数量
                     return count;
@@ -414,17 +414,17 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<usize>, test_all: boo
 }
 
 // 采样数量
-pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> usize {
+pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
     // IPv4 和 IPv6 的采样数量数组
-    static SAMPLES: [usize; 19] = [
+    static SAMPLES: [u16; 19] = [
         1, 2, 4, 8, 16, 48, 96, 200, 400, 800,
         1600, 1800, 2000, 3000, 4000, 6000,
         10000, 30000, 50000
     ];
     
-    let base: usize = if is_ipv4 { 31 } else { 127 };
+    let base = if is_ipv4 { 31_usize } else { 127_usize };
     let index = base.saturating_sub(prefix as usize);
-    if index > 18 { 80000 } else { SAMPLES[index] }
+    if index > 18 { 80000 } else { u128::from(SAMPLES[index]) }
 }
 
 // 读取文件行
