@@ -215,7 +215,7 @@ pub fn print_help() {
     print_arg!("-dd", "禁用下载测速 ", "[默认：否]");
     print_arg!("-hu", "使用 TLS 模式的 Httping ，可指定其 URL 测速地址或使用-url 或 -urlist 指定 ", "[默认：否]");
     print_arg!("-colo", "匹配指定地区（示例：HKG,SJC）", "[默认：未指定]");
-    print_arg!("-n", "动态线程池的线程数量上限 ", "[默认：1024]");
+    print_arg!("-n", "延迟测速的线程数量 ", "[默认：128]");
     
     // 结果参数
     println!("\n{}:", "结果参数".bold());
