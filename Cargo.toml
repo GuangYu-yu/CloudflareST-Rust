@@ -14,7 +14,6 @@ prettytable-rs = "0.10.0"
 url = "2.5.4"
 csv = "1.3.1"
 terminal_size = "0.4.2" 
-num_cpus = "1.16.0"
 crossbeam-channel = "0.5.15"
 futures = "0.3.31"
 # surge-ping = "0.8.2"  # 已注释掉ICMP Ping功能
