@@ -81,7 +81,7 @@ impl Args {
             
             global_timeout: String::new(),
             global_timeout_duration: None,
-            max_threads: 1024,
+            max_threads: 128,
         }
     }
 

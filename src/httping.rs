@@ -266,20 +266,12 @@ async fn httping(
     url: &Arc<String>,
 ) -> Option<(u16, f32, String)> {
     
-    // 开始任务
-    global_pool().start_task();
-    
-    // 创建CPU计时器（仅测量本地CPU计算）
-    let mut cpu_timer = global_pool().start_cpu_timer();
-    
     // 解析URL获取主机名（仅用于客户端构建）
     let host = {
         // 解析URL
         let url_parts = match Url::parse(url.as_str()) {
             Ok(parts) => parts,
             Err(_) => {
-                // 结束任务
-                global_pool().end_task();
                 return None;
             }
         };
@@ -287,8 +279,6 @@ async fn httping(
         match url_parts.host_str() {
             Some(host) => host.to_string(),
             None => {
-                // 结束任务
-                global_pool().end_task();
                 return None;
             }
         }
@@ -296,23 +286,16 @@ async fn httping(
     
     // 获取端口
     let port = args.tcp_port;
-    
-    // URL解析完成，暂停CPU计时
-    cpu_timer.pause();
 
     // 进行多次测速（并发执行）
     let ping_times = args.ping_times;
     let mut tasks = FuturesUnordered::new();
 
     for _ in 0..ping_times {
-        // 恢复CPU计时（客户端构建是CPU计算）
-        cpu_timer.resume();
         let client = match common::build_reqwest_client_with_host(ip, port, &host, args.max_delay.as_millis().try_into().unwrap()).await {
             Some(client) => client,
             None => continue,
         };
-        // 客户端构建完成，暂停CPU计时
-        cpu_timer.pause();
         
         let url_clone = Arc::clone(url);
     
@@ -329,9 +312,6 @@ async fn httping(
             }
         }));
     }
-
-    // 所有请求发送完成，恢复CPU计时（准备处理结果）
-    cpu_timer.resume();
 
     // 处理并发任务结果
     let mut success = 0;
@@ -350,7 +330,6 @@ async fn httping(
                     if !args.httping_cf_colo.is_empty() {
                         if !data_center.is_empty() && !colo_filters.is_empty() {
                             if !colo_filters.iter().any(|filter| data_center == *filter) {
-                                global_pool().end_task();
                                 return None;
                             }
                         }
@@ -362,12 +341,6 @@ async fn httping(
             }
         }
     }
-
-    // 所有结果处理完成，结束CPU计时
-    cpu_timer.finish();
-
-    // 结束任务
-    global_pool().end_task();
 
     // 返回结果
     if success > 0 {

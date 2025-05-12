@@ -182,37 +182,23 @@ async fn tcping_handler(
 
 // TCP连接测试函数
 async fn tcping(addr: SocketAddr, args: &Arc<Args>) -> Option<f32> {
-    // 开始任务
-    global_pool().start_task();
-    
-    // 创建CPU计时器
-    let mut cpu_timer = global_pool().start_cpu_timer();
     
     let connect_result = tokio::time::timeout(
         args.max_delay,
         async {
         let start_time = Instant::now();
         
-        // 暂停CPU计时(网络连接阶段)
-        cpu_timer.pause();
         let stream_result = TcpStream::connect(&addr).await;
-        // 恢复CPU计时(结果处理阶段)
-        cpu_timer.resume();
         
         match stream_result {
             Ok(stream) => {
-                // 结果处理(关闭连接等操作)在计时范围内
                 let _ = stream.set_linger(None);
                 drop(stream);
-                cpu_timer.finish();
                 Some(start_time.elapsed().as_secs_f32() * 1000.0)
             },
             Err(_) => None
         }
     }).await;
-    
-    // 结束任务
-    global_pool().end_task();
     
     connect_result.unwrap_or(None)
 }
