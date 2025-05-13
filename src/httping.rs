@@ -155,10 +155,8 @@ impl Ping {
             let success_count_clone = Arc::clone(&success_count);
 
             tasks.push(tokio::spawn(async move {
-                execute_with_rate_limit(|| async move {
-                    httping_handler(ip, csv_clone, bar_clone, &args_clone, &colo_filters_clone, &url, success_count_clone).await;
-                    Ok::<(), io::Error>(())
-                }).await.unwrap();
+                httping_handler(ip, csv_clone, bar_clone, &args_clone, &colo_filters_clone, &url, success_count_clone).await;
+                Ok::<(), io::Error>(())
             }));
         };
 
@@ -269,12 +267,7 @@ async fn httping(
     // 解析URL获取主机名（仅用于客户端构建）
     let host = {
         // 解析URL
-        let url_parts = match Url::parse(url.as_str()) {
-            Ok(parts) => parts,
-            Err(_) => {
-                return None;
-            }
-        };
+        let url_parts = Url::parse(url.as_str()).ok()?;
         
         match url_parts.host_str() {
             Some(host) => host.to_string(),
@@ -287,29 +280,33 @@ async fn httping(
     // 获取端口
     let port = args.tcp_port;
 
+    // 为当前IP创建一个客户端
+    let client = match common::build_reqwest_client_with_host(ip, port, &host, args.max_delay.as_millis().try_into().unwrap()).await {
+        Some(client) => client,
+        None => return None,
+    };
+
     // 进行多次测速（并发执行）
     let ping_times = args.ping_times;
     let mut tasks = FuturesUnordered::new();
 
     for _ in 0..ping_times {
-        let client = match common::build_reqwest_client_with_host(ip, port, &host, args.max_delay.as_millis().try_into().unwrap()).await {
-            Some(client) => client,
-            None => continue,
-        };
-        
+        let client = client.clone(); // 复用客户端
         let url_clone = Arc::clone(url);
     
-        tasks.push(tokio::spawn({
-            async move {
+        // 每个HTTP请求都受到信号量控制
+        tasks.push(tokio::spawn(async move {
+            execute_with_rate_limit(|| async move {
                 let start_time = Instant::now();
                 
-                let result = async {
-                    // 直接使用原始URL
-                    common::send_head_request(&client, url_clone.as_str()).await
-                }.await;
+                let result = client.head(url_clone.as_str())
+                    .header("Connection", "close")
+                    .send()
+                    .await
+                    .ok();
         
-                (result, start_time)
-            }
+                Ok::<(Option<reqwest::Response>, Instant), io::Error>((result, start_time))
+            }).await
         }));
     }
 
@@ -320,7 +317,7 @@ async fn httping(
     let mut first_request_success = false;
 
     while let Some(result) = tasks.next().await {
-        if let Ok((Some(response), start_time)) = result {
+        if let Ok(Ok((Some(response), start_time))) = result {
             // 使用 common::extract_data_center 提取数据中心信息
             if let Some(dc) = common::extract_data_center(&response) {
                 if !first_request_success {

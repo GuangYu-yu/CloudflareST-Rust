@@ -67,22 +67,6 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     (avg_ms * 100.0).round() / 100.0
 }
 
-/// 构建用于测试的 reqwest 客户端
-pub async fn build_reqwest_client(ip: IpAddr, url: &str, port: u16, timeout: Duration) -> Option<Client> {
-    // 解析原始URL以获取主机名
-    let url_parts = match url::Url::parse(url) {
-        Ok(parts) => parts,
-        Err(_) => return None,
-    };
-    
-    let host = match url_parts.host_str() {
-        Some(host) => host,
-        None => return None,
-    };
-    
-    build_reqwest_client_with_host(ip, port, host, timeout.as_millis() as u64).await
-}
-
 /// 使用主机名构建 reqwest 客户端
 pub async fn build_reqwest_client_with_host(ip: IpAddr, port: u16, host: &str, timeout_ms: u64) -> Option<Client> {
     // 构建客户端，使用 reqwest 内置的 resolve 方法
@@ -91,39 +75,12 @@ pub async fn build_reqwest_client_with_host(ip: IpAddr, port: u16, host: &str, t
         .timeout(Duration::from_millis(timeout_ms))
         .user_agent(USER_AGENT)  // 使用常量
 //        .danger_accept_invalid_certs(true)  // 跳过证书验证
-        .pool_max_idle_per_host(0) // 禁用连接复用
+//        .pool_max_idle_per_host(0) // 禁用连接复用
         .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
-        .build();
+        .build()
+        .ok();
     
-    match client {
-        Ok(client) => Some(client),
-        Err(_) => None,
-    }
-}
-
-/// 发送GET请求
-pub async fn send_request(client: &Client, url: &str) -> Option<Response> {
-    match client.get(url).send().await {
-        Ok(resp) => Some(resp),
-        Err(_) => None,
-    }
-}
-
-// 发送GET请求但只获取响应头
-pub async fn send_head_request(
-    client: &reqwest::Client,
-    url: &str,
-) -> Option<reqwest::Response> {
-    // 使用GET方法，但设置Connection: close头部，并且只读取到头部结束
-    let response = client.get(url)
-        .header("Connection", "close")
-        .header("Accept-Encoding", "identity") // 禁用压缩，便于找到头部结束位置
-        .header("Range", "bytes=0-1") // 只请求极少量数据
-        .send()
-        .await
-        .ok()?;
-    
-    Some(response)
+    client
 }
 
 /// 从响应中提取数据中心信息

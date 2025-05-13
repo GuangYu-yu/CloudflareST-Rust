@@ -5,7 +5,6 @@ use std::cmp::min;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use reqwest::Client;
 use url;
 
 use crate::progress::Bar;
@@ -263,11 +262,6 @@ impl DownloadTest {
     }
 }
 
-// 构建reqwest客户端
-async fn build_reqwest_client(ip: IpAddr, url: &str, port: u16, timeout: Duration) -> Option<Client> {
-    common::build_reqwest_client(ip, url, port, timeout).await
-}
-
 // 下载测速处理函数
 async fn download_handler(
     ip: IpAddr, 
@@ -296,7 +290,7 @@ async fn download_handler(
     let mut data_center = None;
     
     // 创建客户端进行下载测速
-    let client = match build_reqwest_client(ip, url, tcp_port, download_duration).await {
+    let client = match common::build_reqwest_client_with_host(ip, tcp_port, host, download_duration.as_millis() as u64).await {
         Some(client) => client,
         None => return (None, None),
     };
@@ -304,9 +298,9 @@ async fn download_handler(
     // 创建下载处理器
     let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
     
-    // 使用公共模块发送请求
+    // 发送请求
     let url_with_port = format!("{}://{}:{}{}", scheme, host, tcp_port, path);
-    let response = common::send_request(&client, &url_with_port).await;
+    let response = client.get(&url_with_port).send().await.ok();
     
     // 如果获取到响应，开始下载
     let avg_speed = if let Some(mut resp) = response {
@@ -346,8 +340,8 @@ async fn download_handler(
             }
             
             // 读取数据块
-            match resp.chunk().await {
-                Ok(Some(chunk)) => {
+            match resp.chunk().await.ok() {
+                Some(Some(chunk)) => {
                     let size = chunk.len() as u64;
                     content_read += size;
                     handler.update_data_received(size);
@@ -361,8 +355,7 @@ async fn download_handler(
                         actual_content_read += size;
                     }
                 },
-                Ok(None) => break,
-                Err(_) => break,
+                _ => break,
             }
         }
         

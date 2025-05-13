@@ -68,10 +68,8 @@ impl Ping {
             let success_count_clone = Arc::clone(&success_count);
 
             tasks.push(tokio::spawn(async move {
-                execute_with_rate_limit(|| async move {
-                    tcping_handler(ip, csv_clone, bar_clone, &args_clone, success_count_clone).await;
-                    Ok::<(), io::Error>(())
-                }).await.unwrap();
+                tcping_handler(ip, csv_clone, bar_clone, &args_clone, success_count_clone).await;
+                Ok::<(), io::Error>(())
             }));
         };
 
@@ -139,24 +137,20 @@ async fn tcping_handler(
     success_count: Arc<AtomicUsize>,
 ) {
     let ping_times = args.ping_times;
-    let mut tasks = FuturesUnordered::new();
-
-    // 使用FuturesUnordered来动态管理并发测试
-    for _ in 0..ping_times {
-        let args_clone = Arc::clone(args);
-        tasks.push(tokio::spawn(async move {
-            let port = args_clone.tcp_port;
-            let addr = SocketAddr::new(ip, port);
-            tcping(addr, &args_clone).await
-        }));
-    }
-
-    // 处理并发结果
+    
+    // 对单个IP进行多次测试，但每次都重建连接（串行执行）
     let mut recv = 0;
     let mut total_delay_ms = 0.0;
     
-    while let Some(result) = tasks.next().await {
-        if let Ok(Some(delay)) = result {
+    // 串行执行同一 IP 的多次测试
+    for _ in 0..ping_times {
+        let port = args.tcp_port;
+        let addr = SocketAddr::new(ip, port);
+        
+        // 执行单次测试，使用信号量控制速率
+        if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
+            Ok::<Option<f32>, io::Error>(tcping(addr, args).await)
+        }).await {
             recv += 1;
             total_delay_ms += delay;
         }
