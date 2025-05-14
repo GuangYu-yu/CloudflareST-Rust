@@ -67,9 +67,8 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     (avg_ms * 100.0).round() / 100.0
 }
 
-/// 使用主机名构建 reqwest 客户端
-pub async fn build_reqwest_client_with_host(ip: IpAddr, port: u16, host: &str, timeout_ms: u64) -> Option<Client> {
-    // 构建客户端，使用 reqwest 内置的 resolve 方法
+/// 构建 Reqwest 客户端
+pub async fn build_reqwest_client(ip: IpAddr, port: u16, host: &str, timeout_ms: u64) -> Option<Client> {
     let client = Client::builder()
         .resolve(host, SocketAddr::new(ip, port))
         .timeout(Duration::from_millis(timeout_ms))

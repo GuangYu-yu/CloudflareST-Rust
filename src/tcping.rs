@@ -149,7 +149,7 @@ async fn tcping_handler(
         
         // 执行单次测试，使用信号量控制速率
         if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
-            Ok::<Option<f32>, io::Error>(tcping(addr, args).await)
+            Ok::<Option<f32>, io::Error>(tcping(addr).await)
         }).await {
             recv += 1;
             total_delay_ms += delay;
@@ -175,10 +175,10 @@ async fn tcping_handler(
 }
 
 // TCP连接测试函数
-async fn tcping(addr: SocketAddr, args: &Arc<Args>) -> Option<f32> {
+async fn tcping(addr: SocketAddr) -> Option<f32> {
     
     let connect_result = tokio::time::timeout(
-        args.max_delay,
+        std::time::Duration::from_millis(2000), // 超时时间
         async {
         let start_time = Instant::now();
         

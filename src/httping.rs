@@ -25,43 +25,37 @@ pub struct Ping {
 }
 
 impl Ping {
+    fn build_trace_url(scheme: &str, host: &str) -> String {
+        format!("{}://{}/cdn-cgi/trace", scheme, host)
+    }
+
     pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
         // 判断是否使用-hu参数（无论是否传值）
         let use_https = !args.httping_urls.is_empty() || args.httping_urls_flag;
         
         let urlist = if use_https {
-            // 使用HTTPS模式
+            let url_to_trace = |url: &str| -> String {
+                if let Ok(parsed) = Url::parse(url) {
+                    if let Some(host) = parsed.host_str() {
+                        return Self::build_trace_url("https", host);
+                    }
+                }
+                Self::build_trace_url("https", url)
+            };
+            
             if !args.httping_urls.is_empty() {
-                // -hu参数有值，使用指定的URL列表，使用路径/cdn-cgi/trace
+                // -hu参数有值，使用指定的URL列表
                 args.httping_urls.split(',')
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
-                    .map(|url| {
-                        // 尝试解析URL，提取域名部分
-                        if let Ok(parsed) = Url::parse(&url) {
-                            if let Some(host) = parsed.host_str() {
-                                // 返回标准化的URL格式
-                                return format!("https://{}/cdn-cgi/trace", host);
-                            }
-                        }
-                        // 如果无法解析，假设整个字符串是域名
-                        format!("https://{}/cdn-cgi/trace", url)
-                    })
+                    .map(|url| url_to_trace(&url))
                     .collect()
             } else {
                 // -hu参数无值，从-url或-urlist获取域名列表
                 let url_list = common::get_url_list(&args.url, &args.urlist).await;
-                // 只提取域名部分，并构建https://<域名>/cdn-cgi/trace
+                // 只提取域名部分
                 url_list.iter()
-                    .map(|url| {
-                        if let Ok(parsed) = Url::parse(url) {
-                            if let Some(host) = parsed.host_str() {
-                                return format!("https://{}/cdn-cgi/trace", host);
-                            }
-                        }
-                        // 如果无法解析为有效URL，则将整个字符串视为域名
-                        format!("https://{}/cdn-cgi/trace", url)
-                    })
+                    .map(|url| url_to_trace(url))
                     .collect()
             }
         } else {
@@ -136,11 +130,11 @@ impl Ping {
                 Arc::new(urlist[*url_index % urlist.len()].clone())
             } else {
                 // 非HTTPS模式：直接使用IP构建URL
-                let url_str = match ip {
-                    IpAddr::V4(_) => format!("http://{}/cdn-cgi/trace", ip),
-                    IpAddr::V6(_) => format!("http://[{}]/cdn-cgi/trace", ip),
-                };
-                Arc::new(url_str)
+                let mut host_str = ip.to_string();
+                if let IpAddr::V6(_) = ip {
+                    host_str = format!("[{}]", ip);
+                }
+                Arc::new(Self::build_trace_url("http", &host_str))
             };
             
             // 只有在HTTPS模式下才增加URL索引
@@ -264,7 +258,7 @@ async fn httping(
     url: &Arc<String>,
 ) -> Option<(u16, f32, String)> {
     
-    // 解析URL获取主机名（仅用于客户端构建）
+    // 解析URL获取主机名
     let host = {
         // 解析URL
         let url_parts = Url::parse(url.as_str()).ok()?;
@@ -280,8 +274,8 @@ async fn httping(
     // 获取端口
     let port = args.tcp_port;
 
-    // 为当前IP创建一个客户端
-    let client = match common::build_reqwest_client_with_host(ip, port, &host, args.max_delay.as_millis().try_into().unwrap()).await {
+    // 创建客户端
+    let client = match common::build_reqwest_client(ip, port, &host, 2000).await {
         Some(client) => client,
         None => return None,
     };
@@ -304,7 +298,7 @@ async fn httping(
                     .send()
                     .await
                     .ok();
-        
+                
                 Ok::<(Option<reqwest::Response>, Instant), io::Error>((result, start_time))
             }).await
         }));

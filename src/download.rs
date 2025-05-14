@@ -284,13 +284,11 @@ async fn download_handler(
         Some(host) => host,
         None => return (None, None),
     };
-    
-    let path = url_parts.path();
-    let scheme = url_parts.scheme();
+
     let mut data_center = None;
     
     // 创建客户端进行下载测速
-    let client = match common::build_reqwest_client_with_host(ip, tcp_port, host, download_duration.as_millis() as u64).await {
+    let client = match common::build_reqwest_client(ip, tcp_port, host, 2000).await {
         Some(client) => client,
         None => return (None, None),
     };
@@ -299,8 +297,7 @@ async fn download_handler(
     let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
     
     // 发送请求
-    let url_with_port = format!("{}://{}:{}{}", scheme, host, tcp_port, path);
-    let response = client.get(&url_with_port).send().await.ok();
+    let response = client.get(url).send().await.ok();
     
     // 如果获取到响应，开始下载
     let avg_speed = if let Some(mut resp) = response {
