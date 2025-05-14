@@ -100,35 +100,6 @@ pub struct DownloadTest {
     timeout_flag: Arc<AtomicBool>,
 }
 
-// 按下载速度（降序）、延迟（升序）、丢包率（升序）
-fn sort_ping_results(results: &mut Vec<PingData>) {
-    // 计算平均值
-    let total_count = results.len() as f32;
-    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, data| {
-        (acc.0 + data.download_speed.unwrap_or(0.0), acc.1 + data.loss_rate(), acc.2 + data.delay)
-    });
-
-    let avg_speed = total_speed / total_count;
-    let avg_loss = total_loss / total_count;
-    let avg_delay = total_delay / total_count;
-
-    // 计算分数并排序
-    results.sort_by(|a, b| {
-        let calculate_score = |data: &PingData| {
-            let speed_diff = data.download_speed.unwrap_or(0.0) - avg_speed;
-            let delay_diff = data.delay - avg_delay;
-            let loss_diff = data.loss_rate() - avg_loss;
-            
-            speed_diff * 0.5 - delay_diff * 0.2 - loss_diff * 0.3
-        };
-
-        let a_score = calculate_score(a);
-        let b_score = calculate_score(b);
-
-        b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
-    });
-}
-
 impl DownloadTest {
     pub async fn new(args: &Args, ping_results: Vec<PingData>, timeout_flag: Arc<AtomicBool>) -> Self {
         // 使用 common 模块获取 URL 列表
@@ -248,7 +219,7 @@ impl DownloadTest {
         
         // 返回排序后的原始集合
         if qualified_indices.is_empty() {
-            sort_ping_results(&mut self.ping_results);
+            common::sort_results(&mut self.ping_results);
             return (std::mem::take(&mut self.ping_results), true);
         }
 
@@ -257,7 +228,7 @@ impl DownloadTest {
         for &idx in &qualified_indices {
             qualified_results.push(self.ping_results[idx].clone());
         }
-        sort_ping_results(&mut qualified_results);
+        common::sort_results(&mut qualified_results);
         (qualified_results, false) // false 表示有合格结果
     }
 }

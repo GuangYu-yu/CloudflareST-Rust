@@ -255,21 +255,38 @@ pub fn process_download_result(
     }
 }
 
-/// 按延迟和丢包率排序Ping结果
-pub fn sort_ping_results(results: &mut PingDelaySet) {
+/// 排序结果
+pub fn sort_results(results: &mut PingDelaySet) {
     // 计算平均值
     let total_count = results.len() as f32;
-    let (total_loss, total_delay) = results.iter().fold((0.0, 0.0), |acc, result| {
-        (acc.0 + result.loss_rate(), acc.1 + result.delay)
+    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, data| {
+        (acc.0 + data.download_speed.unwrap_or(0.0), acc.1 + data.loss_rate(), acc.2 + data.delay)
     });
 
+    let avg_speed = total_speed / total_count;
     let avg_loss = total_loss / total_count;
     let avg_delay = total_delay / total_count;
+
+    // 检查是否有下载速度数据
+    let has_download_speed = results.iter().any(|r| r.download_speed.is_some());
+    
+    // 根据是否有下载速度数据选择权重
+    let (speed_weight, delay_weight, loss_weight) = if has_download_speed {
+        // 下载测速结果
+        (0.5, -0.2, -0.3)
+    } else {
+        // ping测速结果
+        (0.0, -0.4, -0.6)
+    };
 
     // 计算分数并排序
     results.sort_by(|a, b| {
         let calculate_score = |data: &PingData| {
-            (avg_delay - data.delay) * 0.4 + (avg_loss - data.loss_rate()) * 0.6
+            let speed_diff = data.download_speed.unwrap_or(0.0) - avg_speed;
+            let delay_diff = data.delay - avg_delay;
+            let loss_diff = data.loss_rate() - avg_loss;
+            
+            speed_diff * speed_weight + delay_diff * delay_weight + loss_diff * loss_weight
         };
 
         let a_score = calculate_score(a);

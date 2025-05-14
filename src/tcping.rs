@@ -122,7 +122,7 @@ impl Ping {
         let mut results = self.csv.lock().unwrap().clone();
         
         // 使用common模块的排序函数
-        common::sort_ping_results(&mut results);
+        common::sort_results(&mut results);
 
         Ok(results)
     }
