@@ -16,7 +16,7 @@ pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
     csv: Arc<Mutex<PingDelaySet>>,
     bar: Arc<Bar>,
-    args: Args,
+    args: Arc<Args>,
     success_count: Arc<AtomicUsize>,
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
@@ -36,7 +36,7 @@ impl Ping {
             ip_buffer,
             csv,
             bar,
-            args: args.clone(),
+            args: Arc::new(args.clone()),
             success_count: Arc::new(AtomicUsize::new(0)),
             client_v4,
             client_v6,
@@ -57,7 +57,7 @@ impl Ping {
         let ip_buffer = Arc::clone(&self.ip_buffer);
         let csv = Arc::clone(&self.csv);
         let bar = Arc::clone(&self.bar);
-        let args = self.args.clone();
+        let args = Arc::clone(&self.args);
         let success_count = Arc::clone(&self.success_count);
         let timeout_flag = Arc::clone(&self.timeout_flag);
 
@@ -73,24 +73,22 @@ impl Ping {
         let add_task = |ip: IpAddr, tasks: &mut FuturesUnordered<_>| {
             let csv_clone = Arc::clone(&csv);
             let bar_clone = Arc::clone(&bar);
-            let args_clone = args.clone();
+            let args_clone = Arc::clone(&args);
             let success_count_clone = Arc::clone(&success_count);
             let client_v4_clone = Arc::clone(&client_v4);
             let client_v6_clone = Arc::clone(&client_v6);
 
             tasks.push(tokio::spawn(async move {
-                execute_with_rate_limit(|| async move {
-                    icmp_handler(
-                        ip, 
-                        csv_clone, 
-                        bar_clone, 
-                        &args_clone, 
-                        success_count_clone,
-                        client_v4_clone,
-                        client_v6_clone
-                    ).await;
-                    Ok::<(), io::Error>(())
-                }).await.unwrap();
+                icmp_handler(
+                    ip, 
+                    csv_clone, 
+                    bar_clone, 
+                    &args_clone, 
+                    success_count_clone,
+                    client_v4_clone,
+                    client_v6_clone
+                ).await;
+                Ok::<(), io::Error>(())
             }));
         };
 
@@ -143,47 +141,40 @@ impl Ping {
         let mut results = self.csv.lock().unwrap().clone();
         
         // 使用common模块的排序函数
-        common::sort_ping_results(&mut results);
+        common::sort_results(&mut results);
 
         Ok(results)
     }
 }
 
-// TCP 测速处理函数
+// ICMP 测速处理函数
 async fn icmp_handler(
     ip: IpAddr, 
     csv: Arc<Mutex<PingDelaySet>>, 
     bar: Arc<Bar>, 
-    args: &Args,
+    args: &Arc<Args>,
     success_count: Arc<AtomicUsize>,
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
 ) {
     let ping_times = args.ping_times;
-    let mut tasks = FuturesUnordered::new();
-
-    // 使用FuturesUnordered来动态管理并发测试
-    for _ in 0..ping_times {
-        let args_clone = args.clone();
-        let client_v4_clone = Arc::clone(&client_v4);
-        let client_v6_clone = Arc::clone(&client_v6);
-        
-        tasks.push(tokio::spawn(async move {
-            icmp_ping(
-                ip, 
-                &args_clone, 
-                client_v4_clone,
-                client_v6_clone
-            ).await
-        }));
-    }
-
-    // 处理并发结果
+    
+    // 对单个IP进行多次测试
     let mut recv = 0;
     let mut total_delay_ms = 0.0;
     
-    while let Some(result) = tasks.next().await {
-        if let Ok(Some(delay)) = result {
+    // 根据IP类型选择客户端
+    let client = match ip {
+        IpAddr::V4(_) => client_v4,
+        IpAddr::V6(_) => client_v6,
+    };
+    
+    // 串行执行同一 IP 的多次测试
+    for _ in 0..ping_times {
+        // 执行单次测试，使用信号量控制速率
+        if let Ok(Some(delay)) = execute_with_rate_limit(|| async {
+            Ok::<Option<f32>, io::Error>(icmp_ping(ip, args, &client).await)
+        }).await {
             recv += 1;
             total_delay_ms += delay;
         }
@@ -208,14 +199,7 @@ async fn icmp_handler(
 }
 
 // ICMP ping函数
-async fn icmp_ping(ip: IpAddr, args: &Args, client_v4: Arc<Client>, client_v6: Arc<Client>) -> Option<f32> {
-    let client = match ip {
-        IpAddr::V4(_) => client_v4,
-        IpAddr::V6(_) => client_v6,
-    };
-    let mut cpu_timer = global_pool().start_cpu_timer();
-
-    let client = Arc::clone(&client);
+async fn icmp_ping(ip: IpAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
     let payload = [0; 56];
     let identifier = PingIdentifier(random::<u16>());
     let mut rtt = None;
@@ -223,8 +207,6 @@ async fn icmp_ping(ip: IpAddr, args: &Args, client_v4: Arc<Client>, client_v6: A
     let mut pinger = client.pinger(ip, identifier).await;
     pinger.timeout(args.max_delay);
 
-    // 暂停 CPU 计时（网络等待阶段）
-    cpu_timer.pause();
     match pinger.ping(PingSequence(0), &payload).await {
         Ok((packet, dur)) => {
             rtt = Some(dur.as_secs_f32() * 1000.0);
@@ -232,9 +214,5 @@ async fn icmp_ping(ip: IpAddr, args: &Args, client_v4: Arc<Client>, client_v6: A
         },
         Err(_) => {}
     }
-    // 恢复 CPU 计时（结果处理阶段）
-    cpu_timer.resume();
-
-    cpu_timer.finish();
     rtt
 }
