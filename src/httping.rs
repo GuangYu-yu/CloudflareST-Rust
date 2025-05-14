@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::io;
@@ -123,16 +123,16 @@ impl Ping {
         let initial_tasks = global_pool().get_concurrency_level();
         let mut url_index = 0;
 
-        let add_task = |ip: IpAddr, url_index: &mut usize, tasks: &mut FuturesUnordered<_>| {
+        let add_task = |addr: SocketAddr, url_index: &mut usize, tasks: &mut FuturesUnordered<_>| {
             // 根据是否使用HTTPS模式选择URL
             let url = if use_https {
                 // HTTPS模式：从URL列表中选择（轮询）
                 Arc::new(urlist[*url_index % urlist.len()].clone())
             } else {
                 // 非HTTPS模式：直接使用IP构建URL
-                let mut host_str = ip.to_string();
-                if let IpAddr::V6(_) = ip {
-                    host_str = format!("[{}]", ip);
+                let mut host_str = addr.ip().to_string();
+                if let IpAddr::V6(_) = addr.ip() {
+                    host_str = format!("[{}]", addr.ip());
                 }
                 Arc::new(Self::build_trace_url("http", &host_str))
             };
@@ -149,20 +149,20 @@ impl Ping {
             let success_count_clone = Arc::clone(&success_count);
 
             tasks.push(tokio::spawn(async move {
-                httping_handler(ip, csv_clone, bar_clone, &args_clone, &colo_filters_clone, &url, success_count_clone).await;
+                httping_handler(addr, csv_clone, bar_clone, &args_clone, &colo_filters_clone, &url, success_count_clone).await;
                 Ok::<(), io::Error>(())
             }));
         };
 
         // 初始填充任务队列
         for _ in 0..initial_tasks {
-            let ip = {
+            let addr = {
                 let mut ip_buffer = ip_buffer.lock().unwrap();
                 ip_buffer.pop()
             };
             
-            if let Some(ip) = ip {
-                add_task(ip, &mut url_index, &mut tasks);
+            if let Some(addr) = addr {
+                add_task(addr, &mut url_index, &mut tasks);
             } else {
                 break;
             }
@@ -211,7 +211,7 @@ impl Ping {
 
 // HTTP 测速处理函数
 async fn httping_handler(
-    ip: IpAddr, 
+    addr: SocketAddr,
     csv: Arc<Mutex<PingDelaySet>>, 
     bar: Arc<Bar>, 
     args: &Arc<Args>,
@@ -220,7 +220,7 @@ async fn httping_handler(
     success_count: Arc<AtomicUsize>,
 ) {
     // 执行 HTTP 连接测试
-    let result = httping(ip, args, &colo_filters, url).await;
+    let result = httping(addr, args, &colo_filters, url).await;
 
     if result.is_none() {
         // 连接失败，更新进度条（使用成功连接数）
@@ -237,7 +237,7 @@ async fn httping_handler(
     
     // 创建测试数据
     let ping_times = args.ping_times;
-    let mut data = PingData::new(ip, ping_times, recv, avg_delay);
+    let mut data = PingData::new(addr, ping_times, recv, avg_delay);
     data.data_center = data_center;
     
     // 应用筛选条件（但不影响进度条计数）
@@ -252,7 +252,7 @@ async fn httping_handler(
 
 // HTTP 测速函数
 async fn httping(
-    ip: IpAddr, 
+    addr: SocketAddr,
     args: &Arc<Args>,
     colo_filters: &Arc<Vec<String>>,
     url: &Arc<String>,
@@ -270,12 +270,9 @@ async fn httping(
             }
         }
     };
-    
-    // 获取端口
-    let port = args.tcp_port;
 
     // 创建客户端
-    let client = match common::build_reqwest_client(ip, port, &host, 2000).await {
+    let client = match common::build_reqwest_client(addr, &host, 2000).await {
         Some(client) => client,
         None => return None,
     };

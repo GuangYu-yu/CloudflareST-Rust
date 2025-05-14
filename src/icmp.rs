@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::io;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -70,7 +70,7 @@ impl Ping {
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
 
-        let add_task = |ip: IpAddr, tasks: &mut FuturesUnordered<_>| {
+        let add_task = |addr: SocketAddr, tasks: &mut FuturesUnordered<_>| {
             let csv_clone = Arc::clone(&csv);
             let bar_clone = Arc::clone(&bar);
             let args_clone = Arc::clone(&args);
@@ -80,7 +80,7 @@ impl Ping {
 
             tasks.push(tokio::spawn(async move {
                 icmp_handler(
-                    ip, 
+                    addr,
                     csv_clone, 
                     bar_clone, 
                     &args_clone, 
@@ -149,7 +149,7 @@ impl Ping {
 
 // ICMP 测速处理函数
 async fn icmp_handler(
-    ip: IpAddr, 
+    addr: SocketAddr,
     csv: Arc<Mutex<PingDelaySet>>, 
     bar: Arc<Bar>, 
     args: &Arc<Args>,
@@ -157,9 +157,9 @@ async fn icmp_handler(
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
 ) {
+    let ip = addr.ip();
     let ping_times = args.ping_times;
     
-    // 对单个IP进行多次测试
     let mut recv = 0;
     let mut total_delay_ms = 0.0;
     
@@ -169,11 +169,9 @@ async fn icmp_handler(
         IpAddr::V6(_) => client_v6,
     };
     
-    // 串行执行同一 IP 的多次测试
     for _ in 0..ping_times {
-        // 执行单次测试，使用信号量控制速率
         if let Ok(Some(delay)) = execute_with_rate_limit(|| async {
-            Ok::<Option<f32>, io::Error>(icmp_ping(ip, args, &client).await)
+            Ok::<Option<f32>, io::Error>(icmp_ping(addr, args, &client).await)
         }).await {
             recv += 1;
             total_delay_ms += delay;
@@ -185,7 +183,7 @@ async fn icmp_handler(
 
     if recv > 0 {
         success_count.fetch_add(1, Ordering::Relaxed);
-        let data = PingData::new(ip, ping_times, recv, avg_delay_ms);
+        let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
         
         if common::should_keep_result(&data, args) {
             let mut csv_guard = csv.lock().unwrap();
@@ -199,7 +197,8 @@ async fn icmp_handler(
 }
 
 // ICMP ping函数
-async fn icmp_ping(ip: IpAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
+async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
+    let ip = addr.ip();
     let payload = [0; 56];
     let identifier = PingIdentifier(random::<u16>());
     let mut rtt = None;

@@ -1,11 +1,10 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use reqwest::{Client, Response};
 use crate::args::Args;
 use crate::progress::Bar;
-use prettytable::{Row, Cell};
 use crate::ip::{IpBuffer, load_ip_to_buffer};
 
 // 定义浏览器标识常量
@@ -14,7 +13,7 @@ pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWeb
 // 定义通用的 PingData 结构体
 #[derive(Clone, Debug)]
 pub struct PingData {
-    pub ip: IpAddr,
+    pub addr: SocketAddr,
     pub sent: u16,
     pub received: u16,
     pub delay: f32,
@@ -23,9 +22,9 @@ pub struct PingData {
 }
 
 impl PingData {
-    pub fn new(ip: IpAddr, sent: u16, received: u16, delay: f32) -> Self {
+    pub fn new(addr: SocketAddr, sent: u16, received: u16, delay: f32) -> Self {
         Self {
-            ip,
+            addr,
             sent,
             received,
             delay,
@@ -38,6 +37,14 @@ impl PingData {
             return 0.0;
         }
         1.0 - (self.received as f32 / self.sent as f32)
+    }
+
+    pub fn display_addr(&self, show_port: bool) -> String {
+        if show_port {
+            self.addr.to_string()
+        } else {
+            self.addr.ip().to_string()
+        }
     }
 }
 
@@ -68,9 +75,9 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
 }
 
 /// 构建 Reqwest 客户端
-pub async fn build_reqwest_client(ip: IpAddr, port: u16, host: &str, timeout_ms: u64) -> Option<Client> {
+pub async fn build_reqwest_client(addr: SocketAddr, host: &str, timeout_ms: u64) -> Option<Client> {
     let client = Client::builder()
-        .resolve(host, SocketAddr::new(ip, port))
+        .resolve(host, addr)
         .timeout(Duration::from_millis(timeout_ms))
         .user_agent(USER_AGENT)  // 使用常量
 //        .danger_accept_invalid_certs(true)  // 跳过证书验证
@@ -111,38 +118,6 @@ pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelay
         Arc::new(Mutex::new(Vec::new())),
         bar
     )
-}
-
-/// 将 PingData 转换为 CSV 记录
-pub fn ping_data_to_csv_record(data: &PingData) -> Vec<String> {
-    vec![
-        data.ip.to_string(),
-        data.sent.to_string(),
-        data.received.to_string(),
-        format!("{:.2}", data.loss_rate()),
-        format!("{:.2}", data.delay),
-        match data.download_speed {
-            Some(speed) => format!("{:.2}", speed / 1024.0 / 1024.0),
-            None => String::new(),
-        },
-        data.data_center.clone(),
-    ]
-}
-
-/// 将 PingData 转换为表格行
-pub fn ping_data_to_table_row(data: &PingData) -> Row {
-    Row::new(vec![
-        Cell::new(&data.ip.to_string()),
-        Cell::new(&data.sent.to_string()),
-        Cell::new(&data.received.to_string()),
-        Cell::new(&format!("{:.2}", data.loss_rate())),
-        Cell::new(&format!("{:.2}", data.delay)),
-        Cell::new(&match data.download_speed {
-            Some(speed) => format!("{:.2}", speed / 1024.0 / 1024.0),
-            None => String::new(),
-        }),
-        Cell::new(&data.data_center),
-    ])
 }
 
 /// 从URL获取列表

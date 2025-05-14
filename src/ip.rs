@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{self, BufRead};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::str::FromStr;
 use rand::Rng;
@@ -13,10 +13,10 @@ use crate::args::Args;
 use crate::common::get_list;
 
 pub struct IpBuffer {
-    ip_receiver: Receiver<IpAddr>,       // 接收IP的通道
-    ip_sender: Option<Sender<()>>,       // 发送请求新IP的信号通道
-    total_expected: usize,               // 预计总IP数量
-    producer_active: Arc<AtomicBool>,    // 生产者是否仍在活动
+    ip_receiver: Receiver<SocketAddr>,
+    ip_sender: Option<Sender<()>>,
+    total_expected: usize,
+    producer_active: Arc<AtomicBool>,
 }
 
 // CIDR状态跟踪结构体
@@ -42,7 +42,7 @@ impl CidrState {
     }
 
     // 生成下一个IP
-    fn next_ip(&mut self, rng: &mut impl Rng) -> Option<IpAddr> {
+    fn next_ip(&mut self, rng: &mut impl Rng, tcp_port: u16) -> Option<SocketAddr> {
         if self.current_index >= self.total_count {
             return None;
         }
@@ -63,15 +63,21 @@ impl CidrState {
 
         // 根据网络类型转换IP地址
         match self.network {
-            IpNet::V4(_) => Some(IpAddr::V4(Ipv4Addr::from(random_ip as u32))),
-            IpNet::V6(_) => Some(IpAddr::V6(Ipv6Addr::from(random_ip))),
+            IpNet::V4(_) => Some(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::from(random_ip as u32)), 
+                tcp_port
+            )),
+            IpNet::V6(_) => Some(SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::from(random_ip)), 
+                tcp_port
+            )),
         }
     }
 }
 
 impl IpBuffer {
     // 创建默认的空缓冲区
-    fn new(ip_rx: Receiver<IpAddr>, req_tx: Option<Sender<()>>, producer_active: Arc<AtomicBool>) -> Self {
+    fn new(ip_rx: Receiver<SocketAddr>, req_tx: Option<Sender<()>>, producer_active: Arc<AtomicBool>) -> Self {
         Self {
             ip_receiver: ip_rx,
             ip_sender: req_tx,
@@ -81,7 +87,7 @@ impl IpBuffer {
     }
 
     // 从缓存获取下一个IP
-    pub fn pop(&mut self) -> Option<IpAddr> {
+    pub fn pop(&mut self) -> Option<SocketAddr> {
         // 如果生产者活动，尝试从通道获取新IP
         if self.producer_active.load(Ordering::Relaxed) {
             // 发送单个请求信号
@@ -182,7 +188,7 @@ fn parse_ip_range(ip_range: &str) -> (String, Option<u128>) {
 pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     // 缓冲区大小
     let buffer_size = 4096;
-    let (ip_tx, ip_rx) = bounded::<IpAddr>(buffer_size);
+    let (ip_tx, ip_rx) = bounded::<SocketAddr>(buffer_size);
     let (req_tx, req_rx) = bounded::<()>(buffer_size);
     
     let producer_active = Arc::new(AtomicBool::new(true));
@@ -214,6 +220,23 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     for ip_range in &ip_sources {
         // 解析IP范围和自定义数量
         let (ip_range_str, custom_count) = parse_ip_range(ip_range);
+        
+        // 先尝试解析为SocketAddr
+        if let Ok(socket_addr) = SocketAddr::from_str(&ip_range_str) {
+            let _ = ip_tx.send(socket_addr);
+            total_expected += 1;
+            continue;
+        }
+        
+        // 尝试解析为纯IP地址
+        if let Ok(ip_addr) = IpAddr::from_str(&ip_range_str) {
+            let socket_addr = SocketAddr::new(ip_addr, config.tcp_port);
+            let _ = ip_tx.send(socket_addr);
+            total_expected += 1;
+            continue;
+        }
+
+        // 如果前面都失败，再尝试解析为CIDR格式
         if let Ok(network) = ip_range_str.parse::<IpNet>() {
             let count = calculate_ip_count(&network.to_string(), custom_count, test_all);
             
@@ -253,8 +276,15 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     ip_buffer.total_expected = total_expected;
     
     // 启动生产者线程来处理IP
+    let tcp_port = config.tcp_port;
     thread::spawn(move || {
-        process_ip_sources_with_cidr_info(cidr_info, ip_tx, req_rx, producer_active_clone);
+        process_ip_sources_with_cidr_info(
+            cidr_info, 
+            ip_tx, 
+            req_rx, 
+            producer_active_clone,
+            tcp_port
+        );
     });
     
     ip_buffer
@@ -262,9 +292,10 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
 
 fn process_ip_sources_with_cidr_info(
     cidr_info: Vec<(IpNet, usize, u128, u128, u128)>,
-    ip_tx: Sender<IpAddr>, 
+    ip_tx: Sender<SocketAddr>,
     req_rx: Receiver<()>,
-    producer_active: Arc<AtomicBool>
+    producer_active: Arc<AtomicBool>,
+    tcp_port: u16
 ) {
     // 创建随机数生成器
     let mut rng = rand::rng();
@@ -273,14 +304,16 @@ fn process_ip_sources_with_cidr_info(
     let mut cidr_states = Vec::new();
     
     for (network, ip_count, start, end, interval_size) in cidr_info {
-        // 处理单IP的CIDR格式（/32或/128）
+        // 处理CIDR格式
         match network {
             IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
-                let _ = ip_tx.send(IpAddr::V4(ipv4_net.addr()));
+                let addr = SocketAddr::new(IpAddr::V4(ipv4_net.addr()), tcp_port);
+                let _ = ip_tx.send(addr);
                 continue;
             },
             IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
-                let _ = ip_tx.send(IpAddr::V6(ipv6_net.addr()));
+                let addr = SocketAddr::new(IpAddr::V6(ipv6_net.addr()), tcp_port);
+                let _ = ip_tx.send(addr);
                 continue;
             },
             _ => {
@@ -310,8 +343,8 @@ fn process_ip_sources_with_cidr_info(
         let state = &mut cidr_states[current_index];
         
         // 生成下一个IP
-        if let Some(ip) = state.next_ip(&mut rng) {
-            if ip_tx.send(ip).is_err() {
+        if let Some(addr) = state.next_ip(&mut rng, tcp_port) {
+            if ip_tx.send(addr).is_err() {
                 break;
             }
             remaining_ips -= 1;
@@ -334,8 +367,8 @@ fn process_ip_sources_with_cidr_info(
 
 // 获取给定IP范围的采样数量
 fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all: bool) -> u128 {
-    // 先尝试解析为单个IP
-    if IpAddr::from_str(ip_range).is_ok() {
+    // 尝试解析为SocketAddr或单个IP
+    if SocketAddr::from_str(ip_range).is_ok() || IpAddr::from_str(ip_range).is_ok() {
         return 1;
     }
     

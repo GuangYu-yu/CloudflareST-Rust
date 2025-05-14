@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::cmp::min;
@@ -91,7 +91,6 @@ pub struct DownloadTest {
     timeout: Option<Duration>,
     test_count: u16,
     min_speed: f32,
-    tcp_port: u16,
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
 //    icmp_ping: bool,
@@ -114,7 +113,6 @@ impl DownloadTest {
             timeout: args.timeout_duration,
             test_count: args.test_count,
             min_speed: args.min_speed,
-            tcp_port: args.tcp_port,
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
 //            icmp_ping: args.icmp_ping,
@@ -124,7 +122,7 @@ impl DownloadTest {
         }
     }
 
-    pub async fn test_download_speed(&mut self) -> (Vec<PingData>, bool) {
+    pub async fn test_download_speed(&mut self) -> Vec<PingData> {
         // 先检查队列数量是否足够
         if self.test_count as usize > self.ping_results.len() {
             println!("\n[信息] {}", "队列数量不足所需数量！");
@@ -168,7 +166,8 @@ impl DownloadTest {
             let ping_result = &mut self.ping_results[i];
             
             // 获取IP地址和检查是否需要获取 colo
-            let (ip, need_colo) = (ping_result.ip, ping_result.data_center.is_empty());
+            let addr = ping_result.addr;
+            let need_colo = ping_result.data_center.is_empty();
             
             // 执行下载测速
             let test_url = if !self.urlist.is_empty() {
@@ -179,11 +178,10 @@ impl DownloadTest {
             };
             
             let (speed, maybe_colo) = download_handler(
-                ip,
+                addr,
                 test_url,
                 self.timeout.unwrap(),
                 Arc::clone(&self.current_speed),
-                self.tcp_port,
                 need_colo,
                 Arc::clone(&self.timeout_flag),
                 Arc::clone(&colo_filters),
@@ -219,8 +217,9 @@ impl DownloadTest {
         
         // 返回排序后的原始集合
         if qualified_indices.is_empty() {
+            println!("\n[信息] 下载测速结果没有达到所需数量，返回全部测速结果");
             common::sort_results(&mut self.ping_results);
-            return (std::mem::take(&mut self.ping_results), true);
+            return std::mem::take(&mut self.ping_results);
         }
 
         // 筛选出合格的结果
@@ -229,17 +228,16 @@ impl DownloadTest {
             qualified_results.push(self.ping_results[idx].clone());
         }
         common::sort_results(&mut qualified_results);
-        (qualified_results, false) // false 表示有合格结果
+        qualified_results
     }
 }
 
 // 下载测速处理函数
 async fn download_handler(
-    ip: IpAddr, 
+    addr: SocketAddr,
     url: &str, 
     download_duration: Duration,
     current_speed: Arc<Mutex<f32>>,
-    tcp_port: u16,
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
@@ -259,7 +257,7 @@ async fn download_handler(
     let mut data_center = None;
     
     // 创建客户端进行下载测速
-    let client = match common::build_reqwest_client(ip, tcp_port, host, 2000).await {
+    let client = match common::build_reqwest_client(addr, host, 2000).await {
         Some(client) => client,
         None => return (None, None),
     };

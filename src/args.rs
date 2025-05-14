@@ -39,6 +39,7 @@ pub struct Args {
     // 其他选项
     pub test_all: bool,          // 是否测速全部IP
     pub help: bool,              // 显示帮助
+    pub show_port: bool,         // 是否显示端口号
     
     // 全局超时
     pub global_timeout: String,         // 全局超时时间(字符串)
@@ -78,6 +79,7 @@ impl Args {
             
             test_all: false,
             help: false,
+            show_port: false,
             
             global_timeout: String::new(),
             global_timeout_duration: None,
@@ -135,6 +137,7 @@ impl Args {
 //            "ping" => parsed.icmp_ping = true,
             "dd" => parsed.disable_download = true,
             "all4" => parsed.test_all = true,
+            "sp" => parsed.show_port = true,
             
             // -hu 参数可以有值也可以没有值
             "hu" => {
@@ -224,6 +227,7 @@ pub fn print_help() {
     print_arg!("-tlr", "丢包率上限 ", "[默认：1.00]");
     print_arg!("-sl", "下载速度下限（MB/s）", "[默认：0.00]");
     print_arg!("-p", "终端显示结果数量 ", "[默认：10]");
+    print_arg!("-sp", "启用结果的端口号显示 ", "[默认：否]");
     print_arg!("-o", "输出结果文件（文件名或文件路径）", "[默认：result.csv]");
 }
 

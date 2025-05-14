@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::net::TcpStream;
@@ -61,27 +61,27 @@ impl Ping {
         // 获取当前线程池的并发能力
         let initial_tasks = global_pool().get_concurrency_level();
 
-        let add_task = |ip: IpAddr, tasks: &mut FuturesUnordered<_>| {
+        let add_task = |addr: SocketAddr, tasks: &mut FuturesUnordered<_>| {
             let csv_clone = Arc::clone(&csv);
             let bar_clone = Arc::clone(&bar);
             let args_clone = Arc::clone(&args);
             let success_count_clone = Arc::clone(&success_count);
 
             tasks.push(tokio::spawn(async move {
-                tcping_handler(ip, csv_clone, bar_clone, &args_clone, success_count_clone).await;
+                tcping_handler(addr, csv_clone, bar_clone, &args_clone, success_count_clone).await;
                 Ok::<(), io::Error>(())
             }));
         };
 
         // 初始填充任务队列
         for _ in 0..initial_tasks {
-            let ip = {
+            let addr = {
                 let mut ip_buffer = ip_buffer.lock().unwrap();
                 ip_buffer.pop()
             };
             
-            if let Some(ip) = ip {
-                add_task(ip, &mut tasks);
+            if let Some(addr) = addr {
+                add_task(addr, &mut tasks);
             } else {
                 break;
             }
@@ -105,13 +105,13 @@ impl Ping {
             let _ = result;
             
             // 添加新任务
-            let ip = {
+            let addr = {
                 let mut ip_buffer = ip_buffer.lock().unwrap();
                 ip_buffer.pop()
             };
             
-            if let Some(ip) = ip {
-                add_task(ip, &mut tasks);
+            if let Some(addr) = addr {
+                add_task(addr, &mut tasks);
             }
         }
 
@@ -130,7 +130,7 @@ impl Ping {
 
 // TCP 测速处理函数
 async fn tcping_handler(
-    ip: IpAddr, 
+    addr: SocketAddr,
     csv: Arc<Mutex<PingDelaySet>>, 
     bar: Arc<Bar>, 
     args: &Arc<Args>,
@@ -138,16 +138,10 @@ async fn tcping_handler(
 ) {
     let ping_times = args.ping_times;
     
-    // 对单个IP进行多次测试，但每次都重建连接（串行执行）
     let mut recv = 0;
     let mut total_delay_ms = 0.0;
     
-    // 串行执行同一 IP 的多次测试
     for _ in 0..ping_times {
-        let port = args.tcp_port;
-        let addr = SocketAddr::new(ip, port);
-        
-        // 执行单次测试，使用信号量控制速率
         if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
             Ok::<Option<f32>, io::Error>(tcping(addr).await)
         }).await {
@@ -161,7 +155,7 @@ async fn tcping_handler(
 
     if recv > 0 {
         success_count.fetch_add(1, Ordering::Relaxed);
-        let data = PingData::new(ip, ping_times, recv, avg_delay_ms);
+        let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
         
         if common::should_keep_result(&data, args) {
             let mut csv_guard = csv.lock().unwrap();

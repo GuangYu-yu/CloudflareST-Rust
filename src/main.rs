@@ -59,11 +59,11 @@ async fn main() {
     let ping_interrupted = timeout_flag.load(Ordering::SeqCst);
     
     // 开始下载测速
-    let (result, no_qualified) = if args.disable_download || ping_result.is_empty() || ping_interrupted {
+    let ping_data = if args.disable_download || ping_result.is_empty() || ping_interrupted {
         println!("\n[信息] {}", 
             if args.disable_download {"已禁用下载测速"} else if ping_interrupted {"由于全局超时，跳过下载测速"} else {"延迟测速结果为空，跳过下载测速"}
         );
-        (ping_result, false)
+        ping_result
     } else {
         // 创建可变下载测速实例
         let mut download_test = download::DownloadTest::new(&args, ping_result, Arc::clone(&timeout_flag)).await;
@@ -73,12 +73,12 @@ async fn main() {
     };
     
     // 输出文件
-    if let Err(e) = csv::export_csv(&result, &args) {
+    if let Err(e) = csv::export_csv(&ping_data, &args) {
         println!("\n[信息] 导出CSV失败: {:?}", e);
     }
     
     // 打印结果
-    result.print(&args, no_qualified);
+    ping_data.print(&args);
     
     println!("程序执行完毕");
 }
