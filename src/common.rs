@@ -145,33 +145,51 @@ pub fn ping_data_to_table_row(data: &PingData) -> Row {
     ])
 }
 
+/// 从URL获取列表
+pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
+    if url.is_empty() {
+        return Vec::new();
+    }
+
+    // 最多尝试指定次数
+    for i in 1..=max_retries {
+        if let Some(response) = reqwest::get(url).await.ok() {
+            if let Ok(content) = response.text().await {
+                return content.lines()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                    .map(|line| line.to_string())
+                    .collect();
+            }
+        }
+        
+        // 只有在不是最后一次尝试时才打印重试信息和等待
+        if i < max_retries {
+            println!("列表请求失败，正在重试 ({}/{})", i, max_retries);
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        } else {
+            println!("获取列表已达到最大重试次数");
+        }
+    }
+    
+    Vec::new()
+}
+
 /// 从 URL 列表或单一 URL 获取测试 URL 列表
 pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
     if !urlist.is_empty() {
-        // 最多尝试3次
-        for i in 1..=3 {
-            if let Ok(response) = reqwest::get(urlist).await {
-                if let Ok(content) = response.text().await {
-                    return content.lines()
-                        .map(|line| line.trim())
-                        .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                        .map(|line| line.to_string())
-                        .collect();
-                }
-            }
-            
-            // 只有在不是最后一次尝试时才打印重试信息和等待
-            if i < 3 {
-                println!("测速地址列表请求失败，正在重试 ({}/{})", i, 3);
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            } else {
-                println!("获取测速地址列表已达到最大重试次数");
-            }
+        let list = get_list(urlist, 3).await;
+        if !list.is_empty() {
+            return list;
         }
     }
     
     // 使用单一URL作为默认值
-    vec![url.to_string()]
+    if !url.is_empty() {
+        vec![url.to_string()]
+    } else {
+        Vec::new()
+    }
 }
 
 /// 解析数据中心过滤条件字符串为向量

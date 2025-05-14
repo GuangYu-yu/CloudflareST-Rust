@@ -5,13 +5,12 @@ use std::path::Path;
 use std::str::FromStr;
 use rand::Rng;
 use ipnet::IpNet;
-use reqwest;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 use crate::args::Args;
-use crate::common::USER_AGENT;  // 导入常量
+use crate::common::get_list;
 
 pub struct IpBuffer {
     ip_receiver: Receiver<IpAddr>,       // 接收IP的通道
@@ -137,38 +136,8 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
     
     // 2. 从URL获取IP段数据
     if !ip_url.is_empty() {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap();
-        
-        for i in 1..=3 {
-            match client.get(ip_url)
-                .header("User-Agent", USER_AGENT)
-                .send()
-                .await 
-            {
-                Ok(resp) if resp.status().is_success() => {
-                    if let Ok(text) = resp.text().await {
-                        for line in text.lines() {
-                            let line = line.trim();
-                            if !line.is_empty() {
-                                ip_sources.push(line.to_string());
-                            }
-                        }
-                        break;
-                    }
-                }
-                _ => {
-                    if i < 3 {
-                        println!("从 URL 获取 IP 或 CIDR 列表失败，正在重试 ({}/{})", i, 3);
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    } else {
-                        println!("从 URL 获取 IP 或 CIDR 列表失败，已达到最大重试次数");
-                    }
-                }
-            }
-        }
+        let url_list = get_list(ip_url, 3).await;
+        ip_sources.extend(url_list);
     }
     
     // 3. 从文件中获取IP段数据
@@ -188,18 +157,6 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
     ip_sources.dedup();
     
     ip_sources
-}
-
-// 检查是否为注释行并解析IP范围
-fn parse_ip_range_with_comment_check(ip_range: &str) -> Option<(String, Option<u128>)> {
-    // 忽略注释行
-    if ip_range.starts_with('#') || ip_range.starts_with("//") {
-        return None;
-    }
-    
-    // 解析IP范围和自定义数量
-    let (ip_range_str, custom_count) = parse_ip_range(ip_range);
-    Some((ip_range_str, custom_count))
 }
 
 // 自定义采样数量
@@ -255,41 +212,40 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     let mut cidr_info = Vec::new();
 
     for ip_range in &ip_sources {
-        // 检查注释并解析IP范围
-        if let Some((ip_range_str, custom_count)) = parse_ip_range_with_comment_check(ip_range) {
-            if let Ok(network) = ip_range_str.parse::<IpNet>() {
-                let count = calculate_ip_count(&network.to_string(), custom_count, test_all);
-                
-                // 计算start和end
-                let (start, end) = match &network {
-                    IpNet::V4(ipv4_net) => {
-                        let network_addr = ipv4_net.network();
-                        let broadcast_addr = ipv4_net.broadcast();
-                        let start = u32::from_be_bytes(network_addr.octets()) as u128;
-                        let end = u32::from_be_bytes(broadcast_addr.octets()) as u128;
-                        (start, end)
-                    },
-                    IpNet::V6(ipv6_net) => {
-                        let network_addr = ipv6_net.network();
-                        let broadcast_addr = ipv6_net.broadcast();
-                        let start = u128::from_be_bytes(network_addr.octets());
-                        let end = u128::from_be_bytes(broadcast_addr.octets());
-                        (start, end)
-                    }
-                };
-                
-                let range_size = end - start + 1;
-                let adjusted_count = count.min(range_size);
-                
-                let interval_size = if adjusted_count > 0 {
-                    (range_size / adjusted_count).max(1)
-                } else {
-                    1
-                };
-                
-                total_expected += adjusted_count as usize;
-                cidr_info.push((network, adjusted_count as usize, start, end, interval_size));
-            }
+        // 解析IP范围和自定义数量
+        let (ip_range_str, custom_count) = parse_ip_range(ip_range);
+        if let Ok(network) = ip_range_str.parse::<IpNet>() {
+            let count = calculate_ip_count(&network.to_string(), custom_count, test_all);
+            
+            // 计算start和end
+            let (start, end) = match &network {
+                IpNet::V4(ipv4_net) => {
+                    let network_addr = ipv4_net.network();
+                    let broadcast_addr = ipv4_net.broadcast();
+                    let start = u32::from_be_bytes(network_addr.octets()) as u128;
+                    let end = u32::from_be_bytes(broadcast_addr.octets()) as u128;
+                    (start, end)
+                },
+                IpNet::V6(ipv6_net) => {
+                    let network_addr = ipv6_net.network();
+                    let broadcast_addr = ipv6_net.broadcast();
+                    let start = u128::from_be_bytes(network_addr.octets());
+                    let end = u128::from_be_bytes(broadcast_addr.octets());
+                    (start, end)
+                }
+            };
+            
+            let range_size = end - start + 1;
+            let adjusted_count = count.min(range_size);
+            
+            let interval_size = if adjusted_count > 0 {
+                (range_size / adjusted_count).max(1)
+            } else {
+                1
+            };
+            
+            total_expected += adjusted_count as usize;
+            cidr_info.push((network, adjusted_count as usize, start, end, interval_size));
         }
     }
     
