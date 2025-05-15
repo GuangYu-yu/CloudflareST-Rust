@@ -281,7 +281,7 @@ async fn download_handler(
     let mut data_center = None;
     
     // 创建客户端进行下载测速
-    let client = match common::build_reqwest_client(addr, host, 2000).await {
+    let client = match common::build_reqwest_client(addr, host).await {
         Some(client) => client,
         None => return (None, None),
     };

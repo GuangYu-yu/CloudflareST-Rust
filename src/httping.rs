@@ -272,7 +272,7 @@ async fn httping(
     };
 
     // 创建客户端
-    let client = match common::build_reqwest_client(addr, &host, 2000).await {
+    let client = match common::build_reqwest_client(addr, &host).await {
         Some(client) => client,
         None => return None,
     };
