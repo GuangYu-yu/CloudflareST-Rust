@@ -3,7 +3,7 @@
 **对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
 自建测速地址 [点击前往](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)
-> 测速地址搜寻语法 `title="Index of /" && server=="cloudflare" && port="80" && body=".iso"`
+> 测速地址搜寻语法 `title="Index of /" && server=="cloudflare" && body=".iso"`
 
 [![Ask GitSummarize](https://gitsummarize.com/favicon.ico)](https://gitsummarize.com/GuangYu-yu/CloudflareST-Rust) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
 
