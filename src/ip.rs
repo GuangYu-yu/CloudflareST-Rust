@@ -192,7 +192,6 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     let (req_tx, req_rx) = bounded::<()>(buffer_size);
     
     let producer_active = Arc::new(AtomicBool::new(true));
-    let producer_active_clone = producer_active.clone();
     
     // 创建IP缓冲区
     let mut ip_buffer = IpBuffer::new(ip_rx, Some(req_tx), producer_active.clone());
@@ -210,7 +209,8 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     
     // 如果没有收集到任何IP源，返回空缓冲区
     if ip_sources.is_empty() {
-        return IpBuffer::new(bounded(0).1, None, Arc::new(AtomicBool::new(false)));
+        producer_active.store(false, Ordering::Relaxed);
+        return ip_buffer;
     }
     
     // 先计算总IP数量
@@ -282,7 +282,7 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
             cidr_info, 
             ip_tx, 
             req_rx, 
-            producer_active_clone,
+            producer_active,
             tcp_port
         );
     });
