@@ -315,13 +315,10 @@ async fn httping(
                     first_request_success = true;
                     data_center = dc;
                     
-                    if !args.httping_cf_colo.is_empty() {
-                        if !data_center.is_empty() && !colo_filters.is_empty() {
-                            if !colo_filters.iter().any(|filter| data_center == *filter) {
-                                return None;
-                            }
-                        }
-                    }
+                    if !args.httping_cf_colo.is_empty() && !data_center.is_empty() && 
+                    !colo_filters.is_empty() && !colo_filters.iter().any(|filter| data_center == *filter) {
+                     return None;
+                 }
                 }
                 
                 success += 1;
