@@ -316,7 +316,7 @@ async fn httping(
                     data_center = dc;
                     
                     if !args.httping_cf_colo.is_empty() && !data_center.is_empty() && 
-                    !colo_filters.is_empty() && !colo_filters.iter().any(|filter| data_center == *filter) {
+                    !colo_filters.is_empty() && !common::is_colo_matched(&data_center, &colo_filters) {
                      return None;
                  }
                 }

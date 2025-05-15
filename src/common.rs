@@ -193,41 +193,11 @@ pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
     true
 }
 
-/// 检查并处理下载测速结果，返回是否满足条件
-pub fn process_download_result(
-    data: &mut PingData,
-    speed: Option<f32>,
-    maybe_colo: Option<String>,
-    min_speed: f32,
-    colo_filters: &[String],
-) -> bool {
-    data.download_speed = speed;
-    
-    // 如果数据中心为空且获取到了新的数据中心信息，则更新
-    if data.data_center.is_empty() {
-        if let Some(colo) = maybe_colo {
-            data.data_center = colo;
-        }
-    }
-    
-    // 检查速度是否符合要求
-    let speed_match = match speed {
-        Some(s) => s >= min_speed * 1024.0 * 1024.0,
-        None => false,  // 如果速度为None，视为不符合要求
-    };
-    
-    // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
-    if !colo_filters.is_empty() {
-        // 检查数据中心是否符合过滤条件
-        let colo_match = !data.data_center.is_empty() && 
-            (colo_filters.is_empty() || colo_filters.iter().any(|filter| data.data_center.to_uppercase() == *filter));
-        
-        // 同时满足速度和数据中心要求
-        speed_match && colo_match
-    } else {
-        // 如果没有设置 colo 过滤条件，只需要满足速度要求
-        speed_match
-    }
+// 检查数据中心是否匹配过滤条件
+pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
+    !data_center.is_empty() && 
+        (colo_filters.is_empty() || 
+         colo_filters.iter().any(|filter| data_center.to_uppercase() == filter.to_uppercase()))
 }
 
 /// 排序结果

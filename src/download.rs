@@ -189,16 +189,40 @@ impl DownloadTest {
             
             // 无论速度如何，都更新下载速度和可能的数据中心信息
             let process_ping_data = |data: &mut PingData| {
-                if common::process_download_result(
-                    data,
-                    speed,
-                    maybe_colo,
-                    self.min_speed,
-                    &colo_filters,
-                ) {
+                // 更新下载速度
+                data.download_speed = speed;
+                
+                // 如果数据中心为空且获取到了新的数据中心信息，则更新
+                if data.data_center.is_empty() {
+                    if let Some(colo) = maybe_colo {
+                        data.data_center = colo;
+                    }
+                }
+                
+                // 检查速度是否符合要求
+                let speed_match = match speed {
+                    Some(s) => s >= self.min_speed * 1024.0 * 1024.0,
+                    None => false,  // 如果速度为None，视为不符合要求
+                };
+                
+                // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
+                let result = if !colo_filters.is_empty() {
+                    // 使用通用函数检查数据中心是否符合过滤条件
+                    let colo_match = common::is_colo_matched(&data.data_center, &colo_filters);
+                    
+                    // 同时满足速度和数据中心要求
+                    speed_match && colo_match
+                } else {
+                    // 如果没有设置 colo 过滤条件，只需要满足速度要求
+                    speed_match
+                };
+                
+                if result {
                     qualified_indices.push(i);
                     self.bar.as_ref().grow(1, "");
                 }
+                
+                result
             };
 
             process_ping_data(ping_result);
@@ -282,7 +306,7 @@ async fn download_handler(
             }
             // 如果数据中心不符合要求，速度返回None，数据中心正常返回
             if let Some(dc) = &data_center {
-                if !colo_filters.is_empty() && !colo_filters.iter().any(|f| dc.contains(f)) {
+                if !colo_filters.is_empty() && !common::is_colo_matched(dc, &colo_filters) {
                     return (None, data_center);
                 }
             }
