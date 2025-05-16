@@ -103,14 +103,13 @@ jobs:
         with:
           toolchain: '1.86.0'
 
-      - name: 安装 cross
-        run: |
-          cargo install cross
-
-      - name: Windows x86_64
+      - name: 构建 Windows x86_64
         run: |
           mkdir -p build/windows binaries/windows_x86_64
-          cross build --release --target x86_64-pc-windows-gnu
+          docker run --rm -v $(pwd):/app -w /app \
+            rust:1.86.0-slim \
+            sh -c "rustup target add x86_64-pc-windows-gnu && \
+                  cargo build --release --target x86_64-pc-windows-gnu"
           cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe binaries/windows_x86_64/CloudflareST-Rust.exe
           mkdir -p temp_windows
           cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe temp_windows/CloudflareST-Rust.exe
@@ -130,49 +129,47 @@ jobs:
           name: windows-binary
           path: binaries/windows_x86_64
           retention-days: 1
-          
+
   build_windows_arm64:
-      name: 构建 Windows ARM64
-      needs: validate_inputs
-      if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
-      runs-on: windows-latest
-      steps:  
-        - name: 检出代码  
-          uses: actions/checkout@v4  
+    name: 构建 Windows ARM64
+    needs: validate_inputs
+    if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
+    runs-on: ubuntu-latest
+    steps:  
+      - name: 检出代码  
+        uses: actions/checkout@v4  
   
-        - name: 设置 Rust 环境
-          uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
-          with:
-            toolchain: '1.86.0'
+      - name: 设置 Rust 环境
+        uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
+        with:
+          toolchain: '1.86.0'
   
-        - name: 安装 ARM64 目标
-          run: |
-            rustup target add aarch64-pc-windows-msvc
+      - name: 构建 Windows ARM64
+        run: |
+          mkdir -p build/windows-arm64 binaries/windows_arm64
+          docker run --rm -v $(pwd):/app -w /app \
+            rust:1.86.0-slim \
+            sh -c "rustup target add aarch64-pc-windows-msvc && \
+                  cargo build --release --target aarch64-pc-windows-msvc"
+          cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe binaries/windows_arm64/CloudflareST-Rust.exe
+          mkdir -p temp_windows_arm64
+          cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe temp_windows_arm64/CloudflareST-Rust.exe
+          mkdir -p releases
+          tar -czf releases/CloudflareST-Rust_windows_arm64.tar.gz -C temp_windows_arm64 CloudflareST-Rust.exe
   
-        - name: 构建 Windows ARM64
-          run: |
-            mkdir -p build/windows-arm64 binaries/windows_arm64
-            cargo build --release --target aarch64-pc-windows-msvc
-            cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe binaries/windows_arm64/CloudflareST-Rust.exe
-            mkdir -p temp_windows_arm64
-            cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe temp_windows_arm64/CloudflareST-Rust.exe
-            mkdir -p releases
-            tar -czf releases/CloudflareST-Rust_windows_arm64.tar.gz -C temp_windows_arm64 CloudflareST-Rust.exe
-          shell: bash
+      - name: 上传 Windows ARM64 发布包
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64-release
+          path: releases/CloudflareST-Rust_windows_arm64.tar.gz
+          retention-days: 1
   
-        - name: 上传 Windows ARM64 发布包
-          uses: actions/upload-artifact@v4
-          with:
-            name: windows-arm64-release
-            path: releases/CloudflareST-Rust_windows_arm64.tar.gz
-            retention-days: 1
-  
-        - name: 上传 Windows ARM64 二进制文件
-          uses: actions/upload-artifact@v4
-          with:
-            name: windows-arm64-binary
-            path: binaries/windows_arm64
-            retention-days: 1
+      - name: 上传 Windows ARM64 二进制文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64-binary
+          path: binaries/windows_arm64
+          retention-days: 1
 
   build_linux_amd64:
     name: 构建 Linux AMD64
