@@ -70,14 +70,6 @@ impl Ping {
     }
 
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
-        // 检查IP缓冲区是否为空
-        {
-            let ip_buffer = self.ip_buffer.lock().unwrap();
-            if ip_buffer.is_empty() && ip_buffer.total_expected() == 0 {
-                return Ok(Vec::new());
-            }
-        }
-
         let handler_factory = self.make_handler_factory();
 
         common::run_ping_test(
