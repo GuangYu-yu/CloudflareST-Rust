@@ -247,11 +247,16 @@ impl DownloadTest {
             return std::mem::take(&mut self.ping_results);
         }
 
-        // 筛选出合格的结果
-        let mut qualified_results = Vec::new();
+        let mut all_results = std::mem::take(&mut self.ping_results);
+        
+        // 只保留合格的结果
+        let mut qualified_results = Vec::with_capacity(qualified_indices.len());
         for &idx in &qualified_indices {
-            qualified_results.push(self.ping_results[idx].clone());
+            if idx < all_results.len() {
+                qualified_results.push(all_results.swap_remove(idx));
+            }
         }
+        
         common::sort_results(&mut qualified_results);
         qualified_results
     }

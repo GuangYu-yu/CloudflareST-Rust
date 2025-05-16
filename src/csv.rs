@@ -103,6 +103,6 @@ fn ping_data_to_fields(data: &PingData) -> Vec<String> {
             Some(speed) => format!("{:.2}", speed / 1024.0 / 1024.0),
             None => String::new(),
         },
-        data.data_center.clone(),
+        data.data_center.to_string(),
     ]
 }

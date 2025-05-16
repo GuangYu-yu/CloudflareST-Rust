@@ -119,7 +119,10 @@ impl Ping {
         self.bar.done();
 
         // 收集所有测试结果
-        let mut results = self.csv.lock().unwrap().clone();
+        let mut results = {
+            let mut csv_guard = self.csv.lock().unwrap();
+            std::mem::take(&mut *csv_guard)
+        };
         
         // 使用common模块的排序函数
         common::sort_results(&mut results);
