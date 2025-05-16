@@ -204,60 +204,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build_linux:
-    name: 构建 Linux
-    needs: validate_inputs
-    if: ${{ github.event.inputs.build_linux_amd64 == 'true' || github.event.inputs.build_linux_arm64 == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 设置 Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}
-
-      - name: 设置 Zig
-        uses: mlugg/setup-zig@v2.0.0
-        with:
-          version: 'latest'
-
-      - name: 安装 cargo-zigbuild
-        run: cargo install --locked cargo-zigbuild
-
-      - name: 构建项目
-        run: |
-          mkdir -p binaries/${{ github.event.inputs.build_linux_amd64 == 'true' && 'Linux_AMD64' || 'Linux_ARM64' }}
-          cargo zigbuild --release --target ${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}
-          cp target/${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}/release/CloudflareST binaries/${{ github.event.inputs.build_linux_amd64 == 'true' && 'Linux_AMD64' || 'Linux_ARM64' }}
-
-      - name: 上传 Linux 发布包
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-release
-          path: releases/CloudflareST-Rust_linux.tar.gz
-          retention-days: 1
-
-      - name: 上传 Linux 二进制文件
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-binary
-          path: binaries/linux
-          retention-days: 1
-
-      - name: 创建 Linux 发布版本
-        if: ${{ github.event.inputs.create_release == 'true' }}
-        uses: actions/create-release@v1
-        with:
-          tag_name: linux-v1.0.0
-          release_name: Linux Release
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build_macos:
     name: 构建 macOS
     needs: validate_inputs
