@@ -108,7 +108,9 @@ jobs:
           mkdir -p build/windows binaries/windows_x86_64
           docker run --rm -v $(pwd):/app -w /app \
             rust:1.87.0-slim \
-            sh -c "rustup target add x86_64-pc-windows-gnu && \
+            sh -c "apt-get update && \
+                  apt-get install -y mingw-w64 && \
+                  rustup target add x86_64-pc-windows-gnu && \
                   cargo build --release --target x86_64-pc-windows-gnu"
           cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe binaries/windows_x86_64/CloudflareST-Rust.exe
           mkdir -p temp_windows
@@ -149,7 +151,9 @@ jobs:
           mkdir -p build/windows-arm64 binaries/windows_arm64
           docker run --rm -v $(pwd):/app -w /app \
             rust:1.87.0-slim \
-            sh -c "rustup target add aarch64-pc-windows-msvc && \
+            sh -c "apt-get update && \
+                  apt-get install -y clang && \
+                  rustup target add aarch64-pc-windows-msvc && \
                   cargo build --release --target aarch64-pc-windows-msvc"
           cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe binaries/windows_arm64/CloudflareST-Rust.exe
           mkdir -p temp_windows_arm64
