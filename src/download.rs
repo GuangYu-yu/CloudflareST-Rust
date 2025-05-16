@@ -315,7 +315,7 @@ async fn download_handler(
         
         // 读取响应体
         let time_start = Instant::now();
-        let mut content_read: u64 = 0;
+//        let mut content_read: u64 = 0; // 记录总共已读取的字节数
         let mut actual_content_read: u64 = 0;
         let mut actual_start_time: Option<Instant> = None;
         let warm_up_duration = Duration::from_secs(3); // 3秒预热时间
@@ -334,7 +334,7 @@ async fn download_handler(
             match resp.chunk().await.ok() {
                 Some(Some(chunk)) => {
                     let size = chunk.len() as u64;
-                    content_read += size;
+//                    content_read += size;
                     handler.update_data_received(size);
                     
                     // 如果已经过了预热时间，开始记录实际下载数据
@@ -359,13 +359,8 @@ async fn download_handler(
                 None
             }
         } else {
-            // 如果没有记录到预热后的数据，使用总数据计算
-            let elapsed = time_start.elapsed().as_secs_f32();
-            if elapsed > 0.0 {
-                Some(content_read as f32 / elapsed)
-            } else {
-                None
-            }
+            // 如果没有记录到预热后的数据，说明下载持续时间不足预热时间，返回None
+            None
         }
     } else {
         None
