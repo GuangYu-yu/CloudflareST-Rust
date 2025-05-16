@@ -107,6 +107,14 @@ impl DownloadTest {
         // 计算实际需要测试的数量
         let test_num = min(args.test_count as u32, ping_results.len() as u32);
         
+        // 先检查队列数量是否足够
+        if args.test_count as usize > ping_results.len() {
+            println!("[信息] 队列数量不足所需数量！");
+        }
+
+        println!("开始下载测速（下限：{:.2} MB/s, 所需：{}, 队列：{}）", 
+                args.min_speed, args.test_count, ping_results.len());
+        
         Self {
             url: args.url.to_string(),
             urlist: urlist_vec,
@@ -123,13 +131,6 @@ impl DownloadTest {
     }
 
     pub async fn test_download_speed(&mut self) -> Vec<PingData> {
-        // 先检查队列数量是否足够
-        if self.test_count as usize > self.ping_results.len() {
-            println!("\n[信息] {}", "队列数量不足所需数量！");
-        }
-
-        println!("开始下载测速（下限：{:.2} MB/s, 所需：{}, 队列：{}）", 
-                self.min_speed, self.test_count, self.ping_results.len());
         
         // 记录符合要求的结果索引
         let mut qualified_indices = Vec::new();
