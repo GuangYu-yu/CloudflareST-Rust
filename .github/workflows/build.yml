@@ -107,7 +107,7 @@ jobs:
         run: |
           mkdir -p build/windows binaries/windows_x86_64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:slim \
+            rust:1.87.0-slim \
             sh -c "apt-get update && \
                   apt-get install -y mingw-w64 && \
                   rustup target add x86_64-pc-windows-gnu && \
@@ -136,38 +136,38 @@ jobs:
     name: 构建 Windows ARM64
     needs: validate_inputs
     if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:  
       - name: 检出代码  
         uses: actions/checkout@v4  
-  
+
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
           toolchain: '1.87.0'
-  
+
+      - name: 安装 ARM64 目标
+        run: |
+          rustup target add aarch64-pc-windows-msvc
+
       - name: 构建 Windows ARM64
         run: |
           mkdir -p build/windows-arm64 binaries/windows_arm64
-          docker run --rm -v $(pwd):/app -w /app \
-            rust:slim \
-            sh -c "apt-get update && \
-                  apt-get install -y clang && \
-                  rustup target add aarch64-pc-windows-msvc && \
-                  cargo build --release --target aarch64-pc-windows-msvc"
+          cargo build --release --target aarch64-pc-windows-msvc
           cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe binaries/windows_arm64/CloudflareST-Rust.exe
           mkdir -p temp_windows_arm64
           cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe temp_windows_arm64/CloudflareST-Rust.exe
           mkdir -p releases
           tar -czf releases/CloudflareST-Rust_windows_arm64.tar.gz -C temp_windows_arm64 CloudflareST-Rust.exe
-  
+        shell: bash
+
       - name: 上传 Windows ARM64 发布包
         uses: actions/upload-artifact@v4
         with:
           name: windows-arm64-release
           path: releases/CloudflareST-Rust_windows_arm64.tar.gz
           retention-days: 1
-  
+
       - name: 上传 Windows ARM64 二进制文件
         uses: actions/upload-artifact@v4
         with:
@@ -193,7 +193,7 @@ jobs:
         run: |
           mkdir -p build/linux-amd64 binaries/linux_amd64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:slim \
+            rust:1.87.0-slim \
             sh -c "apt-get update && \
                   apt-get install -y musl-tools && \
                   rustup target add x86_64-unknown-linux-musl && \
@@ -236,7 +236,7 @@ jobs:
         run: |
           mkdir -p build/linux-arm64 binaries/linux_arm64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:slim \
+            rust:1.87.0-slim \
             sh -c "apt-get update && \
                   apt-get install -y musl-tools gcc-aarch64-linux-gnu libc6-dev-arm64-cross && \
                   ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-musl-gcc && \
