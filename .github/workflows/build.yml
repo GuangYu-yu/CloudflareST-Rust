@@ -101,13 +101,13 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: 'stable'
+          toolchain: '1.87.0'
 
       - name: 构建 Windows x86_64
         run: |
           mkdir -p build/windows binaries/windows_x86_64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:stable-slim \
+            rust:1.87.0-slim \
             sh -c "rustup target add x86_64-pc-windows-gnu && \
                   cargo build --release --target x86_64-pc-windows-gnu"
           cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe binaries/windows_x86_64/CloudflareST-Rust.exe
@@ -142,13 +142,13 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: 'stable'
+          toolchain: '1.87.0'
   
       - name: 构建 Windows ARM64
         run: |
           mkdir -p build/windows-arm64 binaries/windows_arm64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:stable-slim \
+            rust:1.87.0-slim \
             sh -c "rustup target add aarch64-pc-windows-msvc && \
                   cargo build --release --target aarch64-pc-windows-msvc"
           cp target/aarch64-pc-windows-msvc/release/CloudflareST-Rust.exe binaries/windows_arm64/CloudflareST-Rust.exe
@@ -183,13 +183,13 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: 'stable'
+          toolchain: '1.87.0'
   
       - name: 构建 Linux AMD64
         run: |
           mkdir -p build/linux-amd64 binaries/linux_amd64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:stable-slim \
+            rust:1.87.0-slim \
             sh -c "apt-get update && \
                   apt-get install -y musl-tools && \
                   rustup target add x86_64-unknown-linux-musl && \
@@ -226,13 +226,13 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: 'stable'
+          toolchain: '1.87.0'
   
       - name: 构建 Linux ARM64
         run: |
           mkdir -p build/linux-arm64 binaries/linux_arm64
           docker run --rm -v $(pwd):/app -w /app \
-            rust:stable-slim \
+            rust:1.87.0-slim \
             sh -c "apt-get update && \
                   apt-get install -y musl-tools gcc-aarch64-linux-gnu libc6-dev-arm64-cross && \
                   ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-musl-gcc && \
@@ -271,7 +271,7 @@ jobs:
       - name: 设置 Rust 环境
         uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
         with:
-          toolchain: 'stable'
+          toolchain: '1.87.0'
 
       - name: 构建 macOS AMD64
         if: ${{ github.event.inputs.build_macos_x86_64 == 'true' }}
