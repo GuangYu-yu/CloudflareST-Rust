@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.44.2", features = ["rt", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.45.0", features = ["rt", "rt-multi-thread", "macros", "time"] }
 reqwest = { version = "0.12.15", features = ["rustls-tls"], default-features = false }
 ipnet = "2.11.0"
 rand = "0.9.1"
