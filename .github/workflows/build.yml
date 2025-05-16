@@ -2,8 +2,8 @@ name: 构建 CloudflareST-Rust
 on:  
   workflow_dispatch:   # 允许手动触发
     inputs:
-      build_windows_x86_64:
-        description: '构建 Windows x86_64'
+      build_windows_amd64:
+        description: '构建 Windows AMD64'
         type: boolean
         default: false
       build_windows_arm64:
@@ -18,8 +18,8 @@ on:
         description: '构建 Linux ARM64'
         type: boolean
         default: false
-      build_macos_x86_64:
-        description: '构建 macOS x86_64'
+      build_macos_amd64:
+        description: '构建 macOS AMD64'
         type: boolean
         default: false
       build_macos_arm64:
@@ -47,7 +47,7 @@ jobs:
           exit 1
           
       - name: 检查构建选项
-        if: ${{ github.event.inputs.build_windows_x86_64 != 'true' && github.event.inputs.build_windows_arm64 != 'true' && github.event.inputs.build_linux_amd64 != 'true' && github.event.inputs.build_linux_arm64 != 'true' && github.event.inputs.build_macos_x86_64 != 'true' && github.event.inputs.build_macos_arm64 != 'true' }}
+        if: ${{ github.event.inputs.build_windows_amd64 != 'true' && github.event.inputs.build_windows_arm64 != 'true' && github.event.inputs.build_linux_amd64 != 'true' && github.event.inputs.build_linux_arm64 != 'true' && github.event.inputs.build_macos_amd64 != 'true' && github.event.inputs.build_macos_arm64 != 'true' }}
         run: |
           echo "错误：必须至少选择一种构建选项"
           exit 1
@@ -90,284 +90,154 @@ jobs:
             }
 
   build_windows:
-    name: 构建 Windows x86_64
+    name: 构建 Windows
     needs: validate_inputs
-    if: ${{ github.event.inputs.build_windows_x86_64 == 'true' }}
-    runs-on: windows-latest  
-    steps:  
-      - name: 检出代码  
-        uses: actions/checkout@v4  
+    if: ${{ github.event.inputs.build_windows_amd64 == 'true' || github.event.inputs.build_windows_arm64 == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-      - name: 设置 Rust 环境
-        uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
+      - name: 设置 Rust
+        uses: actions-rs/toolchain@v1
         with:
-          toolchain: '1.87.0'
+          toolchain: stable
+          target: ${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
 
-      - name: 安装 Zig 编译器
-        run: |
-          choco install zig --version=0.10.0
+      - name: 安装 cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
 
-      - name: 安装 x86_64 目标
-        run: |
-          rustup target add x86_64-pc-windows-msvc
+      - name: 构建项目
+        run: cargo zigbuild --release --target ${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
 
-      - name: 构建 Windows x86_64
-        run: |
-          mkdir -p build/windows binaries/windows_x86_64
-          zig cc -target x86_64-windows -o binaries/windows_x86_64/CloudflareST-Rust.exe src/main.rs
-          mkdir -p temp_windows
-          cp binaries/windows_x86_64/CloudflareST-Rust.exe temp_windows/CloudflareST-Rust.exe
-          mkdir -p releases
-          tar -czf releases/CloudflareST-Rust_windows_x86_64.tar.gz -C temp_windows CloudflareST-Rust.exe
-        shell: bash
-
-      - name: 上传 Windows x86_64 发布包
+      - name: 上传 Windows 发布包
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: releases/CloudflareST-Rust_windows_x86_64.tar.gz
+          path: releases/CloudflareST-Rust_windows.tar.gz
           retention-days: 1
 
-      - name: 上传 Windows x86_64 二进制文件
+      - name: 上传 Windows 二进制文件
         uses: actions/upload-artifact@v4
         with:
           name: windows-binary
-          path: binaries/windows_x86_64
+          path: binaries/windows
           retention-days: 1
 
-  build_windows_arm64:
-    name: 构建 Windows ARM64
+      - name: 创建 Windows 发布版本
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: actions/create-release@v1
+        with:
+          tag_name: windows-v1.0.0
+          release_name: Windows Release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build_linux:
+    name: 构建 Linux
     needs: validate_inputs
-    if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
-    runs-on: windows-latest
-    steps:  
-      - name: 检出代码  
-        uses: actions/checkout@v4  
-
-      - name: 设置 Rust 环境
-        uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
-        with:
-          toolchain: '1.87.0'
-
-      - name: 安装 Zig 编译器
-        run: |
-          choco install zig --version=0.10.0
-
-      - name: 安装 ARM64 目标
-        run: |
-          rustup target add aarch64-pc-windows-msvc
-
-      - name: 构建 Windows ARM64
-        run: |
-          mkdir -p build/windows-arm64 binaries/windows_arm64
-          zig cc -target aarch64-windows -o binaries/windows_arm64/CloudflareST-Rust.exe src/main.rs
-          mkdir -p temp_windows_arm64
-          cp binaries/windows_arm64/CloudflareST-Rust.exe temp_windows_arm64/CloudflareST-Rust.exe
-          mkdir -p releases
-          tar -czf releases/CloudflareST-Rust_windows_arm64.tar.gz -C temp_windows_arm64 CloudflareST-Rust.exe
-        shell: bash
-
-      - name: 上传 Windows ARM64 发布包
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-arm64-release
-          path: releases/CloudflareST-Rust_windows_arm64.tar.gz
-          retention-days: 1
-
-      - name: 上传 Windows ARM64 二进制文件
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-arm64-binary
-          path: binaries/windows_arm64
-          retention-days: 1
-
-  build_linux_amd64:
-    name: 构建 Linux AMD64
-    needs: validate_inputs
-    if: ${{ github.event.inputs.build_linux_amd64 == 'true' }}
+    if: ${{ github.event.inputs.build_linux_amd64 == 'true' || github.event.inputs.build_linux_arm64 == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装 Zig 编译器
-        run: |
-          sudo apt update
-          sudo apt install -y zig
+      - name: 设置 Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}
 
-      - name: 构建 Linux AMD64
-        run: |
-          mkdir -p build/linux-amd64 binaries/linux_amd64
-          zig cc -target x86_64-linux-musl -static -o binaries/linux_amd64/CloudflareST-Rust src/main.rs
-          mkdir -p temp_linux_amd64
-          cp binaries/linux_amd64/CloudflareST-Rust temp_linux_amd64/CloudflareST-Rust
-          mkdir -p releases
-          tar -czf releases/CloudflareST-Rust_linux_amd64.tar.gz -C temp_linux_amd64 CloudflareST-Rust
-        shell: bash
+      - name: 安装 cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
 
-      - name: 上传 Linux AMD64 发布包
+      - name: 构建项目
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo zigbuild --release --target ${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}
+
+      - name: 上传 Linux 发布包
         uses: actions/upload-artifact@v4
         with:
-          name: linux-amd64-release
-          path: releases/CloudflareST-Rust_linux_amd64.tar.gz
+          name: linux-release
+          path: releases/CloudflareST-Rust_linux.tar.gz
           retention-days: 1
 
-      - name: 上传 Linux AMD64 二进制文件
+      - name: 上传 Linux 二进制文件
         uses: actions/upload-artifact@v4
         with:
-          name: linux-amd64-binary
-          path: binaries/linux_amd64
+          name: linux-binary
+          path: binaries/linux
           retention-days: 1
 
-  build_linux_arm64:
-    name: 构建 Linux ARM64
-    needs: validate_inputs
-    if: ${{ github.event.inputs.build_linux_arm64 == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 安装 Zig 编译器
-        run: |
-          sudo apt update
-          sudo apt install -y zig
-
-      - name: 构建 Linux ARM64
-        run: |
-          mkdir -p build/linux-arm64 binaries/linux_arm64
-          zig cc -target aarch64-linux-musl -static -o binaries/linux_arm64/CloudflareST-Rust src/main.rs
-          mkdir -p temp_linux_arm64
-          cp binaries/linux_arm64/CloudflareST-Rust temp_linux_arm64/CloudflareST-Rust
-          mkdir -p releases
-          tar -czf releases/CloudflareST-Rust_linux_arm64.tar.gz -C temp_linux_arm64 CloudflareST-Rust
-        shell: bash
-
-      - name: 上传 Linux ARM64 发布包
-        uses: actions/upload-artifact@v4
+      - name: 创建 Linux 发布版本
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: actions/create-release@v1
         with:
-          name: linux-arm64-release
-          path: releases/CloudflareST-Rust_linux_arm64.tar.gz
-          retention-days: 1
-
-      - name: 上传 Linux ARM64 二进制文件
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-arm64-binary
-          path: binaries/linux_arm64
-          retention-days: 1
+          tag_name: linux-v1.0.0
+          release_name: Linux Release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build_macos:
     name: 构建 macOS
     needs: validate_inputs
-    if: ${{ github.event.inputs.build_macos_x86_64 == 'true' || github.event.inputs.build_macos_arm64 == 'true' }}
+    if: ${{ github.event.inputs.build_macos_amd64 == 'true' || github.event.inputs.build_macos_arm64 == 'true' }}
     runs-on: macos-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置 Rust 环境
-        uses: actions-rust-lang/setup-rust-toolchain@v1.11.0
+      - name: 设置 Rust
+        uses: actions-rs/toolchain@v1
         with:
-          toolchain: '1.87.0'
+          toolchain: stable
+          target: ${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
 
-      - name: 构建 macOS AMD64
-        if: ${{ github.event.inputs.build_macos_x86_64 == 'true' }}
-        run: |
-          mkdir -p build/macos binaries/macos_x86_64
-          rustup target add x86_64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
-          cp target/x86_64-apple-darwin/release/CloudflareST-Rust binaries/macos_x86_64/CloudflareST-Rust
-          mkdir -p temp_macos_x86_64
-          cp target/x86_64-apple-darwin/release/CloudflareST-Rust temp_macos_x86_64/CloudflareST-Rust
-          mkdir -p releases
-          tar -czf releases/CloudflareST-Rust_macos_x86_64.tar.gz -C temp_macos_x86_64 CloudflareST-Rust
+      - name: 安装 cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
 
-      - name: 构建 macOS ARM64
-        if: ${{ github.event.inputs.build_macos_arm64 == 'true' }}
-        run: |
-          mkdir -p build/macos-arm64 binaries/macos_arm64
-          rustup target add aarch64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
-          cp target/aarch64-apple-darwin/release/CloudflareST-Rust binaries/macos_arm64/CloudflareST-Rust
-          mkdir -p temp_macos_arm64
-          cp target/aarch64-apple-darwin/release/CloudflareST-Rust temp_macos_arm64/CloudflareST-Rust
-          tar -czf releases/CloudflareST-Rust_macos_arm64.tar.gz -C temp_macos_arm64 CloudflareST-Rust
+      - name: 构建项目
+        run: cargo zigbuild --release --target ${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
 
       - name: 上传 macOS 发布包
         uses: actions/upload-artifact@v4
         with:
           name: macos-release
-          path: releases/CloudflareST-Rust_macos_*.tar.gz
+          path: releases/CloudflareST-Rust_macos.tar.gz
           retention-days: 1
 
       - name: 上传 macOS 二进制文件
         uses: actions/upload-artifact@v4
         with:
           name: macos-binary
-          path: |
-            binaries/macos_x86_64
-            binaries/macos_arm64
+          path: binaries/macos
           retention-days: 1
+
+      - name: 创建 macOS 发布版本
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: actions/create-release@v1
+        with:
+          tag_name: macos-v1.0.0
+          release_name: macOS Release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   commit_binaries:
     name: 提交所有二进制文件
-    needs: [build_windows, build_windows_arm64, build_linux_amd64, build_linux_arm64, build_macos]
-    if: ${{ github.event.inputs.upload_to_repo == 'true' && always() }}
+    needs: [build_windows, build_linux, build_macos]
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
-        with:
-          ref: main
 
-      - name: 创建二进制文件目录
-        run: |
-          mkdir -p binaries/windows_x86_64
-          mkdir -p binaries/windows_arm64
-          mkdir -p binaries/linux_amd64
-          mkdir -p binaries/linux_arm64
-          mkdir -p binaries/macos_x86_64
-          mkdir -p binaries/macos_arm64
-
-      # 下载所有构建产物
-      - name: 下载 Windows x86_64 二进制文件
-        if: ${{ github.event.inputs.build_windows_x86_64 == 'true' && needs.build_windows.result == 'success' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-binary
-          path: binaries/windows_x86_64
-
-      - name: 下载 Windows ARM64 二进制文件
-        if: ${{ github.event.inputs.build_windows_arm64 == 'true' && needs.build_windows_arm64.result == 'success' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-arm64-binary
-          path: binaries/windows_arm64
-
-      - name: 下载 Linux AMD64 二进制文件
-        if: ${{ github.event.inputs.build_linux_amd64 == 'true' && needs.build_linux_amd64.result == 'success' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-amd64-binary
-          path: binaries/linux_amd64
-
-      - name: 下载 Linux ARM64 二进制文件
-        if: ${{ github.event.inputs.build_linux_arm64 == 'true' && needs.build_linux_arm64.result == 'success' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-arm64-binary
-          path: binaries/linux_arm64
-
-      - name: 下载 macOS 二进制文件
-        if: ${{ (github.event.inputs.build_macos_x86_64 == 'true' || github.event.inputs.build_macos_arm64 == 'true') && needs.build_macos.result == 'success' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-binary
-          path: binaries
-
-      # 一次性提交所有二进制文件
-      - name: 提交所有二进制文件
+      - name: 提交二进制文件
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
@@ -377,66 +247,3 @@ jobs:
           if ! git diff --staged --quiet; then
             git commit -m "更新所有平台二进制文件 ${current_time}"
             git push origin main
-          fi
-
-  create_release:
-    name: 创建发布版本
-    needs: [build_windows, build_windows_arm64, build_linux_amd64, build_linux_arm64, build_macos, commit_binaries]
-    if: ${{ github.event.inputs.create_release == 'true' && always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: 创建发布目录
-        run: mkdir -p releases
-
-      - name: 下载 Windows x86_64 发布包
-        if: ${{ github.event.inputs.build_windows_x86_64 == 'true' && contains(needs.*.result, 'success') }}
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-release
-          path: releases
-
-      - name: 下载 Windows ARM64 发布包
-        if: ${{ github.event.inputs.build_windows_arm64 == 'true' && contains(needs.*.result, 'success') }}
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-arm64-release
-          path: releases
-
-      - name: 下载 Linux AMD64 发布包
-        if: ${{ github.event.inputs.build_linux_amd64 == 'true' && contains(needs.*.result, 'success') }}
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-amd64-release
-          path: releases
-
-      - name: 下载 Linux ARM64 发布包
-        if: ${{ github.event.inputs.build_linux_arm64 == 'true' && contains(needs.*.result, 'success') }}
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-arm64-release
-          path: releases
-
-      - name: 下载 macOS 发布包
-        if: ${{ (github.event.inputs.build_macos_x86_64 == 'true' || github.event.inputs.build_macos_arm64 == 'true') && contains(needs.*.result, 'success') }}
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-release
-          path: releases
-
-      - name: 创建发布版本
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v1.0.0-${{ github.run_number }}
-          name: CloudflareST-Rust v1.0.0-${{ github.run_number }}
-          body: |
-            CloudflareST-Rust 自动构建版本
-            
-            包含以下平台的二进制文件：
-            ${{ github.event.inputs.build_windows_x86_64 == 'true' && '- Windows x86_64' || '' }}
-            ${{ github.event.inputs.build_windows_arm64 == 'true' && '- Windows ARM64' || '' }}
-            ${{ github.event.inputs.build_linux_amd64 == 'true' && '- Linux AMD64' || '' }}
-            ${{ github.event.inputs.build_linux_arm64 == 'true' && '- Linux ARM64' || '' }}
-            ${{ github.event.inputs.build_macos_x86_64 == 'true' && '- macOS x86_64' || '' }}
-            ${{ github.event.inputs.build_macos_arm64 == 'true' && '- macOS ARM64' || '' }}
-          files: releases/*.tar.gz
-          token: ${{ secrets.GITHUB_TOKEN }}
