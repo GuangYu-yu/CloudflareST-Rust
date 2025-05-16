@@ -102,7 +102,6 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: ${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
 
       - name: 设置 Zig
         uses: mlugg/setup-zig@v2.0.0
@@ -112,11 +111,73 @@ jobs:
       - name: 安装 cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
 
-      - name: 构建项目
+      - name: 构建 Windows AMD64
+        if: ${{ github.event.inputs.build_windows_amd64 == 'true' }}
         run: |
-          mkdir -p binaries/${{ github.event.inputs.build_windows_amd64 == 'true' && 'Windows_AMD64' || 'Windows_ARM64' }}
-          cargo zigbuild --release --target ${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
-          cp target/${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}/release/CloudflareST.exe binaries/${{ github.event.inputs.build_windows_amd64 == 'true' && 'Windows_AMD64' || 'Windows_ARM64' }}
+          mkdir -p build/windows binaries/windows_amd64
+          rustup target add x86_64-pc-windows-msvc
+          cargo zigbuild --release --target x86_64-pc-windows-msvc
+          cp target/x86_64-pc-windows-msvc/release/CloudflareST.exe binaries/windows_amd64/CloudflareST.exe
+          mkdir -p temp_windows_amd64
+          cp target/x86_64-pc-windows-msvc/release/CloudflareST.exe temp_windows_amd64/CloudflareST.exe
+          mkdir -p releases
+          tar -czf releases/CloudflareST-Rust_windows_amd64.tar.gz -C temp_windows_amd64 CloudflareST.exe
+
+      - name: 构建 Windows ARM64
+        if: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
+        run: |
+          mkdir -p build/windows-arm64 binaries/windows_arm64
+          rustup target add aarch64-pc-windows-msvc
+          cargo zigbuild --release --target aarch64-pc-windows-msvc
+          cp target/aarch64-pc-windows-msvc/release/CloudflareST.exe binaries/windows_arm64/CloudflareST.exe
+          mkdir -p temp_windows_arm64
+          cp target/aarch64-pc-windows-msvc/release/CloudflareST.exe temp_windows_arm64/CloudflareST.exe
+          tar -czf releases/CloudflareST-Rust_windows_arm64.tar.gz -C temp_windows_arm64 CloudflareST.exe
+
+  build_linux:
+    name: 构建 Linux
+    needs: validate_inputs
+    if: ${{ github.event.inputs.build_linux_amd64 == 'true' || github.event.inputs.build_linux_arm64 == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: 设置 Zig
+        uses: mlugg/setup-zig@v2.0.0
+        with:
+          version: 'latest'
+
+      - name: 安装 cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: 构建 Linux AMD64
+        if: ${{ github.event.inputs.build_linux_amd64 == 'true' }}
+        run: |
+          mkdir -p build/linux binaries/linux_amd64
+          rustup target add x86_64-unknown-linux-gnu
+          cargo zigbuild --release --target x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/release/CloudflareST binaries/linux_amd64/CloudflareST
+          mkdir -p temp_linux_amd64
+          cp target/x86_64-unknown-linux-gnu/release/CloudflareST temp_linux_amd64/CloudflareST
+          mkdir -p releases
+          tar -czf releases/CloudflareST-Rust_linux_amd64.tar.gz -C temp_linux_amd64 CloudflareST
+
+      - name: 构建 Linux ARM64
+        if: ${{ github.event.inputs.build_linux_arm64 == 'true' }}
+        run: |
+          mkdir -p build/linux-arm64 binaries/linux_arm64
+          rustup target add aarch64-unknown-linux-gnu
+          cargo zigbuild --release --target aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/CloudflareST binaries/linux_arm64/CloudflareST
+          mkdir -p temp_linux_arm64
+          cp target/aarch64-unknown-linux-gnu/release/CloudflareST temp_linux_arm64/CloudflareST
+          tar -czf releases/CloudflareST-Rust_linux_arm64.tar.gz -C temp_linux_arm64 CloudflareST
 
       - name: 上传 Windows 发布包
         uses: actions/upload-artifact@v4
@@ -210,7 +271,6 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: ${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
 
       - name: 设置 Zig
         uses: mlugg/setup-zig@v2.0.0
@@ -220,11 +280,28 @@ jobs:
       - name: 安装 cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
 
-      - name: 构建项目
+      - name: 构建 macOS AMD64
+        if: ${{ github.event.inputs.build_macos_amd64 == 'true' }}
         run: |
-          mkdir -p binaries/${{ github.event.inputs.build_macos_amd64 == 'true' && 'MacOS_AMD64' || 'MacOS_ARM64' }}
-          cargo zigbuild --release --target ${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
-          cp target/${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}/release/CloudflareST binaries/${{ github.event.inputs.build_macos_amd64 == 'true' && 'MacOS_AMD64' || 'MacOS_ARM64' }}
+          mkdir -p build/macos binaries/macos_amd64
+          rustup target add x86_64-apple-darwin
+          cargo zigbuild --release --target x86_64-apple-darwin
+          cp target/x86_64-apple-darwin/release/CloudflareST binaries/macos_amd64/CloudflareST
+          mkdir -p temp_macos_amd64
+          cp target/x86_64-apple-darwin/release/CloudflareST temp_macos_amd64/CloudflareST
+          mkdir -p releases
+          tar -czf releases/CloudflareST-Rust_macos_amd64.tar.gz -C temp_macos_amd64 CloudflareST
+
+      - name: 构建 macOS ARM64
+        if: ${{ github.event.inputs.build_macos_arm64 == 'true' }}
+        run: |
+          mkdir -p build/macos-arm64 binaries/macos_arm64
+          rustup target add aarch64-apple-darwin
+          cargo zigbuild --release --target aarch64-apple-darwin
+          cp target/aarch64-apple-darwin/release/CloudflareST binaries/macos_arm64/CloudflareST
+          mkdir -p temp_macos_arm64
+          cp target/aarch64-apple-darwin/release/CloudflareST temp_macos_arm64/CloudflareST
+          tar -czf releases/CloudflareST-Rust_macos_arm64.tar.gz -C temp_macos_arm64 CloudflareST
 
       - name: 上传 macOS 发布包
         uses: actions/upload-artifact@v4
