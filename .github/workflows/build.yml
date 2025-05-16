@@ -88,28 +88,12 @@ jobs:
                 }
               }
             }
-            
-  build:
-    name: 构建项目
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-        target: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin]
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: macos-latest
-            target: aarch64-apple-darwin
 
+  build_windows:
+    name: 构建 Windows
+    needs: validate_inputs
+    if: ${{ github.event.inputs.build_windows_amd64 == 'true' || github.event.inputs.build_windows_arm64 == 'true' }}
+    runs-on: windows-latest
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -118,7 +102,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: ${{ matrix.target }}
+          target: ${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
 
       - name: 设置 Zig
         uses: mlugg/setup-zig@v2.0.0
@@ -129,20 +113,159 @@ jobs:
         run: cargo install --locked cargo-zigbuild
 
       - name: 构建项目
-        env:
-          BUILD_OUTPUT_DIR: binaries/${{ matrix.os }}
         run: |
-          mkdir -p $BUILD_OUTPUT_DIR
-          cargo zigbuild --release --target ${{ matrix.target }}
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp target/${{ matrix.target }}/release/CloudflareST.exe $BUILD_OUTPUT_DIR/
-          else
-            cp target/${{ matrix.target }}/release/CloudflareST $BUILD_OUTPUT_DIR/
-          fi
+          mkdir -p binaries/${{ github.event.inputs.build_windows_amd64 == 'true' && 'Windows_AMD64' || 'Windows_ARM64' }}
+          cargo zigbuild --release --target ${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
+          cp target/${{ github.event.inputs.build_windows_amd64 == 'true' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}/release/CloudflareST.exe binaries/${{ github.event.inputs.build_windows_amd64 == 'true' && 'Windows_AMD64' || 'Windows_ARM64' }}
 
-      - name: 上传二进制文件
+      - name: 上传 Windows 发布包
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-binary
-          path: $BUILD_OUTPUT_DIR/
+          name: windows-release
+          path: releases/CloudflareST-Rust_windows.tar.gz
           retention-days: 1
+
+      - name: 上传 Windows 二进制文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: binaries/windows
+          retention-days: 1
+
+      - name: 创建 Windows 发布版本
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: actions/create-release@v1
+        with:
+          tag_name: windows-v1.0.0
+          release_name: Windows Release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build_linux:
+    name: 构建 Linux
+    needs: validate_inputs
+    if: ${{ github.event.inputs.build_linux_amd64 == 'true' || github.event.inputs.build_linux_arm64 == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}
+
+      - name: 设置 Zig
+        uses: mlugg/setup-zig@v2.0.0
+        with:
+          version: '0.20.0'
+
+      - name: 安装 cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: 构建项目
+        run: |
+          mkdir -p binaries/${{ github.event.inputs.build_linux_amd64 == 'true' && 'Linux_AMD64' || 'Linux_ARM64' }}
+          cargo zigbuild --release --target ${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}
+          cp target/${{ github.event.inputs.build_linux_amd64 == 'true' && 'x86_64-unknown-linux-gnu' || 'aarch64-unknown-linux-gnu' }}/release/CloudflareST binaries/${{ github.event.inputs.build_linux_amd64 == 'true' && 'Linux_AMD64' || 'Linux_ARM64' }}
+
+      - name: 上传 Linux 发布包
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: releases/CloudflareST-Rust_linux.tar.gz
+          retention-days: 1
+
+      - name: 上传 Linux 二进制文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: binaries/linux
+          retention-days: 1
+
+      - name: 创建 Linux 发布版本
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: actions/create-release@v1
+        with:
+          tag_name: linux-v1.0.0
+          release_name: Linux Release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build_macos:
+    name: 构建 macOS
+    needs: validate_inputs
+    if: ${{ github.event.inputs.build_macos_amd64 == 'true' || github.event.inputs.build_macos_arm64 == 'true' }}
+    runs-on: macos-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+
+      - name: 设置 Zig
+        uses: mlugg/setup-zig@v2.0.0
+        with:
+          version: '0.20.0'
+
+      - name: 安装 cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: 构建项目
+        run: |
+          mkdir -p binaries/${{ github.event.inputs.build_macos_amd64 == 'true' && 'MacOS_AMD64' || 'MacOS_ARM64' }}
+          cargo zigbuild --release --target ${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+          cp target/${{ github.event.inputs.build_macos_amd64 == 'true' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}/release/CloudflareST binaries/${{ github.event.inputs.build_macos_amd64 == 'true' && 'MacOS_AMD64' || 'MacOS_ARM64' }}
+
+      - name: 上传 macOS 发布包
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: releases/CloudflareST-Rust_macos.tar.gz
+          retention-days: 1
+
+      - name: 上传 macOS 二进制文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binary
+          path: binaries/macos
+          retention-days: 1
+
+      - name: 创建 macOS 发布版本
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: actions/create-release@v1
+        with:
+          tag_name: macos-v1.0.0
+          release_name: macOS Release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  commit_binaries:
+    name: 提交所有二进制文件
+    needs: [build_windows, build_linux, build_macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 提交二进制文件
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git add binaries/
+          current_time=$(date '+%Y/%m/%d %H:%M:%S')
+          if ! git diff --staged --quiet; then
+            git commit -m "更新所有平台二进制文件 ${current_time}"
+            git push origin main
