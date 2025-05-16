@@ -286,8 +286,12 @@ async fn download_handler(
 
     let mut data_center = None;
     
+    // 计算延长的下载时间
+    let warm_up_duration = Duration::from_secs(3); // 预热时间
+    let extended_duration = download_duration + warm_up_duration; // 预热时间 + 下载时间
+
     // 创建客户端进行下载测速
-    let client = match common::build_reqwest_client(addr, host).await {
+    let client = match common::build_reqwest_client(addr, host, extended_duration.as_millis() as u64).await {
         Some(client) => client,
         None => return (None, None),
     };
@@ -323,15 +327,13 @@ async fn download_handler(
 //        let mut content_read: u64 = 0; // 记录总共已读取的字节数
         let mut actual_content_read: u64 = 0;
         let mut actual_start_time: Option<Instant> = None;
-        let warm_up_duration = Duration::from_secs(3); // 3秒预热时间
-        let extended_duration = download_duration + warm_up_duration; // 延长总下载时间
         
         loop {
             let current_time = Instant::now();
             let elapsed = current_time.duration_since(time_start);
             
             // 检查是否超过总下载时间或收到超时信号
-            if elapsed >= extended_duration || timeout_flag.load(Ordering::SeqCst) {
+            if timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
             

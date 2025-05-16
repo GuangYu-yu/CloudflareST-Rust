@@ -77,10 +77,10 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
 }
 
 /// 构建 Reqwest 客户端
-pub async fn build_reqwest_client(addr: SocketAddr, host: &str) -> Option<Client> {
+pub async fn build_reqwest_client(addr: SocketAddr, host: &str, timeout_ms: u64) -> Option<Client> {
     let client = Client::builder()
         .resolve(host, addr) // 解析域名
-        .connect_timeout(Duration::from_millis(2000)) // 连接超时
+        .timeout(Duration::from_millis(timeout_ms)) // 整个请求超时时间
         .user_agent(USER_AGENT)  // 使用常量
 //        .danger_accept_invalid_certs(true)  // 跳过证书验证
 //        .pool_max_idle_per_host(0) // 禁用连接复用

@@ -141,14 +141,6 @@ impl Ping {
     }
 
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
-        // 检查IP缓冲区是否为空
-        {
-            let ip_buffer = self.ip_buffer.lock().unwrap();
-            if ip_buffer.is_empty() && ip_buffer.total_expected() == 0 {
-                return Ok(Vec::new());
-            }
-        }
-        
         // 检查HTTPS模式下URL列表是否为空
         if self.use_https && self.urlist.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "警告：URL列表为空"));
@@ -231,7 +223,7 @@ async fn httping(
     };
 
     // 创建客户端
-    let client = match common::build_reqwest_client(addr, &host).await {
+    let client = match common::build_reqwest_client(addr, &host, 2000).await {
         Some(client) => client,
         None => return None,
     };
