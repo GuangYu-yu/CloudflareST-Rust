@@ -103,15 +103,14 @@ jobs:
         with:
           toolchain: '1.87.0'
 
-      - name: 构建 Windows x86_64
+      - name: 安装 cross
+        run: |
+          cargo install cross
+
+      - name: Windows x86_64
         run: |
           mkdir -p build/windows binaries/windows_x86_64
-          docker run --rm -v $(pwd):/app -w /app \
-            rust:1.87.0-slim \
-            sh -c "apt-get update && \
-                  apt-get install -y mingw-w64 && \
-                  rustup target add x86_64-pc-windows-gnu && \
-                  cargo build --release --target x86_64-pc-windows-gnu"
+          cross build --release --target x86_64-pc-windows-gnu
           cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe binaries/windows_x86_64/CloudflareST-Rust.exe
           mkdir -p temp_windows
           cp target/x86_64-pc-windows-gnu/release/CloudflareST-Rust.exe temp_windows/CloudflareST-Rust.exe
