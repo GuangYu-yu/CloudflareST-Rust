@@ -1,11 +1,12 @@
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::io;
-use futures::stream::{FuturesUnordered, StreamExt};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 use rand::random;
-use crate::pool::{execute_with_rate_limit, global_pool};
+use crate::pool::execute_with_rate_limit;
 
 use crate::progress::Bar;
 use crate::args::Args;
@@ -44,6 +45,30 @@ impl Ping {
         })
     }
 
+    fn make_handler_factory(
+        &self,
+    ) -> impl Fn(SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> + Send + Sync + 'static {
+        let csv = Arc::clone(&self.csv);
+        let bar = Arc::clone(&self.bar);
+        let args = Arc::clone(&self.args);
+        let success_count = Arc::clone(&self.success_count);
+        let client_v4 = Arc::clone(&self.client_v4);
+        let client_v6 = Arc::clone(&self.client_v6);
+
+        move |addr: SocketAddr| {
+            let csv = csv.clone();
+            let bar = bar.clone();
+            let args = args.clone();
+            let success_count = success_count.clone();
+            let client_v4 = client_v4.clone();
+            let client_v6 = client_v6.clone();
+
+            Box::pin(async move {
+                icmp_handler(addr, csv, bar, &args, success_count, client_v4, client_v6).await;
+            })
+        }
+    }
+
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
         // 检查IP缓冲区是否为空
         {
@@ -52,101 +77,18 @@ impl Ping {
                 return Ok(Vec::new());
             }
         }
-   
-        // 准备工作数据
-        let ip_buffer = Arc::clone(&self.ip_buffer);
-        let csv = Arc::clone(&self.csv);
-        let bar = Arc::clone(&self.bar);
-        let args = Arc::clone(&self.args);
-        let success_count = Arc::clone(&self.success_count);
-        let timeout_flag = Arc::clone(&self.timeout_flag);
 
-        // 使用FuturesUnordered来动态管理任务
-        let mut tasks = FuturesUnordered::new();
-        
-        // 获取当前线程池的并发能力
-        let initial_tasks = global_pool().get_concurrency_level();
+        let handler_factory = self.make_handler_factory();
 
-        let client_v4 = Arc::clone(&self.client_v4);
-        let client_v6 = Arc::clone(&self.client_v6);
-
-        let add_task = |addr: SocketAddr, tasks: &mut FuturesUnordered<_>| {
-            let csv_clone = Arc::clone(&csv);
-            let bar_clone = Arc::clone(&bar);
-            let args_clone = Arc::clone(&args);
-            let success_count_clone = Arc::clone(&success_count);
-            let client_v4_clone = Arc::clone(&client_v4);
-            let client_v6_clone = Arc::clone(&client_v6);
-
-            tasks.push(tokio::spawn(async move {
-                icmp_handler(
-                    addr,
-                    csv_clone, 
-                    bar_clone, 
-                    &args_clone, 
-                    success_count_clone,
-                    client_v4_clone,
-                    client_v6_clone
-                ).await;
-                Ok::<(), io::Error>(())
-            }));
-        };
-
-        // 初始填充任务队列
-        for _ in 0..initial_tasks {
-            let ip = {
-                let mut ip_buffer = ip_buffer.lock().unwrap();
-                ip_buffer.pop()
-            };
-            
-            if let Some(ip) = ip {
-                add_task(ip, &mut tasks);
-            } else {
-                break;
-            }
-        }
-        
-        // 动态处理任务完成和添加新任务
-        while let Some(result) = tasks.next().await {
-            // 检查是否收到超时信号
-            if common::check_timeout_signal(&timeout_flag) {
-                break;
-            }
-            
-            // 检查是否达到目标成功数量
-            if let Some(target_num) = args.target_num {
-                if success_count.load(Ordering::Relaxed) >= target_num as usize {
-                    break;
-                }
-            }
-            
-            // 处理已完成的任务
-            let _ = result;
-            
-            // 添加新任务
-            let ip = {
-                let mut ip_buffer = ip_buffer.lock().unwrap();
-                ip_buffer.pop()
-            };
-            
-            if let Some(ip) = ip {
-                add_task(ip, &mut tasks);
-            }
-        }
-
-        // 更新进度条为完成状态
-        self.bar.done();
-
-        // 收集所有测试结果
-        let mut results = {
-            let mut csv_guard = self.csv.lock().unwrap();
-            std::mem::take(&mut *csv_guard)
-        };
-        
-        // 使用common模块的排序函数
-        common::sort_results(&mut results);
-
-        Ok(results)
+        common::run_ping_test(
+            self.ip_buffer,
+            self.csv,
+            self.bar,
+            self.args,
+            self.success_count,
+            self.timeout_flag,
+            handler_factory,
+        ).await
     }
 }
 

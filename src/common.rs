@@ -1,8 +1,10 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
+use std::io;
 use reqwest::{Client, Response};
+use futures::stream::{FuturesUnordered, StreamExt};
 use crate::args::Args;
 use crate::progress::Bar;
 use crate::ip::{IpBuffer, load_ip_to_buffer};
@@ -118,6 +120,99 @@ pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelay
         Arc::new(Mutex::new(Vec::new())),
         bar
     )
+}
+
+/// 通用的 ping 测试运行函数
+pub async fn run_ping_test<F, Fut>(
+    ip_buffer: Arc<Mutex<IpBuffer>>,
+    csv: Arc<Mutex<PingDelaySet>>,
+    bar: Arc<Bar>,
+    args: Arc<Args>,
+    success_count: Arc<AtomicUsize>,
+    timeout_flag: Arc<AtomicBool>,
+    handler_factory: F,
+) -> Result<PingDelaySet, io::Error>
+where
+    F: Fn(SocketAddr) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    // 检查IP缓冲区是否为空
+    {
+        let ip_buffer_guard = ip_buffer.lock().unwrap();
+        if ip_buffer_guard.is_empty() && ip_buffer_guard.total_expected() == 0 {
+            return Ok(Vec::new());
+        }
+    }
+
+    // 使用FuturesUnordered来动态管理任务
+    let mut tasks = FuturesUnordered::new();
+    
+    // 获取当前线程池的并发能力
+    let initial_tasks = crate::pool::global_pool().get_concurrency_level();
+
+    // 初始填充任务队列
+    for _ in 0..initial_tasks {
+        let addr = {
+            let mut ip_buffer_guard = ip_buffer.lock().unwrap();
+            ip_buffer_guard.pop()
+        };
+        
+        if let Some(addr) = addr {
+            let task = handler_factory(addr);
+            tasks.push(tokio::spawn(async move {
+                task.await;
+                Ok::<(), io::Error>(())
+            }));
+        } else {
+            break;
+        }
+    }
+
+    // 动态处理任务完成和添加新任务
+    while let Some(result) = tasks.next().await {
+        // 检查是否收到超时信号
+        if check_timeout_signal(&timeout_flag) {
+            break;
+        }
+        
+        // 检查是否达到目标成功数量
+        if let Some(target_num) = args.target_num {
+            if success_count.load(Ordering::Relaxed) >= target_num as usize {
+                break;
+            }
+        }
+        
+        // 处理已完成的任务
+        let _ = result;
+        
+        // 添加新任务
+        let addr = {
+            let mut ip_buffer_guard = ip_buffer.lock().unwrap();
+            ip_buffer_guard.pop()
+        };
+        
+        if let Some(addr) = addr {
+            let task = handler_factory(addr);
+            tasks.push(tokio::spawn(async move {
+                task.await;
+                Ok::<(), io::Error>(())
+            }));
+        }
+    }
+
+    // 更新进度条为完成状态
+    bar.done();
+
+    // 收集所有测试结果
+    let mut results = {
+        let mut csv_guard = csv.lock().unwrap();
+        std::mem::take(&mut *csv_guard)
+    };
+    
+    // 使用common模块的排序函数
+    sort_results(&mut results);
+
+    Ok(results)
 }
 
 /// 从URL获取列表
