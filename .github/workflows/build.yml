@@ -184,15 +184,20 @@ jobs:
 
       - name: 准备二进制文件
         run: |
-          mkdir -p binaries_combined
-          cp -r binaries/*/* binaries_combined/
+          mkdir -p binaries
+          # 遍历所有构建产物目录，保持平台目录结构
+          for dir in binaries/CloudflareST-Rust-*/; do
+            platform_name=$(basename "$dir" | sed 's/CloudflareST-Rust-//')
+            mkdir -p "binaries/$platform_name"
+            cp -r "$dir"/* "binaries/$platform_name/"
+          done
         shell: bash
 
       - name: 上传二进制文件到仓库
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "自动构建: 添加所有平台二进制文件"
-          file_pattern: 'binaries_combined/*'
+          file_pattern: 'binaries/*'
 
   create_release:
     name: 创建发布版本
@@ -211,7 +216,32 @@ jobs:
       - name: 准备发布文件
         run: |
           mkdir -p release
-          cp -r artifacts/*/* release/
+          # 遍历所有构建产物目录，按平台打包文件
+          for dir in artifacts/CloudflareST-Rust-*/; do
+            platform_name=$(basename "$dir" | sed 's/CloudflareST-Rust-//')
+            os_name=$(echo "$platform_name" | cut -d'_' -f1 | tr '[:upper:]' '[:lower:]')
+            arch_name=$(echo "$platform_name" | cut -d'_' -f2 | tr '[:upper:]' '[:lower:]')
+            
+            # 创建临时目录用于打包
+            mkdir -p "temp_$platform_name"
+            
+            if [[ "$os_name" == "windows" ]]; then
+              # Windows平台使用zip格式
+              cp "$dir"/* "temp_$platform_name/"
+              cd "temp_$platform_name"
+              zip -r "../release/CloudflareST-Rust_${os_name}_${arch_name}.zip" .
+              cd ..
+            else
+              # Linux和MacOS平台使用tar.gz格式
+              cp "$dir"/* "temp_$platform_name/"
+              cd "temp_$platform_name"
+              tar -czf "../release/CloudflareST-Rust_${os_name}_${arch_name}.tar.gz" .
+              cd ..
+            fi
+            
+            # 清理临时目录
+            rm -rf "temp_$platform_name"
+          done
         shell: bash
 
       - name: 创建发布版本
