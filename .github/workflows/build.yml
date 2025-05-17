@@ -19,8 +19,8 @@ jobs:
       - name: 验证输入
         run: echo "验证输入完成"
     outputs:
-      should_upload_to_repo: ${{ github.event.inputs.upload_to_repo == 'true' }}
-      should_create_release: ${{ github.event.inputs.create_release == 'true' }}
+      should_upload_to_repo: ${{ github.event.inputs.upload_to_repo }}
+      should_create_release: ${{ github.event.inputs.create_release }}
 
   cleanup_releases:
     name: 清理旧版本发布
@@ -105,16 +105,6 @@ jobs:
           echo "等待清理旧版本完成"
         shell: bash
 
-      - name: 安装Linux交叉编译依赖
-        if: ${{ matrix.os == 'Linux' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabihf \
-            binutils-aarch64-linux-gnu
-        shell: bash
-
       - name: 检出代码
         uses: actions/checkout@v4
 
@@ -129,7 +119,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target ${{ matrix.target }} ${{ matrix.os == 'Linux' && '--features static-link' || '' }}
+          args: --release --target ${{ matrix.target }}
           
       - name: 创建二进制目录
         run: mkdir -p binaries/${{ matrix.os }}_${{ matrix.arch }}
