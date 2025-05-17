@@ -1,6 +1,5 @@
 name: 构建和发布
 
-
 on:
   workflow_dispatch:  # 手动触发工作流
     inputs:
@@ -215,6 +214,12 @@ jobs:
         with:
           path: artifacts/
 
+      # 列出下载的构建产物
+      - name: 列出下载的构建产物
+        run: |
+          find artifacts/ -type f | sort
+        shell: bash
+
       - name: 创建发布版本
         id: create_release
         uses: actions/create-release@v1 # 创建GitHub release
@@ -233,10 +238,71 @@ jobs:
       # 上传Linux x86_64平台的构建产物到发布页面
       - name: 上传Linux x86_64构建产物
         uses: actions/upload-release-asset@v1
+        if: hashFiles('artifacts/ubuntu-latest-CloudflareST-Rust/CloudflareST-Rust') != ''
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: artifacts/ubuntu-latest-CloudflareST-Rust/CloudflareST-Rust
           asset_name: CloudflareST-Rust-linux-x86_64
+          asset_content_type: application/octet-stream
+
+      # 上传Linux aarch64平台的构建产物到发布页面
+      - name: 上传Linux aarch64构建产物
+        uses: actions/upload-release-asset@v1
+        if: hashFiles('artifacts/ubuntu-latest-CloudflareST-Rust-aarch64/CloudflareST-Rust') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/ubuntu-latest-CloudflareST-Rust-aarch64/CloudflareST-Rust
+          asset_name: CloudflareST-Rust-linux-aarch64
+          asset_content_type: application/octet-stream
+
+      # 上传macOS x86_64平台的构建产物到发布页面
+      - name: 上传macOS x86_64构建产物
+        uses: actions/upload-release-asset@v1
+        if: hashFiles('artifacts/macos-latest-CloudflareST-Rust/CloudflareST-Rust') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/macos-latest-CloudflareST-Rust/CloudflareST-Rust
+          asset_name: CloudflareST-Rust-macos-x86_64
+          asset_content_type: application/octet-stream
+
+      # 上传macOS aarch64平台的构建产物到发布页面
+      - name: 上传macOS aarch64构建产物
+        uses: actions/upload-release-asset@v1
+        if: hashFiles('artifacts/macos-latest-CloudflareST-Rust-aarch64/CloudflareST-Rust') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/macos-latest-CloudflareST-Rust-aarch64/CloudflareST-Rust
+          asset_name: CloudflareST-Rust-macos-aarch64
+          asset_content_type: application/octet-stream
+
+      # 上传Windows x86_64平台的构建产物到发布页面
+      - name: 上传Windows x86_64构建产物
+        uses: actions/upload-release-asset@v1
+        if: hashFiles('artifacts/windows-latest-CloudflareST-Rust/CloudflareST-Rust.exe') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/windows-latest-CloudflareST-Rust/CloudflareST-Rust.exe
+          asset_name: CloudflareST-Rust-windows-x86_64.exe
+          asset_content_type: application/octet-stream
+
+      # 上传Windows aarch64平台的构建产物到发布页面
+      - name: 上传Windows aarch64构建产物
+        uses: actions/upload-release-asset@v1
+        if: hashFiles('artifacts/windows-latest-CloudflareST-Rust-aarch64/CloudflareST-Rust.exe') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/windows-latest-CloudflareST-Rust-aarch64/CloudflareST-Rust.exe
+          asset_name: CloudflareST-Rust-windows-aarch64.exe
           asset_content_type: application/octet-stream
