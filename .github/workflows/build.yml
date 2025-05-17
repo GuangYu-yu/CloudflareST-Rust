@@ -61,7 +61,7 @@ jobs:
 
   build:
     name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
-    needs: [validate_inputs, cleanup_releases]
+    needs: validate_inputs
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -99,6 +99,11 @@ jobs:
             binary_name: CloudflareST-Rust
 
     steps:
+      - name: 等待清理旧版本完成
+        if: ${{ needs.validate_inputs.outputs.should_create_release == 'true' }}
+        run: |
+        shell: bash
+
       - name: 检出代码
         uses: actions/checkout@v4
 
@@ -162,7 +167,7 @@ jobs:
 
   create_release:
     name: 创建发布版本
-    needs: [validate_inputs, build]
+    needs: [validate_inputs, build, cleanup_releases]
     if: ${{ needs.validate_inputs.outputs.should_create_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
