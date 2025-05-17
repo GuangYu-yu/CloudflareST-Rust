@@ -128,18 +128,37 @@ jobs:
           fi
         shell: bash
 
-      - name: 上传二进制文件到仓库
-        if: needs.validate_inputs.outputs.should_upload_to_repo == 'true'
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "自动构建: 添加 ${{ matrix.os }}_${{ matrix.arch }} 二进制文件"
-          file_pattern: 'binaries/${{ matrix.os }}_${{ matrix.arch }}/*'
-
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: CloudflareST-Rust-${{ matrix.os }}_${{ matrix.arch }}
           path: binaries/${{ matrix.os }}_${{ matrix.arch }}/
+
+  upload_to_repo:
+    name: 上传二进制文件到仓库
+    needs: [validate_inputs, build]
+    if: ${{ needs.validate_inputs.outputs.should_upload_to_repo == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries/
+
+      - name: 准备二进制文件
+        run: |
+          mkdir -p binaries_combined
+          cp -r binaries/*/* binaries_combined/
+        shell: bash
+
+      - name: 上传二进制文件到仓库
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "自动构建: 添加所有平台二进制文件"
+          file_pattern: 'binaries_combined/*'
 
   create_release:
     name: 创建发布版本
