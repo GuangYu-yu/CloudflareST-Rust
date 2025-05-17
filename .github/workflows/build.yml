@@ -102,6 +102,7 @@ jobs:
       - name: 等待清理旧版本完成
         if: ${{ needs.validate_inputs.outputs.should_create_release == 'true' }}
         run: |
+          echo "等待清理旧版本完成"
         shell: bash
 
       - name: 检出代码
