@@ -180,17 +180,24 @@ jobs:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
         with:
-          path: binaries/
+          path: downloaded_artifacts/
 
       - name: 准备二进制文件
         run: |
+          # 清空或创建 binaries 目录
+          rm -rf binaries
           mkdir -p binaries
-          # 遍历所有构建产物目录，保持平台目录结构
-          for dir in binaries/CloudflareST-Rust-*/; do
+          
+          # 遍历所有构建产物目录，直接复制到对应平台目录
+          for dir in downloaded_artifacts/CloudflareST-Rust-*/; do
             platform_name=$(basename "$dir" | sed 's/CloudflareST-Rust-//')
             mkdir -p "binaries/$platform_name"
             cp -r "$dir"/* "binaries/$platform_name/"
           done
+          
+          # 显示目录结构以便调试
+          echo "最终目录结构:"
+          find binaries -type f | sort
         shell: bash
 
       - name: 上传二进制文件到仓库
