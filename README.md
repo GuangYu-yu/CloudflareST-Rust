@@ -93,19 +93,14 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 程序执行完毕
 ```
 
-## 下载直链
-
-[Linux_AMD64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Linux_AMD64/CloudflareST-Rust)
-
-[Linux_ARM64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Linux_ARM64/CloudflareST-Rust)
-
-[MacOS_AMD64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/MacOS_AMD64/CloudflareST-Rust)
-
-[MacOS_ARM64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/MacOS_ARM64/CloudflareST-Rust)
-
-[Windows_AMD64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_AMD64/CloudflareST-Rust.exe)
-
-[Windows_ARM64](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_ARM64/CloudflareST-Rust.exe)
+| 平台   | 架构   | 下载链接                                                                 |
+|--------|--------|--------------------------------------------------------------------------|
+| Linux  | AMD64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Linux_AMD64/CloudflareST-Rust)   |
+| Linux  | ARM64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Linux_ARM64/CloudflareST-Rust)   |
+| MacOS  | AMD64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/MacOS_AMD64/CloudflareST-Rust)   |
+| MacOS  | ARM64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/MacOS_ARM64/CloudflareST-Rust)   |
+| Windows| AMD64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_AMD64/CloudflareST-Rust.exe) |
+| Windows| ARM64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_ARM64/CloudflareST-Rust.exe) |
 
 ****
 
