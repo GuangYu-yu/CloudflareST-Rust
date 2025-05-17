@@ -80,13 +80,17 @@ jobs:
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             binary_name: CloudflareST-Rust
+            docker_image: alpine:latest
+            docker_platform: linux/amd64
           - os: Linux
             runner: ubuntu-latest
             arch: ARM64
-            target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
             binary_name: CloudflareST-Rust
+            docker_image: alpine:latest
+            docker_platform: linux/arm64
           - os: MacOS
             runner: macos-latest
             arch: AMD64
@@ -108,14 +112,36 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装 Rust
+      # 为非 Linux 平台使用标准 Rust 安装
+      - name: 安装 Rust (非 Linux)
+        if: ${{ matrix.os != 'Linux' }}
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
 
-      - name: 构建
+      # 为 Linux 平台使用 Docker 进行静态编译
+      - name: 设置 QEMU (Linux)
+        if: ${{ matrix.os == 'Linux' }}
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.docker_platform }}
+
+      - name: 在 Alpine Docker 中构建 (Linux)
+        if: ${{ matrix.os == 'Linux' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.alpine
+          platforms: ${{ matrix.docker_platform }}
+          build-args: |
+            RUST_TARGET=${{ matrix.target }}
+          outputs: type=local,dest=./target
+
+      # 为非 Linux 平台使用标准构建
+      - name: 构建 (非 Linux)
+        if: ${{ matrix.os != 'Linux' }}
         uses: actions-rs/cargo@v1
         with:
           command: build
