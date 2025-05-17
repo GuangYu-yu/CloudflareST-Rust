@@ -105,6 +105,16 @@ jobs:
           echo "等待清理旧版本完成"
         shell: bash
 
+      - name: 安装Linux交叉编译依赖
+        if: ${{ matrix.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabihf \
+            binutils-aarch64-linux-gnu
+        shell: bash
+
       - name: 检出代码
         uses: actions/checkout@v4
 
@@ -119,7 +129,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target ${{ matrix.target }}
+          args: --release --target ${{ matrix.target }} ${{ matrix.os == 'Linux' && '--features static-link' || '' }}
           
       - name: 创建二进制目录
         run: mkdir -p binaries/${{ matrix.os }}_${{ matrix.arch }}
