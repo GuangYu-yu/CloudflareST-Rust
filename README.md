@@ -89,6 +89,7 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 
 [信息] 完整测速结果已写入 result.csv 文件，可使用记事本/表格软件查看
 程序执行完毕
+
 ```
 
 | 平台   | 架构   | 下载链接                                                                 |
@@ -99,6 +100,14 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 | MacOS  | ARM64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/MacOS_ARM64/CloudflareST-Rust)   |
 | Windows| AMD64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_AMD64/CloudflareST-Rust.exe) |
 | Windows| ARM64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_ARM64/CloudflareST-Rust.exe) |
+
+安卓使用 Termux 运行：
+
+```curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/refs/heads/main/setup_cloudflarest.sh | bash```
+
+或者和 OpenWrt 那样，可通过 [工具](https://github.com/GuangYu-yu/opw-cloudflare) 测速并解析到 Cloudflare 或提交到 Github
+
+```curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/main/cfopw.sh | bash```
 
 ****
 
