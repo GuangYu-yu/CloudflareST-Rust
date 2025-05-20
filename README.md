@@ -3,7 +3,6 @@
 **对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
 自建测速地址 [点击前往](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)
-> 测速地址搜寻语法 `title="Index of /" && server=="cloudflare" && body=".iso"`
 
 [![Ask GitSummarize](https://gitsummarize.com/favicon.ico)](https://gitsummarize.com/GuangYu-yu/CloudflareST-Rust) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
 
@@ -101,12 +100,13 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 | Windows| AMD64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_AMD64/CloudflareST-Rust.exe) |
 | Windows| ARM64  | [下载](https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/refs/heads/main/binaries/Windows_ARM64/CloudflareST-Rust.exe) |
 
-安卓/OpenWrt 如果仅获取，可使用：
+安卓/OpenWrt 如果仅获取 `CloudflareST-Rust` ，可使用：
 
 ```
 curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/refs/heads/main/setup_cloudflarest.sh | bash
 ```
-> 安卓下载 [Termux](https://github.com/termux/termux-app/releases)
+> - 安卓下载 [Termux](https://github.com/termux/termux-app/releases)
+> - 先使用 `pkg upgrade -y` 或 `opkg update` 刷新软件包
 
 或者可使用 [工具](https://github.com/GuangYu-yu/opw-cloudflare) ，能测速并解析到 Cloudflare 或提交到 Github：
 
