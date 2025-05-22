@@ -4,7 +4,7 @@
 
 自建测速地址 [点击前往](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)
 
-[![Ask GitSummarize](https://gitsummarize.com/favicon.ico)](https://gitsummarize.com/GuangYu-yu/CloudflareST-Rust) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
+[![Ask GitSummarize](https://gitsummarize.com/favicon.ico)](https://gitsummarize.com/GuangYu-yu/CloudflareST-Rust) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust) [![Ask ReadmeX](https://readmex.com/logo.svg)](https://readmex.com/GuangYu-yu/CloudflareST-Rust)
 
 ***工具仅用于简单的网络测速，造成的一切后果自负***
 
