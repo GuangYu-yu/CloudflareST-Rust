@@ -9,72 +9,63 @@
 ***工具仅用于简单的网络测速，造成的一切后果自负***
 
 ```mermaid
-flowchart TD
-    Main["主控模块 (src/main.rs)"]:::orchestration
-    CLI["命令行参数解析"]:::input
-    IP["IP来源"]:::input
-    Pool["并发池"]:::infra
-    ICMP["ICMP模块"]:::processing
-    TCP["TCP模块"]:::processing
-    HTTP["HTTPing模块"]:::processing
-    Filter["过滤与阈值逻辑"]:::processing
-    Download["下载模块"]:::processing
-    Progress["进度与报告"]:::util
-    Common["通用工具"]:::util
-    Console["控制台输出"]:::output
-    CSV["CSV输出"]:::output
+flowchart TB
+    %% 样式定义
+    classDef input fill:#f5f5dc,stroke:#333,stroke-width:1px;
+    classDef processing fill:#e6f3ff,stroke:#333,stroke-width:1px;
+    classDef infra fill:#f9e0b2,stroke:#333,stroke-width:1px;
+    classDef output fill:#e6ffe6,stroke:#333,stroke-width:1px;
+    classDef orchestration fill:#ffe6e6,stroke:#333,stroke-width:1px;
+    classDef ping fill:#b2e6ff,stroke:#333,stroke-width:1px;
 
-    Main -->|初始化| CLI
-    CLI -->|读取参数| IP
-    IP -->|流式IP| Pool
-    Pool -->|分发任务| ICMP
-    Pool -->|分发任务| TCP
-    Pool -->|分发任务| HTTP
-    ICMP -->|延迟结果| Filter
-    TCP -->|延迟结果| Filter
-    HTTP -->|延迟结果| Filter
-    Filter -->|达到阈值| Download
-    Download -->|下载指标| Progress
+    %% 主控模块
+    Main["主控模块"]:::orchestration
 
-    subgraph "实时指标"
-        Pool --> Progress
-        ICMP --> Progress
-        TCP --> Progress
-        HTTP --> Progress
-        Filter --> Progress
-        CLI --> Progress
+    %% 输入模块
+    subgraph 输入模块["输入模块"]
+        CLI["命令行参数解析"]:::input
+        IP["IP来源"]:::input
     end
 
-    Progress -->|聚合指标| Console
-    Progress -->|聚合指标| CSV
+    %% 并发池
+    Pool["并发池"]:::infra
 
-    Common -.-> Pool
-    Common -.-> ICMP
-    Common -.-> TCP
-    Common -.-> HTTP
-    Common -.-> Filter
-    Common -.-> Download
-    Common -.-> CSV
-    Common -.-> Progress
+    %% Ping测试
+    Ping["Ping测试(ICMP/TCP/HTTP)"]:::ping
 
+    %% 核心处理
+    subgraph 核心处理["核心处理"]
+        Filter["过滤与阈值逻辑"]:::processing
+        Download["下载测速"]:::processing
+    end
+
+    %% 输出模块
+    subgraph 输出模块["输出模块"]
+        Console["控制台输出"]:::output
+        CSV["CSV输出"]:::output
+    end
+
+    %% 连线优化
+    Main --> CLI
+    Main --> IP
+    CLI -->|提供参数| Pool
+    IP -->|提供IP| Pool
+    Pool -->|调度| Ping
+    Ping -->|结果| Filter
+    Filter -->|需要下载测速| Download
+    Filter -->|直接输出| Console
+    Filter -->|直接输出| CSV
+    Download -->|输出结果| Console
+    Download -->|输出结果| CSV
+
+    %% 超链接
     click Main "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/main.rs"
     click CLI "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/args.rs"
     click IP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/ip.rs"
     click Pool "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/pool.rs"
-    click ICMP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/icmp.rs"
-    click TCP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/tcping.rs"
-    click HTTP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/httping.rs"
+    click Ping "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/" _parent
     click Download "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/download.rs"
     click CSV "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/csv.rs"
-    click Common "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/common.rs"
-    click Progress "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/progress.rs"
-
-    classDef input fill:#fdf6b2,stroke:#333,stroke-width:1px
-    classDef processing fill:#b2dff9,stroke:#333,stroke-width:1px
-    classDef infra fill:#f9d0b2,stroke:#333,stroke-width:1px
-    classDef output fill:#b2f9b2,stroke:#333,stroke-width:1px
-    classDef util fill:#e0b2f9,stroke:#333,stroke-width:1px
-    classDef orchestration fill:#ffe6e6,stroke:#333,stroke-width:1px
 ```
 
 > - 建议指定大范围 CIDR 较大测速数量，并使用 -tn 参数。例如：-ip 2606:4700::/48=100000 -tn 30000
