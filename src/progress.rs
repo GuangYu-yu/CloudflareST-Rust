@@ -1,12 +1,13 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use std::borrow::Cow;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use terminal_size::{terminal_size, Width};
 
 pub struct Bar {
     progress_bar: Arc<ProgressBar>,
-    is_done: Arc<Mutex<bool>>,
+    is_done: Arc<AtomicU64>,
 }
 
 impl Bar {
@@ -52,13 +53,13 @@ impl Bar {
         
         Self {
             progress_bar: Arc::new(pb),
-            is_done: Arc::new(Mutex::new(false)),
+            is_done: Arc::new(AtomicU64::new(0)),
         }
     }
     
     // 检查是否已完成
     fn is_done(&self) -> bool {
-        *self.is_done.lock().unwrap()
+        self.is_done.load(Ordering::Relaxed) != 0
     }
     
     pub fn grow(&self, num: u64, msg: impl Into<Cow<'static, str>>) {
@@ -81,16 +82,10 @@ impl Bar {
     }
     
     pub fn done(&self) {
-        // 获取锁并检查是否已经完成
-        let mut is_done = self.is_done.lock().unwrap();
-        if *is_done {
-            return;
+        // 使用原子操作检查并设置完成状态
+        if self.is_done.compare_exchange(0, 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            // 只有成功将状态从 0 改为 1 时才执行
+            self.progress_bar.finish();
         }
-        
-        // 标记为已完成
-        *is_done = true;
-        
-        // 停止进度条
-        self.progress_bar.finish();
     }
 }

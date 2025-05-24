@@ -41,8 +41,6 @@ pub struct Args {
     pub help: bool,              // 显示帮助
     pub show_port: bool,         // 是否显示端口号
     
-    // 全局超时
-    pub global_timeout: String,         // 全局超时时间(字符串)
     pub global_timeout_duration: Option<Duration>, // 全局超时时间
     pub max_threads: usize,      // 最大线程数
 }
@@ -81,7 +79,6 @@ impl Args {
             help: false,
             show_port: false,
             
-            global_timeout: String::new(),
             global_timeout_duration: None,
             max_threads: 256,
         }
@@ -134,7 +131,7 @@ impl Args {
             // 无值标志参数
             "h" | "help" => parsed.help = true,
             "httping" => parsed.httping = true,
-//            "ping" => parsed.icmp_ping = true,
+    //      "ping" => parsed.icmp_ping = true,
             "dd" => parsed.disable_download = true,
             "all4" => parsed.test_all = true,
             "sp" => parsed.show_port = true,
@@ -143,45 +140,80 @@ impl Args {
             "hu" => {
                 parsed.httping_urls_flag = true;
                 parsed.httping = true; // 设置httping为true
-                if let Some(val) = value {
-                    parsed.httping_urls = val.clone();
-                }
+                Self::set_string(value, &mut parsed.httping_urls);
             },
             
             // 带值参数
-            "t" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.ping_times = num; } },
-            "dn" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.test_count = num; } },
-            "dt" => if let Some(val) = value { if let Ok(num) = val.parse::<u64>() { parsed.timeout_duration = Some(Duration::from_secs(num)); } },
-            "tp" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.tcp_port = num; } },
-            "url" => if let Some(val) = value { parsed.url = val.clone(); },
-            "urlist" => if let Some(val) = value { parsed.urlist = val.clone(); },
-            "colo" => if let Some(val) = value { parsed.httping_cf_colo = val.clone().to_uppercase(); },
-            "tl" => if let Some(val) = value { if let Ok(num) = val.parse::<u64>() { parsed.max_delay = Duration::from_millis(num); } },
-            "tll" => if let Some(val) = value { if let Ok(num) = val.parse::<u64>() { parsed.min_delay = Duration::from_millis(num); } },
-            "tlr" => if let Some(val) = value { if let Ok(num) = val.parse::<f32>() { parsed.max_loss_rate = num; } },
-            "sl" => if let Some(val) = value { if let Ok(num) = val.parse::<f32>() { parsed.min_speed = num; } },
-            "p" => if let Some(val) = value { if let Ok(num) = val.parse::<u16>() { parsed.print_num = num; } },
-            "n" => if let Some(val) = value { if let Ok(num) = val.parse::<usize>() { parsed.max_threads = num.clamp(5, 2048); } },
-            "f" => if let Some(val) = value { parsed.ip_file = val.clone(); },
-            "ip" => if let Some(val) = value { parsed.ip_text = val.clone(); },
-            "ipurl" => if let Some(val) = value { parsed.ip_url = val.clone(); },
-            "o" => if let Some(val) = value { parsed.output = val.clone(); },
-            "timeout" => if let Some(val) = value { parsed.global_timeout = val.clone(); parsed.global_timeout_duration = parse_duration(val); },
-            "tn" => if let Some(val) = value { if let Ok(num) = val.parse::<u32>() { parsed.target_num = Some(num); } },
+            "t" => Self::set_if_valid::<u16>(value, &mut parsed.ping_times),
+            "dn" => Self::set_if_valid::<u16>(value, &mut parsed.test_count),
+            "dt" => Self::set_duration_secs(value, &mut parsed.timeout_duration),
+            "tp" => Self::set_if_valid::<u16>(value, &mut parsed.tcp_port),
+            "url" => Self::set_string(value, &mut parsed.url),
+            "urlist" => Self::set_string(value, &mut parsed.urlist),
+            "colo" => Self::set_string(value, &mut parsed.httping_cf_colo),
+            "tl" => Self::set_duration_ms(value, &mut parsed.max_delay),
+            "tll" => Self::set_duration_ms(value, &mut parsed.min_delay),
+            "tlr" => Self::set_if_valid::<f32>(value, &mut parsed.max_loss_rate),
+            "sl" => Self::set_if_valid::<f32>(value, &mut parsed.min_speed),
+            "p" => Self::set_if_valid::<u16>(value, &mut parsed.print_num),
+            "n" => Self::set_with_clamp::<usize>(value, &mut parsed.max_threads, 5, 2048),
+            "f" => Self::set_string(value, &mut parsed.ip_file),
+            "ip" => Self::set_string(value, &mut parsed.ip_text),
+            "ipurl" => Self::set_string(value, &mut parsed.ip_url),
+            "o" => Self::set_string(value, &mut parsed.output),
+            "timeout" => Self::set_duration_secs(value, &mut parsed.global_timeout_duration),
+            "tn" => Self::set_option::<u32>(value, &mut parsed.target_num),
             _ => { print_help(); eprintln!("错误: 不支持的参数: {}", name); std::process::exit(1); }
         }
     }
-}
-
-// 解析时间
-fn parse_duration(duration_str: &str) -> Option<Duration> {
-    if let Ok(seconds) = duration_str.parse::<u64>() {
-        return Some(Duration::from_secs(seconds));
+    
+    // 解析字符串值为指定类型，如果解析失败则返回 None
+    fn parse_value<T: std::str::FromStr>(value: Option<&String>) -> Option<T> {
+        value.and_then(|val| val.parse::<T>().ok())
     }
     
-    // 如果解析失败，打印错误信息并返回None
-    println!("错误：没有正确设置程序超时时间");
-    None
+    // 解析字符串值并设置目标字段，如果解析失败则保持原值
+    fn set_if_valid<T: std::str::FromStr>(value: Option<&String>, target: &mut T) {
+        if let Some(parsed) = Self::parse_value::<T>(value) {
+            *target = parsed;
+        }
+    }
+    
+    // 解析字符串值为 Duration (毫秒)
+    fn set_duration_ms(value: Option<&String>, target: &mut Duration) {
+        if let Some(ms) = Self::parse_value::<u64>(value) {
+            *target = Duration::from_millis(ms);
+        }
+    }
+    
+    // 解析字符串值为 Duration (秒)
+    fn set_duration_secs(value: Option<&String>, target: &mut Option<Duration>) {
+        if let Some(secs) = Self::parse_value::<u64>(value) {
+            *target = Some(Duration::from_secs(secs));
+        }
+    }
+    
+    // 解析字符串值并应用范围限制
+    fn set_with_clamp<T>(value: Option<&String>, target: &mut T, min: T, max: T) 
+    where T: std::str::FromStr + Ord + Copy {
+        if let Some(parsed) = Self::parse_value::<T>(value) {
+            *target = parsed.clamp(min, max);
+        }
+    }
+    
+    // 设置字符串值
+    fn set_string(value: Option<&String>, target: &mut String) {
+        if let Some(val) = value {
+            *target = val.clone();
+        }
+    }
+    
+    // 设置可选数值
+    fn set_option<T: std::str::FromStr>(value: Option<&String>, target: &mut Option<T>) {
+        if let Some(parsed) = Self::parse_value::<T>(value) {
+            *target = Some(parsed);
+        }
+    }
 }
 
 macro_rules! print_arg {
