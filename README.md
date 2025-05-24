@@ -8,6 +8,75 @@
 
 ***工具仅用于简单的网络测速，造成的一切后果自负***
 
+```mermaid
+flowchart TD
+    Main["主控模块 (src/main.rs)"]:::orchestration
+    CLI["命令行参数解析"]:::input
+    IP["IP来源"]:::input
+    Pool["并发池"]:::infra
+    ICMP["ICMP模块"]:::processing
+    TCP["TCP模块"]:::processing
+    HTTP["HTTPing模块"]:::processing
+    Filter["过滤与阈值逻辑"]:::processing
+    Download["下载模块"]:::processing
+    Progress["进度与报告"]:::util
+    Common["通用工具"]:::util
+    Console["控制台输出"]:::output
+    CSV["CSV输出"]:::output
+
+    Main -->|初始化| CLI
+    CLI -->|读取参数| IP
+    IP -->|流式IP| Pool
+    Pool -->|分发任务| ICMP
+    Pool -->|分发任务| TCP
+    Pool -->|分发任务| HTTP
+    ICMP -->|延迟结果| Filter
+    TCP -->|延迟结果| Filter
+    HTTP -->|延迟结果| Filter
+    Filter -->|达到阈值| Download
+    Download -->|下载指标| Progress
+
+    subgraph "实时指标"
+        Pool --> Progress
+        ICMP --> Progress
+        TCP --> Progress
+        HTTP --> Progress
+        Filter --> Progress
+        CLI --> Progress
+    end
+
+    Progress -->|聚合指标| Console
+    Progress -->|聚合指标| CSV
+
+    Common -.-> Pool
+    Common -.-> ICMP
+    Common -.-> TCP
+    Common -.-> HTTP
+    Common -.-> Filter
+    Common -.-> Download
+    Common -.-> CSV
+    Common -.-> Progress
+
+    click Main "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/main.rs"
+    click CLI "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/args.rs"
+    click IP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/ip.rs"
+    click Pool "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/pool.rs"
+    click ICMP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/icmp.rs"
+    click TCP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/tcping.rs"
+    click HTTP "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/httping.rs"
+    click Download "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/download.rs"
+    click CSV "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/csv.rs"
+    click Common "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/common.rs"
+    click Progress "https://github.com/guangyu-yu/cloudflarest-rust/blob/main/src/progress.rs"
+
+    classDef input fill:#fdf6b2,stroke:#333,stroke-width:1px
+    classDef processing fill:#b2dff9,stroke:#333,stroke-width:1px
+    classDef infra fill:#f9d0b2,stroke:#333,stroke-width:1px
+    classDef output fill:#b2f9b2,stroke:#333,stroke-width:1px
+    classDef util fill:#e0b2f9,stroke:#333,stroke-width:1px
+    classDef orchestration fill:#ffe6e6,stroke:#333,stroke-width:1px
+```
+
 > - 建议指定大范围 CIDR 较大测速数量，并使用 -tn 参数。例如：-ip 2606:4700::/48=100000 -tn 30000
 > - 含义是：对 2606:4700::/48 最多测速 100000 个随机 IP ,并在测速到 30000 个可用 IP 后结束延迟测速
 > - 因为是流式处理，因此即便测速任意数量随机 IP，都是实时生成、测速、过滤，内存中只有符合要求的结果
