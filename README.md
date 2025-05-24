@@ -114,6 +114,8 @@ curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/refs/head
 curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/main/cfopw.sh | bash
 ```
 
+`bash cf` 进入菜单
+
 ****
 
 ## License
