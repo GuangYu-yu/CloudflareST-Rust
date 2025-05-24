@@ -15,12 +15,15 @@ on:
 jobs:
   validate_inputs:
     runs-on: ubuntu-latest
+    outputs:
+      should_upload_to_repo: ${{ steps.set_outputs.outputs.should_upload_to_repo }}
+      should_create_release: ${{ steps.set_outputs.outputs.should_create_release }}
     steps:
       - name: 验证输入
-        run: echo "验证输入完成"
-    outputs:
-      should_upload_to_repo: ${{ github.event.inputs.upload_to_repo }}
-      should_create_release: ${{ github.event.inputs.create_release }}
+        id: set_outputs
+        run: |
+          echo "should_upload_to_repo=${{ github.event.inputs.upload_to_repo }}" >> $GITHUB_OUTPUT
+          echo "should_create_release=${{ github.event.inputs.create_release }}" >> $GITHUB_OUTPUT
 
   cleanup_releases:
     name: 清理旧版本发布
