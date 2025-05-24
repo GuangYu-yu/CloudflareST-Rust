@@ -106,7 +106,6 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/refs/heads/main/setup_cloudflarest.sh | bash
 ```
 > - 安卓下载 [Termux](https://github.com/termux/termux-app/releases)
-> - 先使用 `pkg upgrade -y` 或 `opkg update` 刷新软件包
 
 或者可使用 [工具](https://github.com/GuangYu-yu/opw-cloudflare) ，能测速并解析到 Cloudflare 或提交到 Github：
 
