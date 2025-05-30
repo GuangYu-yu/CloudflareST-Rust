@@ -100,6 +100,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 清理target目录
+        run: rm -rf target
+        shell: bash
+
       - name: 安装 Rust
         if: ${{ matrix.use_docker != true }}
         uses: actions-rs/toolchain@v1
