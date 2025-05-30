@@ -133,9 +133,9 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
     if !ip_text.is_empty() {
         ip_sources.extend(
             ip_text.split(',')
-                .map(|ip| ip.trim())
-                .filter(|ip| !ip.is_empty())
-                .map(|ip| ip.to_string())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToString::to_string)
         );
     }
     
