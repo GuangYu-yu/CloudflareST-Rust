@@ -131,13 +131,12 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
     
     // 1. 从参数中获取IP段数据
     if !ip_text.is_empty() {
-        let ips: Vec<&str> = ip_text.split(',').collect();
-        for ip in ips {
-            let ip = ip.trim();
-            if !ip.is_empty() {
-                ip_sources.push(ip.to_string());
-            }
-        }
+        ip_sources.extend(
+            ip_text.split(',')
+                .map(|ip| ip.trim())
+                .filter(|ip| !ip.is_empty())
+                .map(|ip| ip.to_string())
+        );
     }
     
     // 2. 从URL获取IP段数据
