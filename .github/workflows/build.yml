@@ -110,7 +110,7 @@ jobs:
       - name: 安装 Zig
         uses: korandoru/setup-zig@v1
         with:
-          zig-version: 'latest'
+          zig-version: master
 
       - name: 安装 cargo-zigbuild
         run: cargo install cargo-zigbuild
