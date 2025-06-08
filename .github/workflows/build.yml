@@ -104,13 +104,11 @@ jobs:
         run: rm -rf target
         shell: bash
 
-      - name: 安装 Rust
+      - name: 安装最新 Rust 工具链
         if: ${{ matrix.use_docker != true }}
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
+          targets: ${{ matrix.target }}
 
       - name: 使用 Docker 构建 Linux AMD64
         if: ${{ matrix.os == 'Linux' && matrix.arch == 'AMD64' }}
