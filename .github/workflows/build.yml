@@ -62,6 +62,7 @@ jobs:
             arch: AMD64
             target: x86_64-pc-windows-gnu
             binary_name: CloudflareST-Rust.exe
+            use_cargo: true
           - os: Windows
             runner: windows-latest
             arch: ARM64
