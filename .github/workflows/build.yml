@@ -119,6 +119,7 @@ jobs:
 
       - name: 使用 cargo-zigbuild 构建
         run: cargo zigbuild --release --target ${{ matrix.target }}
+        
       - name: 使用 cargo 构建
         if: ${{ matrix.use_cargo == true }}
         run: cargo build --release --target ${{ matrix.target }}
