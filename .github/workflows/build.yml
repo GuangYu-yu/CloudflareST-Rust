@@ -67,6 +67,7 @@ jobs:
             arch: ARM64
             target: aarch64-pc-windows-gnu
             binary_name: CloudflareST-Rust.exe
+            use_cargo: true
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
@@ -118,6 +119,9 @@ jobs:
 
       - name: 使用 cargo-zigbuild 构建
         run: cargo zigbuild --release --target ${{ matrix.target }}
+      - name: 使用 cargo 构建
+        if: ${{ matrix.use_cargo == true }}
+        run: cargo build --release --target ${{ matrix.target }}
         shell: bash
           
       - name: 创建二进制目录
