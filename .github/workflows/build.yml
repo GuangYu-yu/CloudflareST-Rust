@@ -65,7 +65,7 @@ jobs:
           - os: Windows
             runner: windows-latest
             arch: ARM64
-            target: aarch64-pc-windows-gnu
+            target: aarch64-pc-windows-msvc
             binary_name: CloudflareST-Rust.exe
             use_cargo: true
           - os: Linux
@@ -119,7 +119,7 @@ jobs:
 
       - name: 使用 cargo-zigbuild 构建
         run: cargo zigbuild --release --target ${{ matrix.target }}
-        
+
       - name: 使用 cargo 构建
         if: ${{ matrix.use_cargo == true }}
         run: cargo build --release --target ${{ matrix.target }}
