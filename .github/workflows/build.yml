@@ -60,7 +60,7 @@ jobs:
           - os: Windows
             runner: windows-latest
             arch: AMD64
-            target: x86_64-pc-windows-gnu
+            target: x86_64-pc-windows-msvc
             binary_name: CloudflareST-Rust.exe
             use_cargo: true
           - os: Windows
