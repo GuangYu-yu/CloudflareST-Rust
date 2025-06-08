@@ -118,6 +118,7 @@ jobs:
           zig-version: master
 
       - name: 安装 cargo-zigbuild
+        if: ${{ matrix.zig == true }}
         run: cargo install cargo-zigbuild
         shell: bash
 
