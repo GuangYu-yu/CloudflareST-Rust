@@ -121,7 +121,7 @@ jobs:
         run: cargo install cargo-zigbuild
         shell: bash
 
-      - 使用 cargo-zigbuild 构建
+      - name: 使用 cargo-zigbuild 构建
         if: ${{ matrix.zig == true }}
         run: cargo zigbuild --release --target ${{ matrix.target }}
         shell: bash
