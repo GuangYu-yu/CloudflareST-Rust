@@ -109,11 +109,13 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: 安装 Zig
+        if: ${{ matrix.use_cargo != true }}
         uses: korandoru/setup-zig@v1
         with:
           zig-version: master
 
       - name: 安装 cargo-zigbuild
+        if: ${{ matrix.use_cargo != true }}
         run: cargo install cargo-zigbuild
         shell: bash
 
