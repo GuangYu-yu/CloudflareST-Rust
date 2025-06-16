@@ -403,16 +403,10 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all: bool
 
 // 采样数量
 pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
-    // IPv4 和 IPv6 的采样数量数组
-    static SAMPLES: [u16; 19] = [
-        1, 2, 4, 8, 16, 48, 96, 200, 400, 800,
-        1600, 1800, 2000, 3000, 4000, 6000,
-        10000, 30000, 50000
-    ];
-    
-    let base = if is_ipv4 { 31_usize } else { 127_usize };
-    let index = base.saturating_sub(prefix as usize);
-    if index > 18 { 80000 } else { u128::from(SAMPLES[index]) }
+    let base = if is_ipv4 { 31 } else { 127 };
+    let exp = base.saturating_sub(prefix);
+    let clamped_exp = exp.min(16); // 最大指数为16，超出则使用2^16
+    1u128 << clamped_exp
 }
 
 // 读取文件行
