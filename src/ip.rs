@@ -403,7 +403,7 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all: bool
 
 // 采样数量
 pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
-    let base = if is_ipv4 { 31 } else { 127 };
+    let base: u8 = if is_ipv4 { 31 } else { 127 };
     let exp = base.saturating_sub(prefix);
     let clamped_exp = exp.min(16); // 最大指数为16，超出则使用2^16
     1u128 << clamped_exp
