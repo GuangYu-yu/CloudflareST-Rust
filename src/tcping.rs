@@ -4,15 +4,16 @@ use std::time::Instant;
 use tokio::net::TcpStream;
 use std::io;
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use std::future::Future;
+use std::pin::Pin;
 
 use crate::progress::Bar;
 use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
-use crate::common::{self, PingData, PingDelaySet};
+use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 use crate::ip::IpBuffer;
-use std::future::Future;
-use std::pin::Pin;
 
+// Ping 主体结构体
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
     csv: Arc<Mutex<PingDelaySet>>,
@@ -20,6 +21,26 @@ pub struct Ping {
     args: Arc<Args>,
     success_count: Arc<AtomicUsize>,
     timeout_flag: Arc<AtomicBool>,
+}
+
+pub struct TcpingHandlerFactory {
+    csv: Arc<Mutex<PingDelaySet>>,
+    bar: Arc<Bar>,
+    args: Arc<Args>,
+    success_count: Arc<AtomicUsize>,
+}
+
+impl HandlerFactory for TcpingHandlerFactory {
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let csv = Arc::clone(&self.csv);
+        let bar = Arc::clone(&self.bar);
+        let args = Arc::clone(&self.args);
+        let success_count = Arc::clone(&self.success_count);
+
+        Box::pin(async move {
+            tcping_handler(addr, csv, bar, &args, success_count).await;
+        })
+    }
 }
 
 impl Ping {
@@ -39,24 +60,13 @@ impl Ping {
         })
     }
 
-    fn make_handler_factory(
-        &self,
-    ) -> impl Fn(SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> + Send + Sync + 'static {
-        let csv = Arc::clone(&self.csv);
-        let bar = Arc::clone(&self.bar);
-        let args = Arc::clone(&self.args);
-        let success_count = Arc::clone(&self.success_count);
-
-        move |addr: SocketAddr| {
-            let csv = csv.clone();
-            let bar = bar.clone();
-            let args = args.clone();
-            let success_count = success_count.clone();
-
-            Box::pin(async move {
-                tcping_handler(addr, csv, bar, &args, success_count).await;
-            })
-        }
+    fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
+        Arc::new(TcpingHandlerFactory {
+            csv: Arc::clone(&self.csv),
+            bar: Arc::clone(&self.bar),
+            args: Arc::clone(&self.args),
+            success_count: Arc::clone(&self.success_count),
+        })
     }
 
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
@@ -77,16 +87,15 @@ impl Ping {
 // TCP 测速处理函数
 async fn tcping_handler(
     addr: SocketAddr,
-    csv: Arc<Mutex<PingDelaySet>>, 
-    bar: Arc<Bar>, 
+    csv: Arc<Mutex<PingDelaySet>>,
+    bar: Arc<Bar>,
     args: &Arc<Args>,
     success_count: Arc<AtomicUsize>,
 ) {
     let ping_times = args.ping_times;
-    
     let mut recv = 0;
     let mut total_delay_ms = 0.0;
-    
+
     for _ in 0..ping_times {
         if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
             Ok::<Option<f32>, io::Error>(tcping(addr).await)
@@ -116,23 +125,20 @@ async fn tcping_handler(
 
 // TCP连接测试函数
 async fn tcping(addr: SocketAddr) -> Option<f32> {
-    
     let connect_result = tokio::time::timeout(
         std::time::Duration::from_millis(2000), // 超时时间
         async {
-        let start_time = Instant::now();
-        
-        let stream_result = TcpStream::connect(&addr).await;
-        
-        match stream_result {
-            Ok(stream) => {
-                let _ = stream.set_linger(None);
-                drop(stream);
-                Some(start_time.elapsed().as_secs_f32() * 1000.0)
-            },
-            Err(_) => None
-        }
-    }).await;
-    
+            let start_time = Instant::now();
+            match TcpStream::connect(&addr).await {
+                Ok(stream) => {
+                    let _ = stream.set_linger(None);
+                    drop(stream);
+                    Some(start_time.elapsed().as_secs_f32() * 1000.0)
+                }
+                Err(_) => None,
+            }
+        },
+    ).await;
+
     connect_result.unwrap_or(None)
 }

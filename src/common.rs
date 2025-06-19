@@ -8,6 +8,8 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use crate::args::Args;
 use crate::progress::Bar;
 use crate::ip::{IpBuffer, load_ip_to_buffer};
+use std::future::Future;
+use std::pin::Pin;
 
 // 定义浏览器标识常量
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -122,20 +124,20 @@ pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelay
     )
 }
 
+pub trait HandlerFactory: Send + Sync + 'static {
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+}
+
 /// 通用的 ping 测试运行函数
-pub async fn run_ping_test<F, Fut>(
+pub async fn run_ping_test(
     ip_buffer: Arc<Mutex<IpBuffer>>,
     csv: Arc<Mutex<PingDelaySet>>,
     bar: Arc<Bar>,
     args: Arc<Args>,
     success_count: Arc<AtomicUsize>,
     timeout_flag: Arc<AtomicBool>,
-    handler_factory: F,
-) -> Result<PingDelaySet, io::Error>
-where
-    F: Fn(SocketAddr) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = ()> + Send + 'static,
-{
+    handler_factory: Arc<dyn HandlerFactory>,
+) -> Result<PingDelaySet, io::Error> {
     // 检查IP缓冲区是否为空
     {
         let ip_buffer_guard = ip_buffer.lock().unwrap();
@@ -158,7 +160,7 @@ where
         };
         
         if let Some(addr) = addr {
-            let task = handler_factory(addr);
+            let task = handler_factory.create_handler(addr);
             tasks.push(tokio::spawn(async move {
                 task.await;
                 Ok::<(), io::Error>(())
@@ -192,7 +194,7 @@ where
         };
         
         if let Some(addr) = addr {
-            let task = handler_factory(addr);
+            let task = handler_factory.create_handler(addr);
             tasks.push(tokio::spawn(async move {
                 task.await;
                 Ok::<(), io::Error>(())

@@ -13,6 +13,7 @@ use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
+use crate::common::HandlerFactory;
 
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
@@ -24,6 +25,48 @@ pub struct Ping {
     success_count: Arc<AtomicUsize>,
     timeout_flag: Arc<AtomicBool>,
     use_https: bool,
+}
+
+pub struct HttpingHandlerFactory {
+    csv: Arc<Mutex<PingDelaySet>>,
+    bar: Arc<Bar>,
+    args: Arc<Args>,
+    success_count: Arc<AtomicUsize>,
+    colo_filters: Arc<Vec<String>>,
+    urls: Arc<Vec<String>>,
+    url_index: Arc<AtomicUsize>,
+    use_https: bool,
+}
+
+impl HandlerFactory for HttpingHandlerFactory {
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let csv = Arc::clone(&self.csv);
+        let bar = Arc::clone(&self.bar);
+        let args = Arc::clone(&self.args);
+        let success_count = Arc::clone(&self.success_count);
+        let colo_filters = Arc::clone(&self.colo_filters);
+        let urls = Arc::clone(&self.urls);
+        let url_index = Arc::clone(&self.url_index);
+        let use_https = self.use_https;
+        
+        Box::pin(async move {
+            // 根据模式选择URL
+            let url = if use_https {
+                // HTTPS模式：从URL列表中选择（轮询）
+                let current_index = url_index.fetch_add(1, Ordering::Relaxed) % urls.len();
+                Arc::new(urls[current_index].clone())
+            } else {
+                // 非HTTPS模式：直接使用IP构建URL
+                let mut host_str = addr.ip().to_string();
+                if let IpAddr::V6(_) = addr.ip() {
+                    host_str = format!("[{}]", addr.ip());
+                }
+                Arc::new(Ping::build_trace_url("http", &host_str))
+            };
+
+            httping_handler(addr, csv, bar, &args, &colo_filters, &url, success_count).await;
+        })
+    }
 }
 
 impl Ping {
@@ -100,44 +143,17 @@ impl Ping {
 
     fn make_handler_factory(
         &self,
-    ) -> impl Fn(SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> + Send + Sync + 'static {
-        let csv = Arc::clone(&self.csv);
-        let bar = Arc::clone(&self.bar);
-        let args = Arc::clone(&self.args);
-        let colo_filters = Arc::clone(&Arc::new(self.colo_filters.clone()));
-        let urlist = Arc::clone(&Arc::new(self.urlist.clone()));
-        let success_count = Arc::clone(&self.success_count);
-        let use_https = self.use_https;
-        
-        // 创建一个计数器用于 URL 轮询
-        let url_index = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-        move |addr: SocketAddr| {
-            let csv = csv.clone();
-            let bar = bar.clone();
-            let args = args.clone();
-            let colo_filters = colo_filters.clone();
-            let success_count = success_count.clone();
-            let urlist = urlist.clone();
-            
-            // 根据是否使用HTTPS模式选择URL
-            let url = if use_https {
-                // HTTPS模式：从URL列表中选择（轮询）
-                let current_index = url_index.fetch_add(1, Ordering::Relaxed) % urlist.len();
-                Arc::new(urlist[current_index].clone())
-            } else {
-                // 非HTTPS模式：直接使用IP构建URL
-                let mut host_str = addr.ip().to_string();
-                if let IpAddr::V6(_) = addr.ip() {
-                    host_str = format!("[{}]", addr.ip());
-                }
-                Arc::new(Self::build_trace_url("http", &host_str))
-            };
-
-            Box::pin(async move {
-                httping_handler(addr, csv, bar, &args, &colo_filters, &url, success_count).await;
-            })
-        }
+    ) -> Arc<dyn HandlerFactory> {
+        Arc::new(HttpingHandlerFactory {
+            csv: Arc::clone(&self.csv),
+            bar: Arc::clone(&self.bar),
+            args: Arc::clone(&self.args),
+            success_count: Arc::clone(&self.success_count),
+            colo_filters: Arc::new(self.colo_filters.clone()),
+            urls: Arc::new(self.urlist.clone()),
+            url_index: Arc::new(AtomicUsize::new(0)),
+            use_https: self.use_https,
+        })
     }
 
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {

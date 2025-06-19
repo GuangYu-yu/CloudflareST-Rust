@@ -10,7 +10,7 @@ use crate::pool::execute_with_rate_limit;
 
 use crate::progress::Bar;
 use crate::args::Args;
-use crate::common::{self, PingData, PingDelaySet};
+use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 use crate::ip::IpBuffer;
 
 pub struct Ping {
@@ -22,6 +22,30 @@ pub struct Ping {
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
     timeout_flag: Arc<AtomicBool>,
+}
+
+pub struct IcmpingHandlerFactory {
+    csv: Arc<Mutex<PingDelaySet>>,
+    bar: Arc<Bar>,
+    args: Arc<Args>,
+    success_count: Arc<AtomicUsize>,
+    client_v4: Arc<Client>,
+    client_v6: Arc<Client>,
+}
+
+impl HandlerFactory for IcmpingHandlerFactory {
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let csv = Arc::clone(&self.csv);
+        let bar = Arc::clone(&self.bar);
+        let args = Arc::clone(&self.args);
+        let success_count = Arc::clone(&self.success_count);
+        let client_v4 = Arc::clone(&self.client_v4);
+        let client_v6 = Arc::clone(&self.client_v6);
+
+        Box::pin(async move {
+            icmp_handler(addr, csv, bar, &args, success_count, client_v4, client_v6).await;
+        })
+    }
 }
 
 impl Ping {
@@ -45,28 +69,15 @@ impl Ping {
         })
     }
 
-    fn make_handler_factory(
-        &self,
-    ) -> impl Fn(SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> + Send + Sync + 'static {
-        let csv = Arc::clone(&self.csv);
-        let bar = Arc::clone(&self.bar);
-        let args = Arc::clone(&self.args);
-        let success_count = Arc::clone(&self.success_count);
-        let client_v4 = Arc::clone(&self.client_v4);
-        let client_v6 = Arc::clone(&self.client_v6);
-
-        move |addr: SocketAddr| {
-            let csv = csv.clone();
-            let bar = bar.clone();
-            let args = args.clone();
-            let success_count = success_count.clone();
-            let client_v4 = client_v4.clone();
-            let client_v6 = client_v6.clone();
-
-            Box::pin(async move {
-                icmp_handler(addr, csv, bar, &args, success_count, client_v4, client_v6).await;
-            })
-        }
+    fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
+        Arc::new(IcmpingHandlerFactory {
+            csv: Arc::clone(&self.csv),
+            bar: Arc::clone(&self.bar),
+            args: Arc::clone(&self.args),
+            success_count: Arc::clone(&self.success_count),
+            client_v4: Arc::clone(&self.client_v4),
+            client_v6: Arc::clone(&self.client_v6),
+        })
     }
 
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
