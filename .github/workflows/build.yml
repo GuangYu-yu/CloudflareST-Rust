@@ -84,6 +84,7 @@ jobs:
             arch: AMD64
             target: x86_64-apple-darwin
             binary_name: CloudflareST-Rust
+            use_cargo: true
           - os: MacOS
             runner: macos-latest
             arch: ARM64
@@ -124,14 +125,12 @@ jobs:
         if: ${{ matrix.use_cargo != true }}
         run: |
           cargo zigbuild --release --target ${{ matrix.target }}
-#          llvm-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
         shell: bash
 
       - name: 使用 cargo 构建
         if: ${{ matrix.use_cargo == true }}
         run: |
           cargo build --release --target ${{ matrix.target }}
-#          llvm-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
         shell: bash
           
       - name: 创建二进制目录
