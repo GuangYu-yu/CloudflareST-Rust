@@ -1,0 +1,5 @@
+[build]
+rustflags = [
+    "--remap-path-prefix=/home/runner/.cargo/registry=registry",
+    "--remap-path-prefix=/home/runner/work/CloudflareST-Rust=."
+]
