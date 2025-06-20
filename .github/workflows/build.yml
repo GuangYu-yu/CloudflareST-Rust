@@ -120,6 +120,9 @@ jobs:
         run: cargo install cargo-zigbuild
         shell: bash
 
+      - name: 安装 LLVM
+        uses: rush-lang/setup-llvm-action@v1
+
       - name: 使用 cargo-zigbuild 构建
         if: ${{ matrix.use_cargo != true }}
         run: |
