@@ -27,3 +27,9 @@ strip = "symbols"    # 移除所有符号信息
 debug = false        # 禁用调试信息
 incremental = false  # 禁用增量编译，确保全局优化
 overflow-checks = false  # 禁用整数溢出检查
+
+[build]
+rustflags = [
+    "--remap-path-prefix=/home/runner/.cargo/registry=registry",
+    "--remap-path-prefix=/home/runner/work/CloudflareST-Rust=."
+]
