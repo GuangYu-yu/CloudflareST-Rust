@@ -120,29 +120,18 @@ jobs:
         run: cargo install cargo-zigbuild
         shell: bash
 
-      - name: 获取 LLVM 最新版本号
-        id: get_llvm_version
-        run: |
-          latest=$(curl -s https://api.github.com/repos/llvm/llvm-project/releases/latest | jq -r '.tag_name' | sed 's/^llvmorg-//')
-          echo "llvm_version=$latest" >> $GITHUB_OUTPUT
-
-      - name: 安装 LLVM
-        uses: rush-lang/setup-llvm-action@v1
-        with:
-          llvm-version: ${{ steps.get_llvm_version.outputs.llvm_version }}
-
       - name: 使用 cargo-zigbuild 构建
         if: ${{ matrix.use_cargo != true }}
         run: |
           cargo zigbuild --release --target ${{ matrix.target }}
-          llvm-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+#          llvm-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
         shell: bash
 
       - name: 使用 cargo 构建
         if: ${{ matrix.use_cargo == true }}
         run: |
           cargo build --release --target ${{ matrix.target }}
-          llvm-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+#          llvm-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
         shell: bash
           
       - name: 创建二进制目录
