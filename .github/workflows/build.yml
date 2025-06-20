@@ -123,7 +123,7 @@ jobs:
       - name: 获取 LLVM 最新版本号
         id: get_llvm_version
         run: |
-          latest=$(curl -s https://api.github.com/repos/llvm/llvm-project/releases/latest | jq -r '.tag_name' | sed 's/^llvm-//')
+          latest=$(curl -s https://api.github.com/repos/llvm/llvm-project/releases/latest | jq -r '.tag_name' | sed 's/^llvmorg-//')
           echo "llvm_version=$latest" >> $GITHUB_OUTPUT
 
       - name: 安装 LLVM
