@@ -124,7 +124,7 @@ jobs:
         if: ${{ matrix.use_cargo != true }}
         run: |
           cargo zigbuild --release --target ${{ matrix.target }}
-          strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+          llvm-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
         shell: bash
 
       - name: 使用 cargo 构建
