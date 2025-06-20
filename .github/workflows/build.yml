@@ -106,10 +106,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: 清理构建缓存
-        run: cargo clean
-        shell: bash
-
       - name: 安装 Zig
         if: ${{ matrix.use_cargo != true }}
         uses: korandoru/setup-zig@v1
