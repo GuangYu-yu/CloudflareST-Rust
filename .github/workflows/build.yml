@@ -101,14 +101,14 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 清理target目录
-        run: rm -rf target
-        shell: bash
-
       - name: 安装最新 Rust 工具链
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: 清理构建缓存
+        run: cargo clean
+        shell: bash
 
       - name: 安装 Zig
         if: ${{ matrix.use_cargo != true }}
