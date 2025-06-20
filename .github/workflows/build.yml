@@ -122,6 +122,8 @@ jobs:
 
       - name: 安装 LLVM
         uses: rush-lang/setup-llvm-action@v1
+        with:
+          llvm-version: latest
 
       - name: 使用 cargo-zigbuild 构建
         if: ${{ matrix.use_cargo != true }}
