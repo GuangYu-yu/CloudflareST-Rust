@@ -49,13 +49,11 @@ jobs:
             arch: AMD64
             target: x86_64-pc-windows-msvc
             binary_name: CloudflareST-Rust.exe
-            use_cargo: true
           - os: Windows
             runner: windows-latest
             arch: ARM64
             target: aarch64-pc-windows-msvc
             binary_name: CloudflareST-Rust.exe
-            use_cargo: true
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
@@ -71,7 +69,6 @@ jobs:
             arch: AMD64
             target: x86_64-apple-darwin
             binary_name: CloudflareST-Rust
-            use_cargo: true
           - os: MacOS
             runner: macos-latest
             arch: ARM64
@@ -91,35 +88,29 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: 安装 Zig
-        if: ${{ matrix.use_cargo != true }}
-        uses: korandoru/setup-zig@v1
-        with:
-          zig-version: master
+      - name: 安装 Zig 和 cargo-zigbuild
+        run: |
+          curl -fsSL https://ziglang.org/install.sh | bash -s master
+          export PATH="$HOME/.zig:$PATH"
+          cargo install cargo-zigbuild
+        shell: bash
 
-      - name: 安装 cargo-zigbuild
-        if: ${{ matrix.use_cargo != true }}
-        run: cargo install cargo-zigbuild
+      - name: 使用 cargo-zigbuild 构建，失败则回退 cargo build
+        run: |
+          echo "尝试使用 cargo-zigbuild 构建..."
+          if ! cargo zigbuild --release --target ${{ matrix.target }}; then
+            echo "cargo-zigbuild 构建失败，使用 cargo build 进行回退..."
+            cargo build --release --target ${{ matrix.target }} || exit 1
+          fi
+        shell: bash
 
-      - name: 使用 cargo-zigbuild 构建
-        if: ${{ matrix.use_cargo != true }}
-        run: cargo zigbuild --release --target ${{ matrix.target }}
-
-      - name: 使用 cargo 构建
-        if: ${{ matrix.use_cargo == true }}
-        run: cargo build --release --target ${{ matrix.target }}
-          
       - name: 创建二进制目录
         run: mkdir -p binaries/${{ matrix.os }}_${{ matrix.arch }}
         shell: bash
 
       - name: 复制二进制文件
         run: |
-          if [ "${{ matrix.os }}" = "Windows" ]; then
-            cp target/${{ matrix.target }}/release/CloudflareST-Rust.exe binaries/${{ matrix.os }}_${{ matrix.arch }}/
-          else
-            cp target/${{ matrix.target }}/release/CloudflareST-Rust binaries/${{ matrix.os }}_${{ matrix.arch }}/
-          fi
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} binaries/${{ matrix.os }}_${{ matrix.arch }}/
         shell: bash
 
       - name: 上传构建产物
