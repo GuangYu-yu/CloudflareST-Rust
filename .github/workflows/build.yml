@@ -88,14 +88,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: 安装 Zig 和 cargo-zigbuild
-        run: |
-          curl -fsSL https://ziglang.org/install.sh | bash -s master
-          export PATH="$HOME/.zig:$PATH"
-          cargo install cargo-zigbuild
-        shell: bash
+      - name: 安装 Zig
+        if: ${{ matrix.use_cargo != true }}
+        uses: korandoru/setup-zig@v1
+        with:
+          zig-version: master
 
-      - name: 使用 cargo-zigbuild 构建，失败则回退 cargo build
+      - name: 安装 cargo-zigbuild
+        if: ${{ matrix.use_cargo != true }}
+        run: cargo install cargo-zigbuild
+
+      - name: 尝试 cargo-zigbuild 构建
         run: |
           echo "尝试使用 cargo-zigbuild 构建..."
           if ! cargo zigbuild --release --target ${{ matrix.target }}; then
