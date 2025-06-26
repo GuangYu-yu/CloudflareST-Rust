@@ -111,6 +111,7 @@ jobs:
           
       - name: 创建二进制目录
         run: mkdir -p binaries/${{ matrix.os }}_${{ matrix.arch }}
+        shell: bash
 
       - name: 复制二进制文件
         run: |
@@ -119,6 +120,7 @@ jobs:
           else
             cp target/${{ matrix.target }}/release/CloudflareST-Rust binaries/${{ matrix.os }}_${{ matrix.arch }}/
           fi
+        shell: bash
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
