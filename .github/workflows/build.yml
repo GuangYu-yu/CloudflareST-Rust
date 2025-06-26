@@ -95,7 +95,7 @@ jobs:
 
       - name: 尝试 cargo-zigbuild 构建
         run: |
-          cargo install cargo-zigbuild
+          cargo install --locked cargo-zigbuild
           cargo update
           echo "尝试使用 cargo-zigbuild 构建..."
           if ! cargo zigbuild --release --target ${{ matrix.target }}; then
