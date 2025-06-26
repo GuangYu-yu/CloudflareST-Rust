@@ -88,15 +88,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: 安装 Zig
-        if: ${{ matrix.use_cargo != true }}
-        uses: korandoru/setup-zig@v1
-        with:
-          zig-version: master
-
       - name: 安装 cargo-zigbuild
-        if: ${{ matrix.use_cargo != true }}
-        run: cargo install cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
 
       - name: 尝试 cargo-zigbuild 构建
         run: |
