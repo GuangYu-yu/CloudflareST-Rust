@@ -88,11 +88,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: 安装 cargo-zigbuild
-        run: cargo install --locked cargo-zigbuild
+      - name: 安装 Zig
+        uses: korandoru/setup-zig@v1
+        with:
+          zig-version: master
 
       - name: 尝试 cargo-zigbuild 构建
         run: |
+          cargo install cargo-zigbuild
           cargo update
           echo "尝试使用 cargo-zigbuild 构建..."
           if ! cargo zigbuild --release --target ${{ matrix.target }}; then
