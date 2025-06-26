@@ -1,7 +1,7 @@
 name: 构建和发布
 
 on:
-  workflow_dispatch:  # 手动触发工作流
+  workflow_dispatch:
     inputs:
       upload_to_repo:
         description: '上传二进制文件到项目仓库'
@@ -24,25 +24,12 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo;
-            const releases = await github.rest.repos.listReleases({
-              owner,
-              repo
-            });
-            
+            const releases = await github.rest.repos.listReleases({ owner, repo });
             for (const release of releases.data) {
-              await github.rest.repos.deleteRelease({
-                owner,
-                repo,
-                release_id: release.id
-              });
-              
+              await github.rest.repos.deleteRelease({ owner, repo, release_id: release.id });
               if (release.tag_name) {
                 try {
-                  await github.rest.git.deleteRef({
-                    owner,
-                    repo,
-                    ref: `tags/${release.tag_name}`
-                  });
+                  await github.rest.git.deleteRef({ owner, repo, ref: `tags/${release.tag_name}` });
                 } catch (e) {
                   console.log(`Failed to delete tag ${release.tag_name}: ${e}`);
                 }
@@ -94,9 +81,7 @@ jobs:
     steps:
       - name: 等待清理旧版本完成
         if: ${{ github.event.inputs.create_release == 'true' }}
-        run: |
-          echo "等待清理旧版本完成"
-        shell: bash
+        run: echo "等待清理旧版本完成"
 
       - name: 检出代码
         uses: actions/checkout@v4
@@ -115,23 +100,17 @@ jobs:
       - name: 安装 cargo-zigbuild
         if: ${{ matrix.use_cargo != true }}
         run: cargo install cargo-zigbuild
-        shell: bash
 
       - name: 使用 cargo-zigbuild 构建
         if: ${{ matrix.use_cargo != true }}
-        run: |
-          cargo zigbuild --release --target ${{ matrix.target }}
-        shell: bash
+        run: cargo zigbuild --release --target ${{ matrix.target }}
 
       - name: 使用 cargo 构建
         if: ${{ matrix.use_cargo == true }}
-        run: |
-          cargo build --release --target ${{ matrix.target }}
-        shell: bash
+        run: cargo build --release --target ${{ matrix.target }}
           
       - name: 创建二进制目录
         run: mkdir -p binaries/${{ matrix.os }}_${{ matrix.arch }}
-        shell: bash
 
       - name: 复制二进制文件
         run: |
@@ -140,7 +119,6 @@ jobs:
           else
             cp target/${{ matrix.target }}/release/CloudflareST-Rust binaries/${{ matrix.os }}_${{ matrix.arch }}/
           fi
-        shell: bash
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -148,9 +126,33 @@ jobs:
           name: CloudflareST-Rust-${{ matrix.os }}_${{ matrix.arch }}
           path: binaries/${{ matrix.os }}_${{ matrix.arch }}/
 
+  strip_binaries:
+    name: Strip 二进制文件
+    needs: [build]
+    runs-on: windows-latest
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: stripped_artifacts/
+
+      - name: 使用 llvm-strip
+        run: |
+          Get-ChildItem -Recurse -File stripped_artifacts -Include *.exe, CloudflareST-Rust | ForEach-Object {
+            Write-Host "Stripping $($_.FullName)"
+            & "llvm-strip" $_.FullName
+          }
+        shell: pwsh
+
+      - name: 上传精简后的产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: stripped_artifacts
+          path: stripped_artifacts/
+
   upload_to_repo:
     name: 上传二进制文件到仓库
-    needs: [build]
+    needs: [strip_binaries]
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.upload_to_repo == 'true' }}
     steps:
@@ -160,25 +162,20 @@ jobs:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
         with:
+          name: stripped_artifacts
           path: downloaded_artifacts/
 
       - name: 准备二进制文件
         run: |
-          # 清空或创建 binaries 目录
           rm -rf binaries
           mkdir -p binaries
-          
-          # 遍历所有构建产物目录，直接复制到对应平台目录
           for dir in downloaded_artifacts/CloudflareST-Rust-*/; do
             platform_name=$(basename "$dir" | sed 's/CloudflareST-Rust-//')
             mkdir -p "binaries/$platform_name"
             cp -r "$dir"/* "binaries/$platform_name/"
           done
-          
-          # 显示目录结构以便调试
           echo "最终目录结构:"
           find binaries -type f | sort
-        shell: bash
 
       - name: 上传二进制文件到仓库
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -188,7 +185,7 @@ jobs:
 
   create_release:
     name: 创建发布版本
-    needs: [build, cleanup_releases]
+    needs: [strip_binaries, cleanup_releases]
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.create_release == 'true' }}
     steps:
@@ -198,38 +195,27 @@ jobs:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
         with:
+          name: stripped_artifacts
           path: artifacts/
 
       - name: 准备发布文件
         run: |
           mkdir -p release
-          # 遍历所有构建产物目录，按平台打包文件
           for dir in artifacts/CloudflareST-Rust-*/; do
             platform_name=$(basename "$dir" | sed 's/CloudflareST-Rust-//')
             os_name=$(echo "$platform_name" | cut -d'_' -f1 | tr '[:upper:]' '[:lower:]')
             arch_name=$(echo "$platform_name" | cut -d'_' -f2 | tr '[:upper:]' '[:lower:]')
-            
-            # 创建临时目录用于打包
             mkdir -p "temp_$platform_name"
-            
+            cp "$dir"/* "temp_$platform_name/"
+            cd "temp_$platform_name"
             if [[ "$os_name" == "windows" ]]; then
-              # Windows平台使用zip格式
-              cp "$dir"/* "temp_$platform_name/"
-              cd "temp_$platform_name"
               zip -r "../release/CloudflareST-Rust_${os_name}_${arch_name}.zip" .
-              cd ..
             else
-              # Linux和MacOS平台使用tar.gz格式
-              cp "$dir"/* "temp_$platform_name/"
-              cd "temp_$platform_name"
               tar -czf "../release/CloudflareST-Rust_${os_name}_${arch_name}.tar.gz" .
-              cd ..
             fi
-            
-            # 清理临时目录
+            cd ..
             rm -rf "temp_$platform_name"
           done
-        shell: bash
 
       - name: 创建发布版本
         uses: softprops/action-gh-release@v1
