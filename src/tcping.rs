@@ -12,6 +12,7 @@ use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
 use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 use crate::ip::IpBuffer;
+use crate::common::BaseHandlerFactory;
 
 // Ping 主体结构体
 pub struct Ping {
@@ -24,19 +25,12 @@ pub struct Ping {
 }
 
 pub struct TcpingHandlerFactory {
-    csv: Arc<Mutex<PingDelaySet>>,
-    bar: Arc<Bar>,
-    args: Arc<Args>,
-    success_count: Arc<AtomicUsize>,
+    base: BaseHandlerFactory,
 }
 
 impl HandlerFactory for TcpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        let csv = Arc::clone(&self.csv);
-        let bar = Arc::clone(&self.bar);
-        let args = Arc::clone(&self.args);
-        let success_count = Arc::clone(&self.success_count);
-
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let (csv, bar, args, success_count) = self.base.clone_shared_state();
         Box::pin(async move {
             tcping_handler(addr, csv, bar, &args, success_count).await;
         })
@@ -62,10 +56,12 @@ impl Ping {
 
     fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
         Arc::new(TcpingHandlerFactory {
-            csv: Arc::clone(&self.csv),
-            bar: Arc::clone(&self.bar),
-            args: Arc::clone(&self.args),
-            success_count: Arc::clone(&self.success_count),
+            base: BaseHandlerFactory {
+                csv: Arc::clone(&self.csv),
+                bar: Arc::clone(&self.bar),
+                args: Arc::clone(&self.args),
+                success_count: Arc::clone(&self.success_count),
+            },
         })
     }
 

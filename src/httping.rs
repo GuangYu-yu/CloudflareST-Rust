@@ -14,6 +14,7 @@ use crate::pool::execute_with_rate_limit;
 use crate::common::{self, PingData, PingDelaySet};
 use crate::ip::IpBuffer;
 use crate::common::HandlerFactory;
+use crate::common::BaseHandlerFactory;
 
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
@@ -28,10 +29,7 @@ pub struct Ping {
 }
 
 pub struct HttpingHandlerFactory {
-    csv: Arc<Mutex<PingDelaySet>>,
-    bar: Arc<Bar>,
-    args: Arc<Args>,
-    success_count: Arc<AtomicUsize>,
+    base: BaseHandlerFactory,
     colo_filters: Arc<Vec<String>>,
     urls: Arc<Vec<String>>,
     url_index: Arc<AtomicUsize>,
@@ -39,11 +37,8 @@ pub struct HttpingHandlerFactory {
 }
 
 impl HandlerFactory for HttpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        let csv = Arc::clone(&self.csv);
-        let bar = Arc::clone(&self.bar);
-        let args = Arc::clone(&self.args);
-        let success_count = Arc::clone(&self.success_count);
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let (csv, bar, args, success_count) = self.base.clone_shared_state();
         let colo_filters = Arc::clone(&self.colo_filters);
         let urls = Arc::clone(&self.urls);
         let url_index = Arc::clone(&self.url_index);
@@ -145,10 +140,12 @@ impl Ping {
         &self,
     ) -> Arc<dyn HandlerFactory> {
         Arc::new(HttpingHandlerFactory {
-            csv: Arc::clone(&self.csv),
-            bar: Arc::clone(&self.bar),
-            args: Arc::clone(&self.args),
-            success_count: Arc::clone(&self.success_count),
+            base: BaseHandlerFactory {
+                csv: Arc::clone(&self.csv),
+                bar: Arc::clone(&self.bar),
+                args: Arc::clone(&self.args),
+                success_count: Arc::clone(&self.success_count),
+            },
             colo_filters: Arc::new(self.colo_filters.clone()),
             urls: Arc::new(self.urlist.clone()),
             url_index: Arc::new(AtomicUsize::new(0)),

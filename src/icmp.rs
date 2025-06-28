@@ -25,20 +25,14 @@ pub struct Ping {
 }
 
 pub struct IcmpingHandlerFactory {
-    csv: Arc<Mutex<PingDelaySet>>,
-    bar: Arc<Bar>,
-    args: Arc<Args>,
-    success_count: Arc<AtomicUsize>,
+    base: BaseHandlerFactory,
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
 }
 
 impl HandlerFactory for IcmpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        let csv = Arc::clone(&self.csv);
-        let bar = Arc::clone(&self.bar);
-        let args = Arc::clone(&self.args);
-        let success_count = Arc::clone(&self.success_count);
+        let (csv, bar, args, success_count) = self.base.clone_shared_state();
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
 
@@ -71,10 +65,12 @@ impl Ping {
 
     fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
         Arc::new(IcmpingHandlerFactory {
-            csv: Arc::clone(&self.csv),
-            bar: Arc::clone(&self.bar),
-            args: Arc::clone(&self.args),
-            success_count: Arc::clone(&self.success_count),
+            base: BaseHandlerFactory {
+                csv: Arc::clone(&self.csv),
+                bar: Arc::clone(&self.bar),
+                args: Arc::clone(&self.args),
+                success_count: Arc::clone(&self.success_count),
+            },
             client_v4: Arc::clone(&self.client_v4),
             client_v6: Arc::clone(&self.client_v6),
         })

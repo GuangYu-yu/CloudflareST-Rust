@@ -124,6 +124,24 @@ pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelay
     )
 }
 
+pub struct BaseHandlerFactory {
+    pub csv: Arc<Mutex<PingDelaySet>>,
+    pub bar: Arc<Bar>,
+    pub args: Arc<Args>,
+    pub success_count: Arc<AtomicUsize>,
+}
+
+impl BaseHandlerFactory {
+    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>) {
+        (
+            Arc::clone(&self.csv),
+            Arc::clone(&self.bar),
+            Arc::clone(&self.args),
+            Arc::clone(&self.success_count),
+        )
+    }
+}
+
 pub trait HandlerFactory: Send + Sync + 'static {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 }
