@@ -8,9 +8,10 @@ use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 use rand::random;
 use crate::pool::execute_with_rate_limit;
 
+use crate::common::;
 use crate::progress::Bar;
 use crate::args::Args;
-use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
+use crate::common::{self, PingData, PingDelaySet, HandlerFactory, BaseHandlerFactory};
 use crate::ip::IpBuffer;
 
 pub struct Ping {
