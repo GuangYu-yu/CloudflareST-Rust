@@ -11,10 +11,8 @@ use std::pin::Pin;
 use crate::progress::Bar;
 use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
-use crate::common::{self, PingData, PingDelaySet};
+use crate::common::{self, PingData, PingDelaySet, HandlerFactory, BaseHandlerFactory};
 use crate::ip::IpBuffer;
-use crate::common::HandlerFactory;
-use crate::common::BaseHandlerFactory;
 
 pub struct Ping {
     ip_buffer: Arc<Mutex<IpBuffer>>,
