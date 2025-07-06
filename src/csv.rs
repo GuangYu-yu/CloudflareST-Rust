@@ -47,7 +47,7 @@ impl PrintResult for Vec<PingData> {
     /// 实现结果打印功能
     fn print(&self, args: &Args) {
         if self.is_empty() {
-            println!("\n[信息] 完整测速结果 IP 数量为 0，跳过输出结果");
+            println!("\n[信息] 测速结果 IP 数量为 0，跳过输出结果");
             return;
         }
 
@@ -86,7 +86,7 @@ impl PrintResult for Vec<PingData> {
 
         // 如果有输出文件，打印提示
         if !args.output.is_empty() {
-            println!("\n[信息] 完整测速结果已写入 {} 文件，可使用记事本/表格软件查看", args.output);
+            println!("\n[信息] 测速结果已写入 {} 文件，可使用记事本/表格软件查看", args.output);
         }
     }
 }

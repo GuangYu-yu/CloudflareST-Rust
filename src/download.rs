@@ -109,7 +109,7 @@ impl DownloadTest {
         
         // 先检查队列数量是否足够
         if args.test_count as usize > ping_results.len() {
-            println!("[信息] 队列数量不足所需数量！");
+            println!("[信息] 队列的 IP 数量不足，可能需要降低延迟测速筛选条件！");
         }
 
         println!("开始下载测速（下限：{:.2} MB/s, 所需：{}, 队列：{}）", 
@@ -132,9 +132,6 @@ impl DownloadTest {
 
     pub async fn test_download_speed(&mut self) -> Vec<PingData> {
         
-        // 记录符合要求的结果索引
-        let mut qualified_indices = Vec::new();
-        
         // 数据中心过滤条件
         let colo_filters = Arc::new(common::parse_colo_filters(&self.colo_filter));
         
@@ -156,6 +153,9 @@ impl DownloadTest {
             }
         });
     
+        // 创建结果集合
+        let mut results = Vec::new();
+        
         // 逐个IP进行测速（单线程）
         for i in 0..self.ping_results.len() {
             // 检查是否收到超时信号
@@ -189,47 +189,43 @@ impl DownloadTest {
             ).await;
             
             // 无论速度如何，都更新下载速度和可能的数据中心信息
-            let process_ping_data = |data: &mut PingData| {
-                // 更新下载速度
-                data.download_speed = speed;
-                
-                // 如果数据中心为空且获取到了新的数据中心信息，则更新
-                if data.data_center.is_empty() {
-                    if let Some(colo) = maybe_colo {
-                        data.data_center = colo;
-                    }
+            ping_result.download_speed = speed;
+            
+            // 如果数据中心为空且获取到了新的数据中心信息，则更新
+            if ping_result.data_center.is_empty() {
+                if let Some(colo) = maybe_colo {
+                    ping_result.data_center = colo;
                 }
-                
-                // 检查速度是否符合要求
-                let speed_match = match speed {
-                    Some(s) => s >= self.min_speed * 1024.0 * 1024.0,
-                    None => false,  // 如果速度为None，视为不符合要求
-                };
-                
-                // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
-                let result = if !colo_filters.is_empty() {
-                    // 使用通用函数检查数据中心是否符合过滤条件
-                    let colo_match = common::is_colo_matched(&data.data_center, &colo_filters);
-                    
-                    // 同时满足速度和数据中心要求
-                    speed_match && colo_match
-                } else {
-                    // 如果没有设置 colo 过滤条件，只需要满足速度要求
-                    speed_match
-                };
-                
-                if result {
-                    qualified_indices.push(i);
-                    self.bar.as_ref().grow(1, "");
-                }
-                
-                result
+            }
+            
+            // 检查速度是否符合要求
+            let speed_match = match speed {
+                Some(s) => s >= self.min_speed * 1024.0 * 1024.0,
+                None => false,  // 如果速度为None，视为不符合要求
             };
-
-            process_ping_data(ping_result);
+            
+            // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
+            let result = if !colo_filters.is_empty() {
+                // 使用通用函数检查数据中心是否符合过滤条件
+                let colo_match = common::is_colo_matched(&ping_result.data_center, &colo_filters);
+                
+                // 同时满足速度和数据中心要求
+                speed_match && colo_match
+            } else {
+                // 如果没有设置 colo 过滤条件，只需要满足速度要求
+                speed_match
+            };
+            
+            if result {
+                // 符合要求的结果添加到结果集合
+                results.push(ping_result.clone());
+            }
+            
+            // 无论结果是否符合要求，都更新进度条
+            self.bar.as_ref().grow(1, "");
             
             // 如果已经找到足够数量的合格结果，提前结束测试
-            if qualified_indices.len() >= self.test_count as usize {
+            if results.len() >= self.test_count as usize {
                 break;
             }
         }
@@ -240,25 +236,14 @@ impl DownloadTest {
         // 更新进度条为完成状态
         self.bar.done();
         
-        // 返回排序后的原始集合
-        if qualified_indices.is_empty() {
-            println!("\n[信息] 下载测速结果没有达到所需数量，返回全部测速结果");
-            common::sort_results(&mut self.ping_results);
-            return std::mem::take(&mut self.ping_results);
-        }
+        // 如果没有找到足够的结果，打印信息
+        if results.len() < self.test_count as usize {
+            println!("\n[信息] 下载测速符合要求的 IP 数量不足！");
+        }        
 
-        let mut all_results = std::mem::take(&mut self.ping_results);
-        
-        // 只保留合格的结果
-        let mut qualified_results = Vec::with_capacity(qualified_indices.len());
-        for &idx in &qualified_indices {
-            if idx < all_results.len() {
-                qualified_results.push(all_results.swap_remove(idx));
-            }
-        }
-        
-        common::sort_results(&mut qualified_results);
-        qualified_results
+        // 对结果进行排序
+        common::sort_results(&mut results);
+        results
     }
 }
 
