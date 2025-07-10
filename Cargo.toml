@@ -4,11 +4,11 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.45", features = ["rt", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.46", features = ["rt", "rt-multi-thread", "macros", "time"] }
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
 rand = "0.9"
 ipnet = "2.11"
-indicatif = "0.17"
+indicatif = "0.18"
 colored = "3"
 prettytable-rs = "0.10"
 url = "2.5"
