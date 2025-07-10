@@ -89,7 +89,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: 安装 Zig
-        uses: korandoru/setup-zig@v1
+        uses: korandoru/setup-zig@v1.7.1
         with:
           zig-version: master
 
