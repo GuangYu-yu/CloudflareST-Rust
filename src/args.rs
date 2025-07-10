@@ -271,6 +271,7 @@ pub fn print_help() {
     print_arg!("-tn", "提前结束Ping数量", "[默认：否]");
 
     println!("\n{}:", "测速选项".bold());
+//    print_arg!("-ping", "ICMP-Ping 测速模式 ", "[默认：否]");
     print_arg!("-httping", "非 TLS Httping", "[默认：否]");
     print_arg!("-dd", "禁用下载测速", "[默认：否]");
     print_arg!("-hu", "TLS Httping 可选 URL", "[默认：否]");
