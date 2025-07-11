@@ -16,7 +16,6 @@ use rand::prelude::*;
 use crate::csv::PrintResult;
 use crate::common::PingData;
 
-// 将 main 函数修改为
 #[tokio::main]
 async fn main() {
     // 解析命令行参数
