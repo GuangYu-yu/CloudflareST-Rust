@@ -117,6 +117,7 @@ impl Args {
             "all4" => parsed.test_all = true,
             "sp" => parsed.show_port = true,
             // 带值的字符串参数
+            // hu 可带值或不带值
             "hu" => {
                 parsed.httping_urls_flag = true;
                 parsed.httping = true;
@@ -131,7 +132,7 @@ impl Args {
             "sl" => Self::set_f32(value, &mut parsed.min_speed),
             // 其他参数
             "p" => Self::set_u16(value, &mut parsed.print_num),
-            "n" => Self::set_usize_clamped(value, &mut parsed.max_threads, 5, 2048), // 带范围限制
+            "n" => Self::set_usize_clamped(value, &mut parsed.max_threads, 1, 1024), // 带范围限制
             "tn" => Self::set_u32_option(value, &mut parsed.target_num),
             // 时间参数（秒）
             "dt" => Self::set_duration_secs(value, &mut parsed.timeout_duration),
