@@ -92,13 +92,10 @@ impl Args {
 //        parsed.icmp_ping = map.contains_key("ping");
 
         // hu 可以有值也可以没有值
-        if let Some(Some(hu_val)) = map.get("hu") {
+        if let Some(hu_opt) = map.get("hu") {
             parsed.httping_urls_flag = true;
             parsed.httping = true;
-            parsed.httping_urls = hu_val.clone();
-        } else if map.contains_key("hu") {
-            parsed.httping_urls_flag = true;
-            parsed.httping = true;
+            parsed.httping_urls = hu_opt.clone().unwrap_or_default();
         }
 
         // 数值参数
