@@ -1,34 +1,25 @@
 use std::sync::Arc;
-use tokio::sync::Semaphore;
 use std::sync::OnceLock;
-use crate::args::Args;
+use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 
-// 简化的线程池实现
 pub struct ThreadPool {
     // 使用信号量控制并发
     semaphore: Arc<Semaphore>,
     // 最大线程数
-    max_threads: usize,
+    pub max_threads: usize,
 }
 
 impl ThreadPool {
-    pub fn new() -> Self {
-        let max_threads = Args::parse().max_threads as usize;
-        
+    // 创建线程池
+    pub fn new(max_threads: usize) -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(max_threads)),
             max_threads,
         }
     }
-    
-    // 获取当前并发级别
-    pub fn get_concurrency_level(&self) -> usize {
-        self.max_threads
-    }
-    
-    // 获取信号量许可
-    pub async fn acquire(&self) -> tokio::sync::OwnedSemaphorePermit {
-        // 获取许可
+
+    // 获取许可
+    pub async fn acquire(&self) -> OwnedSemaphorePermit {
         self.semaphore.clone().acquire_owned().await.unwrap()
     }
 }
@@ -36,9 +27,9 @@ impl ThreadPool {
 // 全局线程池
 pub static GLOBAL_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
-// 获取全局线程池实例
-pub fn global_pool() -> &'static ThreadPool {
-    GLOBAL_POOL.get_or_init(ThreadPool::new)
+// 初始化全局线程池
+pub fn init_global_pool(max_threads: usize) {
+    let _ = GLOBAL_POOL.set(ThreadPool::new(max_threads));
 }
 
 // 执行带线程池控制的操作
@@ -48,11 +39,11 @@ where
     Fut: std::future::Future<Output = Result<T, E>>,
 {
     // 获取许可
-    let _permit = global_pool().acquire().await;
-    
+    let _permit = GLOBAL_POOL.get().unwrap().acquire().await;
+
     // 执行操作
     let result = f().await;
-    
+
     // 返回结果
     result
 }

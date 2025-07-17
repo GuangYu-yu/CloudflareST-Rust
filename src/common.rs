@@ -157,19 +157,21 @@ pub async fn run_ping_test(
     handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<PingDelaySet, io::Error> {
     // 检查IP缓冲区是否为空
-    {
+    let available_ips = {
         let ip_buffer_guard = ip_buffer.lock().unwrap();
         if ip_buffer_guard.is_empty() && ip_buffer_guard.total_expected() == 0 {
             return Ok(Vec::new());
         }
-    }
+        ip_buffer_guard.total_expected()
+    };
 
     // 使用FuturesUnordered来动态管理任务
     let mut tasks = FuturesUnordered::new();
     
-    // 获取当前线程池的并发能力
-    let initial_tasks = crate::pool::global_pool().get_concurrency_level();
-
+    // 根据实际IP数量和线程池并发级别计算初始任务数
+    let pool_concurrency = crate::pool::GLOBAL_POOL.get().unwrap().max_threads;
+    let initial_tasks = available_ips.min(pool_concurrency).max(1);
+    
     // 初始填充任务队列
     for _ in 0..initial_tasks {
         let addr = {
@@ -183,11 +185,9 @@ pub async fn run_ping_test(
                 task.await;
                 Ok::<(), io::Error>(())
             }));
-        } else {
-            break;
         }
     }
-
+    
     // 动态处理任务完成和添加新任务
     while let Some(result) = tasks.next().await {
         // 检查是否收到超时信号

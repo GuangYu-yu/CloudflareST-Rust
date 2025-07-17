@@ -1,5 +1,6 @@
 use std::env;
 use std::time::Duration;
+use std::collections::HashMap;
 use colored::*;  // 用于终端彩色输出
 
 /// 命令行参数配置结构体
@@ -77,144 +78,114 @@ impl Args {
 
     /// 解析命令行参数
     pub fn parse() -> Self {
-        let args: Vec<String> = env::args().collect(); // 获取原始命令行参数
-        let mut parsed = Self::new();                // 创建默认配置
+        let args: Vec<String> = env::args().collect();
+        let mut parsed = Self::new();
         
-        // 遍历所有参数
-        let mut i = 1;  // 跳过程序名（索引0）
-        while i < args.len() {
-            let arg = &args[i];
-            if arg.starts_with('-') {
-                // 处理参数组（参数名+可能的值）
-                let mut group = vec![arg.trim_start_matches('-').to_string()];
-                // 检查下一个参数是否是当前参数的值（不以'-'开头）
-                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
-                    group.push(args[i + 1].clone());
-                    i += 2;  // 跳过已处理的值
-                } else {
-                    i += 1;   // 仅处理参数名
-                }
-                let name = group[0].clone();
-                let value = if group.len() > 1 { Some(&group[1]) } else { None };
-                // 将参数映射到配置结构体
-                Self::handle_arg(&name, value, &mut parsed);
-            } else {
-                i += 1;  // 跳过非参数项
-            }
+        let map = Self::parse_args_to_map(&args);
+
+        // 布尔参数
+        parsed.help = map.contains_key("h") || map.contains_key("help");
+        parsed.httping = map.contains_key("httping");
+        parsed.disable_download = map.contains_key("dd");
+        parsed.test_all = map.contains_key("all4");
+        parsed.show_port = map.contains_key("sp");
+//        parsed.icmp_ping = map.contains_key("ping");
+
+        // hu 可以有值也可以没有值
+        if let Some(Some(hu_val)) = map.get("hu") {
+            parsed.httping_urls_flag = true;
+            parsed.httping = true;
+            parsed.httping_urls = hu_val.clone();
+        } else if map.contains_key("hu") {
+            parsed.httping_urls_flag = true;
+            parsed.httping = true;
         }
+
+        // 数值参数
+        parsed.ping_times = parse_u16(&map, "t").unwrap_or(parsed.ping_times);
+        parsed.test_count = parse_u16(&map, "dn").unwrap_or(parsed.test_count);
+        parsed.tcp_port = parse_u16(&map, "tp").unwrap_or(parsed.tcp_port);
+        parsed.print_num = parse_u16(&map, "p").unwrap_or(parsed.print_num);
+        parsed.max_loss_rate = parse_f32(&map, "tlr").unwrap_or(parsed.max_loss_rate);
+        parsed.min_speed = parse_f32(&map, "sl").unwrap_or(parsed.min_speed);
+        parsed.target_num = parse_u32(&map, "tn");
+        parsed.max_threads = parse_usize(&map, "n").map(|v| v.clamp(1, 1024)).unwrap_or(parsed.max_threads);
+
+        // 时间参数
+        parsed.timeout_duration = parse_duration_secs(&map, "dt").map(Some).unwrap_or(parsed.timeout_duration);
+        parsed.global_timeout_duration = parse_duration_secs(&map, "timeout");
+        parsed.max_delay = parse_duration_millis(&map, "tl").unwrap_or(parsed.max_delay);
+        parsed.min_delay = parse_duration_millis(&map, "tll").unwrap_or(parsed.min_delay);
+
+        // 字符串参数
+        parsed.url = get_string(&map, "url").unwrap_or_else(|| parsed.url.clone());
+        parsed.urlist = get_string(&map, "urlist").unwrap_or_else(|| parsed.urlist.clone());
+        parsed.httping_cf_colo = get_string(&map, "colo").unwrap_or_else(|| parsed.httping_cf_colo.clone());
+        parsed.ip_file = get_string(&map, "f").unwrap_or_else(|| parsed.ip_file.clone());
+        parsed.ip_text = get_string(&map, "ip").unwrap_or_else(|| parsed.ip_text.clone());
+        parsed.ip_url = get_string(&map, "ipurl").unwrap_or_else(|| parsed.ip_url.clone());
+        parsed.output = get_string(&map, "o").unwrap_or_else(|| parsed.output.clone());
+
         parsed
     }
 
-    /// 处理单个命令行参数
-    pub fn handle_arg(name: &str, value: Option<&String>, parsed: &mut Self) {
-        match name {
-            // 帮助信息开关
-            "h" | "help" => parsed.help = true,
-            // 功能开关类参数
-    //      "ping" => parsed.icmp_ping = true,
-            "httping" => parsed.httping = true,
-            "dd" => parsed.disable_download = true,
-            "all4" => parsed.test_all = true,
-            "sp" => parsed.show_port = true,
-            // 带值的字符串参数
-            // hu 可带值或不带值
-            "hu" => {
-                parsed.httping_urls_flag = true;
-                parsed.httping = true;
-                Self::set_string(value, &mut parsed.httping_urls);
-            },
-            // 数值型参数
-            "t" => Self::set_u16(value, &mut parsed.ping_times),
-            "dn" => Self::set_u16(value, &mut parsed.test_count),
-            "tp" => Self::set_u16(value, &mut parsed.tcp_port),
-            // 浮点型参数
-            "tlr" => Self::set_f32(value, &mut parsed.max_loss_rate),
-            "sl" => Self::set_f32(value, &mut parsed.min_speed),
-            // 其他参数
-            "p" => Self::set_u16(value, &mut parsed.print_num),
-            "n" => Self::set_usize_clamped(value, &mut parsed.max_threads, 1, 1024), // 带范围限制
-            "tn" => Self::set_u32_option(value, &mut parsed.target_num),
-            // 时间参数（秒）
-            "dt" => Self::set_duration_secs(value, &mut parsed.timeout_duration),
-            "timeout" => Self::set_duration_secs(value, &mut parsed.global_timeout_duration),
-            // 时间参数（毫秒）
-            "tl" => Self::set_duration_ms(value, &mut parsed.max_delay),
-            "tll" => Self::set_duration_ms(value, &mut parsed.min_delay),
-            // 字符串参数
-            "url" => Self::set_string(value, &mut parsed.url),
-            "urlist" => Self::set_string(value, &mut parsed.urlist),
-            "colo" => Self::set_string(value, &mut parsed.httping_cf_colo),
-            "f" => Self::set_string(value, &mut parsed.ip_file),
-            "ip" => Self::set_string(value, &mut parsed.ip_text),
-            "ipurl" => Self::set_string(value, &mut parsed.ip_url),
-            "o" => Self::set_string(value, &mut parsed.output),
-            // 未知参数处理
-            _ => {
-                print_help();  // 显示帮助信息
-                eprintln!("错误: 不支持的参数: {}", name);
-                std::process::exit(1);  // 退出程序
+    // 将命令行参数解析为HashMap
+    fn parse_args_to_map(args: &[String]) -> HashMap<String, Option<String>> {
+        let mut map = HashMap::new();
+        let mut i = 1;
+        while i < args.len() {
+            if args[i].starts_with('-') {
+                let key = args[i].trim_start_matches('-').to_string();
+                let value = if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    i += 1;
+                    Some(args[i].clone())
+                } else {
+                    None
+                };
+                map.insert(key, value);
             }
+            i += 1;
         }
-    }
-
-    /// 设置u16类型参数值
-    #[inline(never)] 
-    fn set_u16(value: Option<&String>, target: &mut u16) {
-        if let Some(v) = value.and_then(|s| s.parse().ok()) {
-            *target = v;
-        }
-    }
-
-    /// 设置可选u32类型参数值
-    #[inline(never)] 
-    fn set_u32_option(value: Option<&String>, target: &mut Option<u32>) {
-        if let Some(v) = value.and_then(|s| s.parse().ok()) {
-            *target = Some(v);
-        }
-    }
-
-    /// 设置f32类型参数值
-    #[inline(never)] 
-    fn set_f32(value: Option<&String>, target: &mut f32) {
-        if let Some(v) = value.and_then(|s| s.parse().ok()) {
-            *target = v;
-        }
-    }
-
-    /// 设置带范围限制的usize类型参数值
-    #[inline(never)] 
-    fn set_usize_clamped(value: Option<&String>, target: &mut usize, min: usize, max: usize) {
-        if let Some(v) = value.and_then(|s| s.parse::<usize>().ok()) {
-            *target = v.clamp(min, max);
-        }
-    }
-
-    /// 设置秒为单位的Duration参数
-    #[inline(never)] 
-    fn set_duration_secs(value: Option<&String>, target: &mut Option<Duration>) {
-        if let Some(v) = value.and_then(|s| s.parse::<u64>().ok()) {
-            *target = Some(Duration::from_secs(v));
-        }
-    }
-
-    /// 设置毫秒为单位的Duration参数
-    #[inline(never)] 
-    fn set_duration_ms(value: Option<&String>, target: &mut Duration) {
-        if let Some(v) = value.and_then(|s| s.parse::<u64>().ok()) {
-            *target = Duration::from_millis(v);
-        }
-    }
-
-    /// 设置字符串类型参数
-    #[inline(never)] 
-    fn set_string(value: Option<&String>, target: &mut String) {
-        if let Some(v) = value {
-            *target = v.clone();
-        }
+        map
     }
 }
 
-/// 公开接口：解析并验证参数
+/// 解析u16数值参数
+fn parse_u16(map: &HashMap<String, Option<String>>, key: &str) -> Option<u16> {
+    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
+}
+
+/// 解析u32数值参数
+fn parse_u32(map: &HashMap<String, Option<String>>, key: &str) -> Option<u32> {
+    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
+}
+
+/// 解析usize数值参数
+fn parse_usize(map: &HashMap<String, Option<String>>, key: &str) -> Option<usize> {
+    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
+}
+
+/// 解析f32数值参数
+fn parse_f32(map: &HashMap<String, Option<String>>, key: &str) -> Option<f32> {
+    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
+}
+
+/// 解析时间参数（秒）
+fn parse_duration_secs(map: &HashMap<String, Option<String>>, key: &str) -> Option<Duration> {
+    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse::<u64>().ok().map(Duration::from_secs))
+}
+
+/// 解析时间参数（毫秒）
+fn parse_duration_millis(map: &HashMap<String, Option<String>>, key: &str) -> Option<Duration> {
+    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse::<u64>().ok().map(Duration::from_millis))
+}
+
+/// 获取字符串参数
+fn get_string(map: &HashMap<String, Option<String>>, key: &str) -> Option<String> {
+    map.get(key).and_then(|v| v.as_ref()).cloned()
+}
+
+/// 解析并验证参数
 pub fn parse_args() -> Args {
     let args = Args::parse();
 
