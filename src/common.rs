@@ -178,8 +178,6 @@ pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing 
     )
 }
 
-
-
 pub trait HandlerFactory: Send + Sync + 'static {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 }
