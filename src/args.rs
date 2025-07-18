@@ -99,29 +99,29 @@ impl Args {
         }
 
         // 数值参数
-        parsed.ping_times = parse_arg(&map, "t", &|s| s.parse().ok()).unwrap_or(parsed.ping_times);
-        parsed.test_count = parse_arg(&map, "dn", &|s| s.parse().ok()).unwrap_or(parsed.test_count);
-        parsed.tcp_port = parse_arg(&map, "tp", &|s| s.parse().ok()).unwrap_or(parsed.tcp_port);
-        parsed.print_num = parse_arg(&map, "p", &|s| s.parse().ok()).unwrap_or(parsed.print_num);
-        parsed.max_loss_rate = parse_arg(&map, "tlr", &|s| s.parse().ok()).unwrap_or(parsed.max_loss_rate);
-        parsed.min_speed = parse_arg(&map, "sl", &|s| s.parse().ok()).unwrap_or(parsed.min_speed);
-        parsed.target_num = parse_arg(&map, "tn", &|s| s.parse().ok());
-        parsed.max_threads = parse_arg(&map, "n", &|s: &str| s.parse::<usize>().ok()).map(|v| v.clamp(1, 1024)).unwrap_or(parsed.max_threads);
+        parsed.ping_times = parse_arg_str(&map, "t").and_then(|s| s.parse().ok()).unwrap_or(parsed.ping_times);
+        parsed.test_count = parse_arg_str(&map, "dn").and_then(|s| s.parse().ok()).unwrap_or(parsed.test_count);
+        parsed.tcp_port = parse_arg_str(&map, "tp").and_then(|s| s.parse().ok()).unwrap_or(parsed.tcp_port);
+        parsed.print_num = parse_arg_str(&map, "p").and_then(|s| s.parse().ok()).unwrap_or(parsed.print_num);
+        parsed.max_loss_rate = parse_arg_str(&map, "tlr").and_then(|s| s.parse().ok()).unwrap_or(parsed.max_loss_rate);
+        parsed.min_speed = parse_arg_str(&map, "sl").and_then(|s| s.parse().ok()).unwrap_or(parsed.min_speed);
+        parsed.target_num = parse_arg_str(&map, "tn").and_then(|s| s.parse().ok());
+        parsed.max_threads = parse_arg_str(&map, "n").and_then(|s| s.parse::<usize>().ok().map(|v| v.clamp(1, 1024))).unwrap_or(parsed.max_threads);
 
         // 时间参数
-        parsed.timeout_duration = parse_arg(&map, "dt", &|s| s.parse::<u64>().ok().map(Duration::from_secs)).map(Some).unwrap_or(parsed.timeout_duration);
-        parsed.global_timeout_duration = parse_arg(&map, "timeout", &|s| s.parse::<u64>().ok().map(Duration::from_secs));
-        parsed.max_delay = parse_arg(&map, "tl", &|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.max_delay);
-        parsed.min_delay = parse_arg(&map, "tll", &|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.min_delay);
+        parsed.timeout_duration = parse_arg_str(&map, "dt").and_then(|s| s.parse::<u64>().ok().map(Duration::from_secs)).map(Some).unwrap_or(parsed.timeout_duration);
+        parsed.global_timeout_duration = parse_arg_str(&map, "timeout").and_then(|s| s.parse::<u64>().ok().map(Duration::from_secs));
+        parsed.max_delay = parse_arg_str(&map, "tl").and_then(|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.max_delay);
+        parsed.min_delay = parse_arg_str(&map, "tll").and_then(|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.min_delay);
 
         // 字符串参数
-        parsed.url = parse_arg(&map, "url", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.url.clone());
-        parsed.urlist = parse_arg(&map, "urlist", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.urlist.clone());
-        parsed.httping_cf_colo = parse_arg(&map, "colo", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.httping_cf_colo.clone());
-        parsed.ip_file = parse_arg(&map, "f", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.ip_file.clone());
-        parsed.ip_text = parse_arg(&map, "ip", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.ip_text.clone());
-        parsed.ip_url = parse_arg(&map, "ipurl", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.ip_url.clone());
-        parsed.output = parse_arg(&map, "o", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.output.clone());
+        parsed.url = parse_arg_str(&map, "url").map(|s| s.to_string()).unwrap_or_else(|| parsed.url.clone());
+        parsed.urlist = parse_arg_str(&map, "urlist").map(|s| s.to_string()).unwrap_or_else(|| parsed.urlist.clone());
+        parsed.httping_cf_colo = parse_arg_str(&map, "colo").map(|s| s.to_string()).unwrap_or_else(|| parsed.httping_cf_colo.clone());
+        parsed.ip_file = parse_arg_str(&map, "f").map(|s| s.to_string()).unwrap_or_else(|| parsed.ip_file.clone());
+        parsed.ip_text = parse_arg_str(&map, "ip").map(|s| s.to_string()).unwrap_or_else(|| parsed.ip_text.clone());
+        parsed.ip_url = parse_arg_str(&map, "ipurl").map(|s| s.to_string()).unwrap_or_else(|| parsed.ip_url.clone());
+        parsed.output = parse_arg_str(&map, "o").map(|s| s.to_string()).unwrap_or_else(|| parsed.output.clone());
 
         parsed
     }
@@ -146,14 +146,8 @@ impl Args {
 }
 
 /// 参数解析函数
-fn parse_arg<T>(
-    map: &HashMap<String, Option<String>>,
-    key: &str,
-    parser: &dyn Fn(&str) -> Option<T>,
-) -> Option<T> {
-    map.get(key)
-        .and_then(|v| v.as_ref())
-        .and_then(|s| parser(s))
+fn parse_arg_str<'a>(map: &'a HashMap<String, Option<String>>, key: &str) -> Option<&'a str> {
+    map.get(key).and_then(|v| v.as_deref())
 }
 
 /// 解析并验证参数
