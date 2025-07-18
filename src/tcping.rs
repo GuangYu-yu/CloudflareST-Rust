@@ -10,7 +10,7 @@ use std::pin::Pin;
 use crate::progress::Bar;
 use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
-use crate::common::{self, PingData, PingDelaySet, HandlerFactory, BaseHandlerFactory};
+use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 
 // Ping 主体结构体
 pub struct Ping {
@@ -18,7 +18,7 @@ pub struct Ping {
 }
 
 pub struct TcpingHandlerFactory {
-    base: BaseHandlerFactory,
+    base: common::BasePing,
 }
 
 impl HandlerFactory for TcpingHandlerFactory {
@@ -43,12 +43,7 @@ impl Ping {
 
     fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
         Arc::new(TcpingHandlerFactory {
-            base: BaseHandlerFactory {
-                csv: Arc::clone(&self.base.handler_factory.csv),
-                bar: Arc::clone(&self.base.handler_factory.bar),
-                args: Arc::clone(&self.base.handler_factory.args),
-                success_count: Arc::clone(&self.base.handler_factory.success_count),
-            },
+            base: self.base.clone(),
         })
     }
 

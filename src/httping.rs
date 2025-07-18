@@ -11,7 +11,7 @@ use std::pin::Pin;
 use crate::progress::Bar;
 use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
-use crate::common::{self, PingData, PingDelaySet, HandlerFactory, BaseHandlerFactory};
+use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 
 pub struct Ping {
     base: common::BasePing,
@@ -21,7 +21,7 @@ pub struct Ping {
 }
 
 pub struct HttpingHandlerFactory {
-    base: BaseHandlerFactory,
+    base: common::BasePing,
     colo_filters: Arc<Vec<String>>,
     urls: Arc<Vec<String>>,
     url_index: Arc<AtomicUsize>,
@@ -125,12 +125,7 @@ impl Ping {
         &self,
     ) -> Arc<dyn HandlerFactory> {
         Arc::new(HttpingHandlerFactory {
-            base: BaseHandlerFactory {
-                csv: Arc::clone(&self.base.handler_factory.csv),
-                bar: Arc::clone(&self.base.handler_factory.bar),
-                args: Arc::clone(&self.base.handler_factory.args),
-                success_count: Arc::clone(&self.base.handler_factory.success_count),
-            },
+            base: self.base.clone(),
             colo_filters: Arc::new(self.colo_filters.clone()),
             urls: Arc::new(self.urlist.clone()),
             url_index: Arc::new(AtomicUsize::new(0)),

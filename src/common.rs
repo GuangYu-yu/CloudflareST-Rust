@@ -70,21 +70,39 @@ pub fn print_speed_test_info(mode: &str, args: &Args) {
 #[derive(Clone)]
 pub struct BasePing {
     pub ip_buffer: Arc<Mutex<IpBuffer>>,
-    pub handler_factory: BaseHandlerFactory,
+    pub csv: Arc<Mutex<PingDelaySet>>,
+    pub bar: Arc<Bar>,
+    pub args: Arc<Args>,
+    pub success_count: Arc<AtomicUsize>,
     pub timeout_flag: Arc<AtomicBool>,
 }
 
 impl BasePing {
     pub fn new(
         ip_buffer: Arc<Mutex<IpBuffer>>,
-        handler_factory: BaseHandlerFactory,
+        csv: Arc<Mutex<PingDelaySet>>,
+        bar: Arc<Bar>,
+        args: Arc<Args>,
+        success_count: Arc<AtomicUsize>,
         timeout_flag: Arc<AtomicBool>,
     ) -> Self {
         Self {
             ip_buffer,
-            handler_factory,
+            csv,
+            bar,
+            args,
+            success_count,
             timeout_flag,
         }
+    }
+
+    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>) {
+        (
+            Arc::clone(&self.csv),
+            Arc::clone(&self.bar),
+            Arc::clone(&self.args),
+            Arc::clone(&self.success_count),
+        )
     }
 }
 
@@ -150,34 +168,17 @@ pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelay
 pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing {
     let (ip_buffer, csv, bar) = init_ping_test(args);
     
-    let handler_factory = BaseHandlerFactory {
+    BasePing::new(
+        ip_buffer,
         csv,
         bar,
-        args: Arc::new(args.clone()),
-        success_count: Arc::new(AtomicUsize::new(0)),
-    };
-    
-    BasePing::new(ip_buffer, handler_factory, timeout_flag)
+        Arc::new(args.clone()),
+        Arc::new(AtomicUsize::new(0)),
+        timeout_flag,
+    )
 }
 
-#[derive(Clone)]
-pub struct BaseHandlerFactory {
-    pub csv: Arc<Mutex<PingDelaySet>>,
-    pub bar: Arc<Bar>,
-    pub args: Arc<Args>,
-    pub success_count: Arc<AtomicUsize>,
-}
 
-impl BaseHandlerFactory {
-    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>) {
-        (
-            Arc::clone(&self.csv),
-            Arc::clone(&self.bar),
-            Arc::clone(&self.args),
-            Arc::clone(&self.success_count),
-        )
-    }
-}
 
 pub trait HandlerFactory: Send + Sync + 'static {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
@@ -228,8 +229,8 @@ pub async fn run_ping_test(
         }
         
         // 检查是否达到目标成功数量
-        if let Some(target_num) = base.handler_factory.args.target_num {
-            if base.handler_factory.success_count.load(Ordering::Relaxed) >= target_num as usize {
+        if let Some(target_num) = base.args.target_num {
+            if base.success_count.load(Ordering::Relaxed) >= target_num as usize {
                 break;
             }
         }
@@ -253,11 +254,11 @@ pub async fn run_ping_test(
     }
 
     // 更新进度条为完成状态
-    base.handler_factory.bar.done();
+    base.bar.done();
 
     // 收集所有测试结果
     let mut results = {
-        let mut csv_guard = base.handler_factory.csv.lock().unwrap();
+        let mut csv_guard = base.csv.lock().unwrap();
         std::mem::take(&mut *csv_guard)
     };
     

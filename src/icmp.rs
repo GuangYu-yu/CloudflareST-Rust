@@ -10,7 +10,7 @@ use crate::pool::execute_with_rate_limit;
 
 use crate::progress::Bar;
 use crate::args::Args;
-use crate::common::{self, PingData, PingDelaySet, HandlerFactory, BaseHandlerFactory};
+use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 
 pub struct Ping {
     base: common::BasePing,
@@ -19,7 +19,7 @@ pub struct Ping {
 }
 
 pub struct IcmpingHandlerFactory {
-    base: BaseHandlerFactory,
+    base: common::BasePing,
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
 }
@@ -55,12 +55,7 @@ impl Ping {
 
     fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
         Arc::new(IcmpingHandlerFactory {
-            base: BaseHandlerFactory {
-                csv: Arc::clone(&self.base.handler_factory.csv),
-                bar: Arc::clone(&self.base.handler_factory.bar),
-                args: Arc::clone(&self.base.handler_factory.args),
-                success_count: Arc::clone(&self.base.handler_factory.success_count),
-            },
+            base: self.base.clone(),
             client_v4: Arc::clone(&self.client_v4),
             client_v6: Arc::clone(&self.client_v6),
         })
