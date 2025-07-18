@@ -389,5 +389,5 @@ pub fn sort_results(results: &mut PingDelaySet) {
 
 /// 检查是否收到超时信号，如果是则打印信息并返回 true
 pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
-    if timeout_flag.load(Ordering::SeqCst) {true} else {false}
+    timeout_flag.load(Ordering::SeqCst)
 }

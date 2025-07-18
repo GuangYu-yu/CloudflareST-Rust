@@ -99,29 +99,29 @@ impl Args {
         }
 
         // 数值参数
-        parsed.ping_times = parse_u16(&map, "t").unwrap_or(parsed.ping_times);
-        parsed.test_count = parse_u16(&map, "dn").unwrap_or(parsed.test_count);
-        parsed.tcp_port = parse_u16(&map, "tp").unwrap_or(parsed.tcp_port);
-        parsed.print_num = parse_u16(&map, "p").unwrap_or(parsed.print_num);
-        parsed.max_loss_rate = parse_f32(&map, "tlr").unwrap_or(parsed.max_loss_rate);
-        parsed.min_speed = parse_f32(&map, "sl").unwrap_or(parsed.min_speed);
-        parsed.target_num = parse_u32(&map, "tn");
-        parsed.max_threads = parse_usize(&map, "n").map(|v| v.clamp(1, 1024)).unwrap_or(parsed.max_threads);
+        parsed.ping_times = parse_arg(&map, "t", &|s| s.parse().ok()).unwrap_or(parsed.ping_times);
+        parsed.test_count = parse_arg(&map, "dn", &|s| s.parse().ok()).unwrap_or(parsed.test_count);
+        parsed.tcp_port = parse_arg(&map, "tp", &|s| s.parse().ok()).unwrap_or(parsed.tcp_port);
+        parsed.print_num = parse_arg(&map, "p", &|s| s.parse().ok()).unwrap_or(parsed.print_num);
+        parsed.max_loss_rate = parse_arg(&map, "tlr", &|s| s.parse().ok()).unwrap_or(parsed.max_loss_rate);
+        parsed.min_speed = parse_arg(&map, "sl", &|s| s.parse().ok()).unwrap_or(parsed.min_speed);
+        parsed.target_num = parse_arg(&map, "tn", &|s| s.parse().ok());
+        parsed.max_threads = parse_arg(&map, "n", &|s: &str| s.parse::<usize>().ok()).map(|v| v.clamp(1, 1024)).unwrap_or(parsed.max_threads);
 
         // 时间参数
-        parsed.timeout_duration = parse_duration_secs(&map, "dt").map(Some).unwrap_or(parsed.timeout_duration);
-        parsed.global_timeout_duration = parse_duration_secs(&map, "timeout");
-        parsed.max_delay = parse_duration_millis(&map, "tl").unwrap_or(parsed.max_delay);
-        parsed.min_delay = parse_duration_millis(&map, "tll").unwrap_or(parsed.min_delay);
+        parsed.timeout_duration = parse_arg(&map, "dt", &|s| s.parse::<u64>().ok().map(Duration::from_secs)).map(Some).unwrap_or(parsed.timeout_duration);
+        parsed.global_timeout_duration = parse_arg(&map, "timeout", &|s| s.parse::<u64>().ok().map(Duration::from_secs));
+        parsed.max_delay = parse_arg(&map, "tl", &|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.max_delay);
+        parsed.min_delay = parse_arg(&map, "tll", &|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.min_delay);
 
         // 字符串参数
-        parsed.url = get_string(&map, "url").unwrap_or_else(|| parsed.url.clone());
-        parsed.urlist = get_string(&map, "urlist").unwrap_or_else(|| parsed.urlist.clone());
-        parsed.httping_cf_colo = get_string(&map, "colo").unwrap_or_else(|| parsed.httping_cf_colo.clone());
-        parsed.ip_file = get_string(&map, "f").unwrap_or_else(|| parsed.ip_file.clone());
-        parsed.ip_text = get_string(&map, "ip").unwrap_or_else(|| parsed.ip_text.clone());
-        parsed.ip_url = get_string(&map, "ipurl").unwrap_or_else(|| parsed.ip_url.clone());
-        parsed.output = get_string(&map, "o").unwrap_or_else(|| parsed.output.clone());
+        parsed.url = parse_arg(&map, "url", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.url.clone());
+        parsed.urlist = parse_arg(&map, "urlist", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.urlist.clone());
+        parsed.httping_cf_colo = parse_arg(&map, "colo", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.httping_cf_colo.clone());
+        parsed.ip_file = parse_arg(&map, "f", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.ip_file.clone());
+        parsed.ip_text = parse_arg(&map, "ip", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.ip_text.clone());
+        parsed.ip_url = parse_arg(&map, "ipurl", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.ip_url.clone());
+        parsed.output = parse_arg(&map, "o", &|s| Some(s.to_string())).unwrap_or_else(|| parsed.output.clone());
 
         parsed
     }
@@ -129,57 +129,31 @@ impl Args {
     // 将命令行参数解析为HashMap
     fn parse_args_to_map(args: &[String]) -> HashMap<String, Option<String>> {
         let mut map = HashMap::new();
-        let mut i = 1;
-        while i < args.len() {
-            if args[i].starts_with('-') {
-                let key = args[i].trim_start_matches('-').to_string();
-                let value = if i + 1 < args.len() && !args[i + 1].starts_with('-') {
-                    i += 1;
-                    Some(args[i].clone())
-                } else {
-                    None
+        let mut iter = args.iter().skip(1).peekable();
+
+        while let Some(arg) = iter.next() {
+            if arg.starts_with('-') {
+                let key = arg.trim_start_matches('-').to_string();
+                let value = match iter.peek() {
+                    Some(next) if !next.starts_with('-') => Some(iter.next().unwrap().clone()),
+                    _ => None,
                 };
                 map.insert(key, value);
             }
-            i += 1;
         }
         map
     }
 }
 
-/// 解析u16数值参数
-fn parse_u16(map: &HashMap<String, Option<String>>, key: &str) -> Option<u16> {
-    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
-}
-
-/// 解析u32数值参数
-fn parse_u32(map: &HashMap<String, Option<String>>, key: &str) -> Option<u32> {
-    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
-}
-
-/// 解析usize数值参数
-fn parse_usize(map: &HashMap<String, Option<String>>, key: &str) -> Option<usize> {
-    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
-}
-
-/// 解析f32数值参数
-fn parse_f32(map: &HashMap<String, Option<String>>, key: &str) -> Option<f32> {
-    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse().ok())
-}
-
-/// 解析时间参数（秒）
-fn parse_duration_secs(map: &HashMap<String, Option<String>>, key: &str) -> Option<Duration> {
-    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse::<u64>().ok().map(Duration::from_secs))
-}
-
-/// 解析时间参数（毫秒）
-fn parse_duration_millis(map: &HashMap<String, Option<String>>, key: &str) -> Option<Duration> {
-    map.get(key).and_then(|v| v.as_ref()).and_then(|s| s.parse::<u64>().ok().map(Duration::from_millis))
-}
-
-/// 获取字符串参数
-fn get_string(map: &HashMap<String, Option<String>>, key: &str) -> Option<String> {
-    map.get(key).and_then(|v| v.as_ref()).cloned()
+/// 参数解析函数
+fn parse_arg<T>(
+    map: &HashMap<String, Option<String>>,
+    key: &str,
+    parser: &dyn Fn(&str) -> Option<T>,
+) -> Option<T> {
+    map.get(key)
+        .and_then(|v| v.as_ref())
+        .and_then(|s| parser(s))
 }
 
 /// 解析并验证参数

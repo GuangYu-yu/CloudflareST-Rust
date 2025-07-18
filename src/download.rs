@@ -343,17 +343,16 @@ async fn download_handler(
         }
         
         // 计算实际速度（只计算预热后的数据）
-        if let Some(start) = actual_start_time {
+        actual_start_time.and_then(|start| {
             let actual_elapsed = Instant::now().duration_since(start).as_secs_f32();
             if actual_elapsed > 0.0 {
                 Some(actual_content_read as f32 / actual_elapsed)
             } else {
+                // 如果实际耗时为0或负，返回None
                 None
             }
-        } else {
-            // 如果没有记录到预热后的数据，说明下载持续时间不足预热时间，返回None
-            None
-        }
+        })
+        // 如果没有记录预热开始时间，说明下载持续时间不足预热时间，返回None
     } else {
         None
     };

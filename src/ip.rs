@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::Path;
 use std::str::FromStr;
 use rand::Rng;
 use ipnet::IpNet;
@@ -374,28 +373,20 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all: bool
     
     // 如果不是单个IP，再尝试解析为CIDR
     if let Ok(network) = ip_range.parse::<IpNet>() {
-        match network {
-            IpNet::V4(ipv4_net) => {
-                let prefix = ipv4_net.prefix_len();
-                if test_all {
-                    return if prefix < 32 { 2u128.pow((32 - prefix) as u32) } else { 1 };
-                } else if let Some(count) = custom_count {
-                    // 使用自定义数量
-                    return count;
-                } else {
-                    return calculate_sample_count(prefix, true);
-                }
-            }
-            IpNet::V6(ipv6_net) => {
-                let prefix = ipv6_net.prefix_len();
-                if let Some(count) = custom_count {
-                    // 使用自定义数量
-                    return count;
-                } else {
-                    return calculate_sample_count(prefix, false);
-                }
-            }
+        let (prefix, is_ipv4) = match network {
+            IpNet::V4(ipv4_net) => (ipv4_net.prefix_len(), true),
+            IpNet::V6(ipv6_net) => (ipv6_net.prefix_len(), false),
+        };
+
+        if let Some(count) = custom_count {
+            return count;
         }
+
+        if is_ipv4 && test_all {
+            return if prefix < 32 { 2u128.pow((32 - prefix) as u32) } else { 1 };
+        }
+
+        return calculate_sample_count(prefix, is_ipv4);
     }
     
     // 无法解析的情况，返回0
@@ -411,7 +402,7 @@ pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
 }
 
 // 读取文件行
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
-where P: AsRef<Path> {
+fn read_lines(filename: &str) -> io::Result<io::Lines<io::BufReader<File>>> {
     let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())}
+    Ok(io::BufReader::new(file).lines())
+}
