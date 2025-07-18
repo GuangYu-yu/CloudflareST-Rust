@@ -66,6 +66,28 @@ pub fn print_speed_test_info(mode: &str, args: &Args) {
     );
 }
 
+/// 基础Ping结构体，包含所有公共字段
+#[derive(Clone)]
+pub struct BasePing {
+    pub ip_buffer: Arc<Mutex<IpBuffer>>,
+    pub handler_factory: BaseHandlerFactory,
+    pub timeout_flag: Arc<AtomicBool>,
+}
+
+impl BasePing {
+    pub fn new(
+        ip_buffer: Arc<Mutex<IpBuffer>>,
+        handler_factory: BaseHandlerFactory,
+        timeout_flag: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            ip_buffer,
+            handler_factory,
+            timeout_flag,
+        }
+    }
+}
+
 /// 计算平均延迟，精确到两位小数
 pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     if success_count == 0 {
@@ -124,6 +146,21 @@ pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelay
     )
 }
 
+/// Ping 初始化
+pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing {
+    let (ip_buffer, csv, bar) = init_ping_test(args);
+    
+    let handler_factory = BaseHandlerFactory {
+        csv,
+        bar,
+        args: Arc::new(args.clone()),
+        success_count: Arc::new(AtomicUsize::new(0)),
+    };
+    
+    BasePing::new(ip_buffer, handler_factory, timeout_flag)
+}
+
+#[derive(Clone)]
 pub struct BaseHandlerFactory {
     pub csv: Arc<Mutex<PingDelaySet>>,
     pub bar: Arc<Bar>,
@@ -148,17 +185,12 @@ pub trait HandlerFactory: Send + Sync + 'static {
 
 /// 通用的 ping 测试运行函数
 pub async fn run_ping_test(
-    ip_buffer: Arc<Mutex<IpBuffer>>,
-    csv: Arc<Mutex<PingDelaySet>>,
-    bar: Arc<Bar>,
-    args: Arc<Args>,
-    success_count: Arc<AtomicUsize>,
-    timeout_flag: Arc<AtomicBool>,
+    base: &BasePing,
     handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<PingDelaySet, io::Error> {
     // 检查IP缓冲区是否为空
     let available_ips = {
-        let ip_buffer_guard = ip_buffer.lock().unwrap();
+        let ip_buffer_guard = base.ip_buffer.lock().unwrap();
         if ip_buffer_guard.is_empty() && ip_buffer_guard.total_expected() == 0 {
             return Ok(Vec::new());
         }
@@ -175,7 +207,7 @@ pub async fn run_ping_test(
     // 初始填充任务队列
     for _ in 0..initial_tasks {
         let addr = {
-            let mut ip_buffer_guard = ip_buffer.lock().unwrap();
+            let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
             ip_buffer_guard.pop()
         };
         
@@ -191,13 +223,13 @@ pub async fn run_ping_test(
     // 动态处理任务完成和添加新任务
     while let Some(result) = tasks.next().await {
         // 检查是否收到超时信号
-        if check_timeout_signal(&timeout_flag) {
+        if check_timeout_signal(&base.timeout_flag) {
             break;
         }
         
         // 检查是否达到目标成功数量
-        if let Some(target_num) = args.target_num {
-            if success_count.load(Ordering::Relaxed) >= target_num as usize {
+        if let Some(target_num) = base.handler_factory.args.target_num {
+            if base.handler_factory.success_count.load(Ordering::Relaxed) >= target_num as usize {
                 break;
             }
         }
@@ -207,7 +239,7 @@ pub async fn run_ping_test(
         
         // 添加新任务
         let addr = {
-            let mut ip_buffer_guard = ip_buffer.lock().unwrap();
+            let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
             ip_buffer_guard.pop()
         };
         
@@ -221,11 +253,11 @@ pub async fn run_ping_test(
     }
 
     // 更新进度条为完成状态
-    bar.done();
+    base.handler_factory.bar.done();
 
     // 收集所有测试结果
     let mut results = {
-        let mut csv_guard = csv.lock().unwrap();
+        let mut csv_guard = base.handler_factory.csv.lock().unwrap();
         std::mem::take(&mut *csv_guard)
     };
     

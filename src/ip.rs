@@ -12,6 +12,7 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use crate::args::Args;
 use crate::common::get_list;
 
+#[derive(Clone)]
 pub struct IpBuffer {
     ip_receiver: Receiver<SocketAddr>,
     ip_sender: Option<Sender<()>>,

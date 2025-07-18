@@ -12,17 +12,11 @@ use crate::progress::Bar;
 use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
 use crate::common::{self, PingData, PingDelaySet, HandlerFactory, BaseHandlerFactory};
-use crate::ip::IpBuffer;
 
 pub struct Ping {
-    ip_buffer: Arc<Mutex<IpBuffer>>,
-    csv: Arc<Mutex<PingDelaySet>>,
-    bar: Arc<Bar>,
-    args: Arc<Args>,
+    base: common::BasePing,
     colo_filters: Vec<String>,
     urlist: Vec<String>,
-    success_count: Arc<AtomicUsize>,
-    timeout_flag: Arc<AtomicBool>,
     use_https: bool,
 }
 
@@ -117,19 +111,12 @@ impl Ping {
         common::print_speed_test_info("Httping", args);
         
         // 初始化测试环境
-        let (ip_buffer, csv, bar) = common::init_ping_test(args);
+        let base = common::create_base_ping(args, timeout_flag);
 
-        let args = Arc::new(args.clone());
-        
         Ok(Ping {
-            ip_buffer,
-            csv,
-            bar,
-            args,
+            base,
             colo_filters,
             urlist,
-            success_count: Arc::new(AtomicUsize::new(0)),
-            timeout_flag,
             use_https,
         })
     }
@@ -139,10 +126,10 @@ impl Ping {
     ) -> Arc<dyn HandlerFactory> {
         Arc::new(HttpingHandlerFactory {
             base: BaseHandlerFactory {
-                csv: Arc::clone(&self.csv),
-                bar: Arc::clone(&self.bar),
-                args: Arc::clone(&self.args),
-                success_count: Arc::clone(&self.success_count),
+                csv: Arc::clone(&self.base.handler_factory.csv),
+                bar: Arc::clone(&self.base.handler_factory.bar),
+                args: Arc::clone(&self.base.handler_factory.args),
+                success_count: Arc::clone(&self.base.handler_factory.success_count),
             },
             colo_filters: Arc::new(self.colo_filters.clone()),
             urls: Arc::new(self.urlist.clone()),
@@ -158,16 +145,7 @@ impl Ping {
         }
 
         let handler_factory = self.make_handler_factory();
-
-        common::run_ping_test(
-            self.ip_buffer,
-            self.csv,
-            self.bar,
-            self.args,
-            self.success_count,
-            self.timeout_flag,
-            handler_factory,
-        ).await
+        common::run_ping_test(&self.base, handler_factory).await
     }
 }
 
