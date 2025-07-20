@@ -1,14 +1,13 @@
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::io;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 use rand::random;
 use crate::pool::execute_with_rate_limit;
 
-use crate::progress::Bar;
 use crate::args::Args;
 use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 
@@ -31,7 +30,44 @@ impl HandlerFactory for IcmpingHandlerFactory {
         let client_v6 = Arc::clone(&self.client_v6);
 
         Box::pin(async move {
-            icmp_handler(addr, csv, bar, &args, success_count, client_v4, client_v6).await;
+            // 内联的 icmp_handler 逻辑
+            let ip = addr.ip();
+            let ping_times = args.ping_times;
+            
+            let mut recv = 0;
+            let mut total_delay_ms = 0.0;
+            
+            // 根据IP类型选择客户端
+            let client = match ip {
+                IpAddr::V4(_) => client_v4,
+                IpAddr::V6(_) => client_v6,
+            };
+            
+            for _ in 0..ping_times {
+                if let Ok(Some(delay)) = execute_with_rate_limit(|| async {
+                    Ok::<Option<f32>, io::Error>(icmp_ping(addr, &args, &client).await)
+                }).await {
+                    recv += 1;
+                    total_delay_ms += delay;
+                }
+            }
+
+            // 计算平均延迟
+            let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
+
+            if recv > 0 {
+                success_count.fetch_add(1, Ordering::Relaxed);
+                let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
+                
+                if common::should_keep_result(&data, &args) {
+                    let mut csv_guard = csv.lock().unwrap();
+                    csv_guard.push(data);
+                }
+            }
+            
+            // 无论成功与否，每个IP测试完成后都增加1个计数
+            let current_count = success_count.load(Ordering::Relaxed);
+            bar.grow(1, current_count.to_string());
         })
     }
 }
@@ -65,55 +101,6 @@ impl Ping {
         let handler_factory = self.make_handler_factory();
         common::run_ping_test(&self.base, handler_factory).await
     }
-}
-
-// ICMP 测速处理函数
-async fn icmp_handler(
-    addr: SocketAddr,
-    csv: Arc<Mutex<PingDelaySet>>, 
-    bar: Arc<Bar>, 
-    args: &Arc<Args>,
-    success_count: Arc<AtomicUsize>,
-    client_v4: Arc<Client>,
-    client_v6: Arc<Client>,
-) {
-    let ip = addr.ip();
-    let ping_times = args.ping_times;
-    
-    let mut recv = 0;
-    let mut total_delay_ms = 0.0;
-    
-    // 根据IP类型选择客户端
-    let client = match ip {
-        IpAddr::V4(_) => client_v4,
-        IpAddr::V6(_) => client_v6,
-    };
-    
-    for _ in 0..ping_times {
-        if let Ok(Some(delay)) = execute_with_rate_limit(|| async {
-            Ok::<Option<f32>, io::Error>(icmp_ping(addr, args, &client).await)
-        }).await {
-            recv += 1;
-            total_delay_ms += delay;
-        }
-    }
-
-    // 计算平均延迟
-    let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
-
-    if recv > 0 {
-        success_count.fetch_add(1, Ordering::Relaxed);
-        let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
-        
-        if common::should_keep_result(&data, args) {
-            let mut csv_guard = csv.lock().unwrap();
-            csv_guard.push(data);
-        }
-    }
-    
-    // 无论成功与否，每个IP测试完成后都增加1个计数
-    let current_count = success_count.load(Ordering::Relaxed);
-    bar.grow(1, current_count.to_string());
 }
 
 // ICMP ping函数
