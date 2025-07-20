@@ -49,7 +49,7 @@ impl DownloadHandler {
             }
         }
 
-        // 检查是否需要更新显示速度（例如，仍然保持大约 500ms 更新一次）
+        // 检查是否需要更新显示速度
         let elapsed_since_last_update = now.duration_since(self.last_update);
         if elapsed_since_last_update.as_millis() >= 500 {
             let speed = if self.speed_samples.len() >= 2 {
@@ -62,10 +62,10 @@ impl DownloadHandler {
                 if time_diff > 0.0 {
                     bytes_diff as f32 / time_diff
                 } else {
-                    0.0 // 时间差为0，速度为0
+                    0.0
                 }
             } else {
-                0.0 // 样本不足，速度为0
+                0.0
             };
 
             // 更新当前速度显示
@@ -93,7 +93,6 @@ pub struct DownloadTest {
     min_speed: f32,
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
-//    icmp_ping: bool,
     colo_filter: String,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
@@ -123,7 +122,6 @@ impl DownloadTest {
             min_speed: args.min_speed,
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
-//            icmp_ping: args.icmp_ping,
             colo_filter: args.httping_cf_colo.to_string(),
             ping_results,
             timeout_flag,
@@ -131,7 +129,6 @@ impl DownloadTest {
     }
 
     pub async fn test_download_speed(&mut self) -> Vec<PingData> {
-        
         // 数据中心过滤条件
         let colo_filters = Arc::new(common::parse_colo_filters(&self.colo_filter));
         
@@ -153,10 +150,10 @@ impl DownloadTest {
             }
         });
     
-        // 创建结果集合
-        let mut results = Vec::new();
+        // 存储合格项的索引
+        let mut qualified_indices = Vec::new();
         
-        // 逐个IP进行测速（单线程）
+        // 逐个IP进行测速
         for i in 0..self.ping_results.len() {
             // 检查是否收到超时信号
             if common::check_timeout_signal(&self.timeout_flag) {
@@ -167,7 +164,6 @@ impl DownloadTest {
             let ping_result = &mut self.ping_results[i];
             
             // 获取IP地址和检查是否需要获取 colo
-            let addr = ping_result.addr;
             let need_colo = ping_result.data_center.is_empty();
             
             // 执行下载测速
@@ -179,7 +175,7 @@ impl DownloadTest {
             };
             
             let (speed, maybe_colo) = download_handler(
-                addr,
+                ping_result.addr,
                 test_url,
                 self.timeout.unwrap(),
                 Arc::clone(&self.current_speed),
@@ -188,10 +184,9 @@ impl DownloadTest {
                 Arc::clone(&colo_filters),
             ).await;
             
-            // 无论速度如何，都更新下载速度和可能的数据中心信息
+            // 更新下载速度和可能的数据中心信息
             ping_result.download_speed = speed;
             
-            // 如果数据中心为空且获取到了新的数据中心信息，则更新
             if ping_result.data_center.is_empty() {
                 if let Some(colo) = maybe_colo {
                     ping_result.data_center = colo;
@@ -201,31 +196,26 @@ impl DownloadTest {
             // 检查速度是否符合要求
             let speed_match = match speed {
                 Some(s) => s >= self.min_speed * 1024.0 * 1024.0,
-                None => false,  // 如果速度为None，视为不符合要求
+                None => false,
             };
             
-            // 如果设置了 colo 过滤条件，需要同时满足速度和数据中心要求
-            let result = if !colo_filters.is_empty() {
-                // 使用通用函数检查数据中心是否符合过滤条件
-                let colo_match = common::is_colo_matched(&ping_result.data_center, &colo_filters);
-                
-                // 同时满足速度和数据中心要求
-                speed_match && colo_match
+            // 检查数据中心是否符合要求
+            let colo_match = if !colo_filters.is_empty() {
+                common::is_colo_matched(&ping_result.data_center, &colo_filters)
             } else {
-                // 如果没有设置 colo 过滤条件，只需要满足速度要求
-                speed_match
+                true // 没有过滤条件时视为匹配
             };
             
-            if result {
-                // 符合要求的结果添加到结果集合
-                results.push(ping_result.clone());
+            // 同时满足速度和数据中心要求
+            if speed_match && colo_match {
+                qualified_indices.push(i);
             }
             
-            // 无论结果是否符合要求，都更新进度条
+            // 更新进度条
             self.bar.as_ref().grow(1, "");
             
             // 如果已经找到足够数量的合格结果，提前结束测试
-            if results.len() >= self.test_count as usize {
+            if qualified_indices.len() >= self.test_count as usize {
                 break;
             }
         }
@@ -236,14 +226,28 @@ impl DownloadTest {
         // 更新进度条为完成状态
         self.bar.done();
         
+        // 使用drain按索引提取合格项（从后往前避免索引失效）
+        let mut qualified_results = Vec::with_capacity(qualified_indices.len());
+        
+        // 降序排序索引
+        qualified_indices.sort_unstable_by(|a, b| b.cmp(a));
+        
+        // 按索引移除合格项
+        for index in qualified_indices {
+            qualified_results.push(self.ping_results.swap_remove(index));
+        }
+        
+        // 反转结果集恢复原始顺序
+        qualified_results.reverse();
+        
         // 如果没有找到足够的结果，打印信息
-        if results.len() < self.test_count as usize {
+        if qualified_results.len() < self.test_count as usize {
             println!("\n[信息] 下载测速符合要求的 IP 数量不足！");
         }        
 
         // 对结果进行排序
-        common::sort_results(&mut results);
-        results
+        common::sort_results(&mut qualified_results);
+        qualified_results
     }
 }
 
@@ -273,7 +277,7 @@ async fn download_handler(
     
     // 计算延长的下载时间
     let warm_up_duration = Duration::from_secs(3); // 预热时间
-    let extended_duration = download_duration + warm_up_duration; // 预热时间 + 下载时间
+    let extended_duration = download_duration + warm_up_duration;
 
     // 创建客户端进行下载测速
     let client = match common::build_reqwest_client(addr, host, extended_duration.as_millis() as u64).await {
@@ -309,7 +313,6 @@ async fn download_handler(
         
         // 读取响应体
         let time_start = Instant::now();
-//        let mut content_read: u64 = 0; // 记录总共已读取的字节数
         let mut actual_content_read: u64 = 0;
         let mut actual_start_time: Option<Instant> = None;
         
@@ -326,12 +329,10 @@ async fn download_handler(
             match resp.chunk().await.ok() {
                 Some(Some(chunk)) => {
                     let size = chunk.len() as u64;
-//                    content_read += size;
                     handler.update_data_received(size);
                     
                     // 如果已经过了预热时间，开始记录实际下载数据
                     if elapsed >= warm_up_duration {
-                        // 如果这是第一次超过预热时间，记录实际开始时间
                         if actual_start_time.is_none() {
                             actual_start_time = Some(current_time);
                         }
@@ -348,11 +349,9 @@ async fn download_handler(
             if actual_elapsed > 0.0 {
                 Some(actual_content_read as f32 / actual_elapsed)
             } else {
-                // 如果实际耗时为0或负，返回None
                 None
             }
         })
-        // 如果没有记录预热开始时间，说明下载持续时间不足预热时间，返回None
     } else {
         None
     };
