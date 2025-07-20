@@ -24,7 +24,6 @@ impl HandlerFactory for TcpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let (csv, bar, args, success_count) = self.base.clone_shared_state();
         Box::pin(async move {
-            // 直接在此处实现原来的 tcping_handler 逻辑
             let ping_times = args.ping_times;
             let mut recv = 0;
             let mut total_delay_ms = 0.0;
