@@ -1,5 +1,5 @@
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 use std::io;
 use url::Url;
@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::progress::Bar;
 use crate::args::Args;
 use crate::pool::execute_with_rate_limit;
 use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
@@ -34,7 +33,7 @@ impl HandlerFactory for HttpingHandlerFactory {
         let urls = self.urls.clone();
         let url_index = Arc::clone(&self.url_index);
         let use_https = self.use_https;
-        
+
         Box::pin(async move {
             // 根据模式选择URL
             let url = if use_https {
@@ -50,7 +49,128 @@ impl HandlerFactory for HttpingHandlerFactory {
                 Ping::build_trace_url("http", &host_str)
             };
 
-            httping_handler(addr, csv, bar, &args, &colo_filters, &url, success_count).await;
+            let ping_times = args.ping_times;
+            let mut recv = 0;
+            let mut total_delay_ms = 0.0;
+            let mut data_center = String::new();
+            let mut should_continue = true;
+
+            // 创建客户端
+            let host = match Url::parse(&url) {
+                Ok(url_parts) => match url_parts.host_str() {
+                    Some(host) => host.to_string(),
+                    None => {
+                        // 连接失败，更新进度条
+                        let current_success = success_count.load(Ordering::Relaxed);
+                        bar.grow(1, current_success.to_string());
+                        return;
+                    }
+                },
+                Err(_) => {
+                    // 连接失败，更新进度条
+                    let current_success = success_count.load(Ordering::Relaxed);
+                    bar.grow(1, current_success.to_string());
+                    return;
+                }
+            };
+
+            let client = match common::build_reqwest_client(addr, &host, 2000).await {
+                Some(client) => Arc::new(client),
+                None => {
+                    // 连接失败，更新进度条
+                    let current_success = success_count.load(Ordering::Relaxed);
+                    bar.grow(1, current_success.to_string());
+                    return;
+                }
+            };
+
+            let first_success = Arc::new(AtomicBool::new(false));
+
+            // 克隆非 Copy 变量到循环中
+            let url = Arc::new(url);
+            let args = Arc::clone(&args);
+            let colo_filters = Arc::new(colo_filters);
+
+            for _ in 0..ping_times {
+                let client = Arc::clone(&client);
+                let first_success = Arc::clone(&first_success);
+                let url = Arc::clone(&url);
+                let args = Arc::clone(&args);
+                let colo_filters = Arc::clone(&colo_filters);
+
+                if let Ok(Some((delay, dc))) = execute_with_rate_limit(|| async move {
+                    let start_time = Instant::now();
+
+                    let result = client
+                        .head(&*url)
+                        .header("Connection", "close")
+                        .send()
+                        .await
+                        .ok();
+
+                    if let Some(response) = result {
+                        if let Some(dc) = common::extract_data_center(&response) {
+                            // 只在第一次成功时执行过滤判断
+                            let was_first = !first_success.swap(true, Ordering::Relaxed);
+
+                            if was_first {
+                                if !args.httping_cf_colo.is_empty()
+                                    && !dc.is_empty()
+                                    && !colo_filters.is_empty()
+                                    && !common::is_colo_matched(&dc, &colo_filters)
+                                {
+                                    return Ok::<Option<(f32, String)>, io::Error>(None);
+                                }
+                            }
+
+                            let delay = start_time.elapsed().as_secs_f32() * 1000.0;
+                            return Ok::<Option<(f32, String)>, io::Error>(Some((delay, dc)));
+                        }
+                    }
+
+                    Ok::<Option<(f32, String)>, io::Error>(None)
+                }).await
+                {
+                    recv += 1;
+                    total_delay_ms += delay;
+
+                    if data_center.is_empty() {
+                        data_center = dc;
+                    }
+                } else {
+                    // 连接失败或不匹配过滤条件，提前中断
+                    should_continue = false;
+                }
+
+                if !should_continue {
+                    break;
+                }
+            }
+
+            // 计算平均延迟
+            let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
+
+            if recv > 0 {
+                // 连接成功，增加成功计数
+                let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+                // 创建测试数据
+                let mut data = PingData::new(addr, ping_times, recv, avg_delay_ms);
+                data.data_center = data_center;
+
+                // 应用筛选条件（但不影响进度条计数）
+                if common::should_keep_result(&data, &args) {
+                    let mut csv_guard = csv.lock().unwrap();
+                    csv_guard.push(data);
+                }
+
+                // 更新进度条（使用成功连接数）
+                bar.grow(1, new_success_count.to_string());
+            } else {
+                // 连接失败，更新进度条
+                let current_success = success_count.load(Ordering::Relaxed);
+                bar.grow(1, current_success.to_string());
+            }
         })
     }
 }
@@ -140,132 +260,5 @@ impl Ping {
 
         let handler_factory = self.make_handler_factory();
         common::run_ping_test(&self.base, handler_factory).await
-    }
-}
-
-// HTTP 测速处理函数
-async fn httping_handler(
-    addr: SocketAddr,
-    csv: Arc<Mutex<PingDelaySet>>, 
-    bar: Arc<Bar>, 
-    args: &Arc<Args>,
-    colo_filters: &Vec<String>,
-    url: &String,
-    success_count: Arc<AtomicUsize>,
-) {
-    let ping_times = args.ping_times;
-    let mut recv = 0;
-    let mut total_delay_ms = 0.0;
-    let mut data_center = String::new();
-    let mut should_continue = true;
-
-    // 创建客户端
-    let host = match Url::parse(url) {
-        Ok(url_parts) => match url_parts.host_str() {
-            Some(host) => host.to_string(),
-            None => {
-                // 连接失败，更新进度条
-                let current_success = success_count.load(Ordering::Relaxed);
-                bar.grow(1, current_success.to_string());
-                return;
-            }
-        },
-        Err(_) => {
-            // 连接失败，更新进度条
-            let current_success = success_count.load(Ordering::Relaxed);
-            bar.grow(1, current_success.to_string());
-            return;
-        }
-    };
-
-    let client = match common::build_reqwest_client(addr, &host, 2000).await {
-        Some(client) => client,
-        None => {
-            // 连接失败，更新进度条
-            let current_success = success_count.load(Ordering::Relaxed);
-            bar.grow(1, current_success.to_string());
-            return;
-        }
-    };
-
-    let client = Arc::new(client);
-    let first_success = Arc::new(AtomicBool::new(false));
-
-    for _ in 0..ping_times {
-        let client = Arc::clone(&client);
-        let first_success = Arc::clone(&first_success);
-
-        if let Ok(Some((delay, dc))) = execute_with_rate_limit(|| async move {
-            let start_time = Instant::now();
-
-            let result = client
-                .head(url)
-                .header("Connection", "close")
-                .send()
-                .await
-                .ok();
-
-            if let Some(response) = result {
-                if let Some(dc) = common::extract_data_center(&response) {
-                    // 只在第一次成功时执行过滤判断
-                    let was_first = !first_success.swap(true, Ordering::Relaxed);
-
-                    if was_first {
-                        if !args.httping_cf_colo.is_empty()
-                            && !dc.is_empty()
-                            && !colo_filters.is_empty()
-                            && !common::is_colo_matched(&dc, &colo_filters)
-                        {
-                            return Ok::<Option<(f32, String)>, io::Error>(None);
-                        }
-                    }
-
-                    let delay = start_time.elapsed().as_secs_f32() * 1000.0;
-                    return Ok::<Option<(f32, String)>, io::Error>(Some((delay, dc)));
-                }
-            }
-
-            Ok::<Option<(f32, String)>, io::Error>(None)
-        }).await
-        {
-            recv += 1;
-            total_delay_ms += delay;
-
-            if data_center.is_empty() {
-                data_center = dc;
-            }
-        } else {
-            // 连接失败或不匹配过滤条件，提前中断
-            should_continue = false;
-        }
-
-        if !should_continue {
-            break;
-        }
-    }
-
-    // 计算平均延迟
-    let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
-
-    if recv > 0 {
-        // 连接成功，增加成功计数
-        let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
-        
-        // 创建测试数据
-        let mut data = PingData::new(addr, ping_times, recv, avg_delay_ms);
-        data.data_center = data_center;
-        
-        // 应用筛选条件（但不影响进度条计数）
-        if common::should_keep_result(&data, args) {
-            let mut csv_guard = csv.lock().unwrap();
-            csv_guard.push(data);
-        }
-        
-        // 更新进度条（使用成功连接数）
-        bar.grow(1, new_success_count.to_string());
-    } else {
-        // 连接失败，更新进度条
-        let current_success = success_count.load(Ordering::Relaxed);
-        bar.grow(1, current_success.to_string());
     }
 }
