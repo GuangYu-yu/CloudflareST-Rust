@@ -30,7 +30,6 @@ impl HandlerFactory for IcmpingHandlerFactory {
         let client_v6 = Arc::clone(&self.client_v6);
 
         Box::pin(async move {
-            // 内联的 icmp_handler 逻辑
             let ip = addr.ip();
             let ping_times = args.ping_times;
             
