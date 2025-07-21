@@ -198,18 +198,11 @@ pub async fn run_ping_test(
     // 线程池最大并发数量
     let pool_concurrency = crate::pool::GLOBAL_POOL.get().unwrap().max_threads;
 
-    // 计算启动任务数，受目标任务数限制或线程池大小限制
-    let initial_tasks = if let Some(target) = base.args.target_num {
-        pool_concurrency.min(target as usize).max(1)
-    } else {
-        pool_concurrency.max(1)
-    };
-
     // 创建异步任务管理器
     let mut tasks = FuturesUnordered::new();
 
     // 批量初始启动任务
-    for _ in 0..initial_tasks {
+    for _ in 0..pool_concurrency {
         if let Some(addr) = ip_buffer_guard.pop() {
             let task = handler_factory.create_handler(addr);
             tasks.push(tokio::spawn(async move {
@@ -217,26 +210,22 @@ pub async fn run_ping_test(
                 Ok::<(), io::Error>(())
             }));
         } else {
-            // 没有更多IP可取，跳出循环
-            break;
+            break; // 没有更多IP
         }
     }
-    // 释放锁
-    drop(ip_buffer_guard);
 
-    // 动态循环处理完成的任务并添加新任务
-    while !check_timeout_signal(&base.timeout_flag)
-        && base.args.target_num.map_or(true, |t| base.success_count.load(Ordering::Relaxed) < t as usize)
-    {
+    drop(ip_buffer_guard); // 释放锁
+
+    // 动态循环处理任务，直到超时或任务耗尽
+    while !check_timeout_signal(&base.timeout_flag) {
         match tasks.next().await {
             Some(result) => {
-                // 处理已完成的任务结果（这里忽略错误）
-                let _ = result;
+                let _ = result; // 忽略错误
             }
-            None => break, // 如果没有更多任务了，退出循环
+            None => break, // 没有更多任务，退出
         }
 
-        // 从 ip_buffer 获取新 IP，启动新任务
+        // 继续添加新任务
         let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
         if let Some(addr) = ip_buffer_guard.pop() {
             let task = handler_factory.create_handler(addr);
@@ -251,11 +240,9 @@ pub async fn run_ping_test(
     // 所有任务结束，更新进度条
     base.bar.done();
 
-    // 收集结果
+    // 收集和排序结果
     let mut csv_guard = base.csv.lock().unwrap();
     let mut results = std::mem::take(&mut *csv_guard);
-
-    // 排序结果
     sort_results(&mut results);
 
     Ok(results)
