@@ -1,6 +1,7 @@
 use std::env;
 use std::time::Duration;
 use colored::*;  // 用于终端彩色输出
+use prettytable::{Table, Row, Cell, format};
 
 /// 命令行参数配置结构体
 #[derive(Clone)]
@@ -196,46 +197,55 @@ pub fn parse_args() -> Args {
     args
 }
 
-/// 宏：格式化输出参数帮助信息
-macro_rules! print_arg {
-    ($name:expr, $desc:expr, $default:expr) => {
-        println!("  {:<10}   {}{}", $name.green(), $desc, $default.dimmed());
-    };
-}
-
 /// 打印帮助信息
 pub fn print_help() {
+    // 打印标题
     println!("{}", "# CloudflareST-Rust".bold().blue());
-    println!("\n{}:", "基本参数".bold());
-    print_arg!("-url", "TLS 模式测速地址", "[默认：未指定]");
-    print_arg!("-urlist", "URL 地址列表", "[默认：未指定]");
-    print_arg!("-f", "从文件读取 IP", "[默认：未指定]");
-    print_arg!("-ip", "直接指定 IP", "[默认：未指定]");
-    print_arg!("-ipurl", "从URL读取 IP", "[默认：未指定]");
-    print_arg!("-timeout", "全局超时（秒）", "[默认：不限制]");
 
-    println!("\n{}:", "测速参数".bold());
-    print_arg!("-t", "延迟测速次数", "[默认：4]");
-    print_arg!("-dn", "下载测速数量", "[默认：10]");
-    print_arg!("-dt", "下载测速时间（秒）", "[默认：10]");
-    print_arg!("-tp", "测速端口", "[默认：443]");
-    print_arg!("-all4", "测速全部IPv4", "[默认：否]");
-    print_arg!("-tn", "提前结束Ping数量", "[默认：否]");
+    // 创建表格
+    let mut table = Table::new();
 
-    println!("\n{}:", "测速选项".bold());
-//    print_arg!("-ping", "ICMP-Ping 测速模式 ", "[默认：否]");
-    print_arg!("-httping", "非 TLS Httping", "[默认：否]");
-    print_arg!("-dd", "禁用下载测速", "[默认：否]");
-    print_arg!("-hu", "TLS Httping 可选 URL", "[默认：否]");
-    print_arg!("-colo", "指定地区（HKG,SJC）", "[默认：未指定]");
-    print_arg!("-n", "线程数量", "[默认：256]");
+    // 设置表格样式（可选）
+    table.set_format(*format::consts::FORMAT_CLEAN);
 
-    println!("\n{}:", "结果参数".bold());
-    print_arg!("-tl", "延迟上限（毫秒）", "[默认：2000]");
-    print_arg!("-tll", "延迟下限（毫秒）", "[默认：0]");
-    print_arg!("-tlr", "丢包率上限", "[默认：1.00]");
-    print_arg!("-sl", "下载速度下限（MB/s）", "[默认：0.00]");
-    print_arg!("-p", "显示结果数量", "[默认：10]");
-    print_arg!("-sp", "显示端口号", "[默认：否]");
-    print_arg!("-o", "输出文件", "[默认：result.csv]");
+    // Helper：插入参数行
+    macro_rules! add_arg {
+        ($name:expr, $desc:expr, $default:expr) => {
+            table.add_row(Row::new(vec![
+                Cell::new(&format!(" {:<12}", $name.green())),   // 参数列：缩进+左对齐+宽度
+                Cell::new(&format!("{:<16}", $desc)),     // 描述列
+                Cell::new(&format!("{:<10}", $default.dimmed())),  // 默认值列
+            ]));
+        };
+    }
+
+    add_arg!("-url", "TLS 模式的 Httping 或下载测速所使用的 URL", "未指定");
+    add_arg!("-urlist", "从 URL 内读取测速地址列表", "未指定");
+    add_arg!("-f", "从指定文件名或文件路径获取 IP 或 CIDR", "未指定");
+    add_arg!("-ip", "直接指定 IP 或 CIDR（多个用逗号分隔）", "未指定");
+    add_arg!("-ipurl", "从 URL 读取 IP 或 CIDR", "未指定");
+    add_arg!("-timeout", "程序超时退出时间（秒）", "不限制");
+
+    add_arg!("-t", "延迟测速次数", "4");
+    add_arg!("-dn", "下载测速数量", "10");
+    add_arg!("-dt", "下载测速时间（秒）", "10");
+    add_arg!("-tp", "测速端口", "443");
+    add_arg!("-all4", "测速全部 IPv4 地址", "否");
+    add_arg!("-tn", "所需符合要求的 Ping 结果数量", "否");
+
+    add_arg!("-httping", "使用非 TLS 模式的 Httping", "否");
+    add_arg!("-dd", "禁用下载测速", "否");
+    add_arg!("-hu", "延迟测速使用 HTTPS ，可指定其 URL", "否");
+    add_arg!("-colo", "指定地区（例如：HKG,SJC）", "未指定");
+    add_arg!("-n", "延迟测速的线程数量", "256");
+
+    add_arg!("-tl", "延迟上限（毫秒）", "2000");
+    add_arg!("-tll", "延迟下限（毫秒）", "0");
+    add_arg!("-tlr", "丢包率上限", "1.00");
+    add_arg!("-sl", "下载速度下限（MB/s）", "0.00");
+    add_arg!("-p", "终端显示结果数量", "10");
+    add_arg!("-sp", "结果带端口号", "否");
+    add_arg!("-o", "输出结果文件（文件名或文件路径）", "result.csv");
+
+    table.printstd();
 }
