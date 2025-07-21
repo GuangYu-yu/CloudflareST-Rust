@@ -232,13 +232,10 @@ impl DownloadTest {
         // 降序排序索引
         qualified_indices.sort_unstable_by(|a, b| b.cmp(a));
         
-        // 按索引移除合格项
+        // 按降序索引移除并收集合格项（防止索引失效）
         for index in qualified_indices {
             qualified_results.push(self.ping_results.swap_remove(index));
         }
-        
-        // 反转结果集恢复原始顺序
-        qualified_results.reverse();
         
         // 如果没有找到足够的结果，打印信息
         if qualified_results.len() < self.test_count as usize {
