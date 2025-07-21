@@ -225,25 +225,24 @@ impl DownloadTest {
         
         // 更新进度条为完成状态
         self.bar.done();
-        
-        // 使用drain按索引提取合格项（从后往前避免索引失效）
-        let mut qualified_results = Vec::with_capacity(qualified_indices.len());
-        
-        // 降序排序索引
+
+        // 按索引降序排序，保证swap_remove时不会引起索引失效
         qualified_indices.sort_unstable_by(|a, b| b.cmp(a));
-        
-        // 按降序索引移除并收集合格项（防止索引失效）
+
+        // 零克隆提取合格项
+        let mut qualified_results = Vec::with_capacity(qualified_indices.len());
         for index in qualified_indices {
             qualified_results.push(self.ping_results.swap_remove(index));
         }
-        
-        // 如果没有找到足够的结果，打印信息
+
+        // 如果没有找到足够的结果，打印提示
         if qualified_results.len() < self.test_count as usize {
             println!("\n[信息] 下载测速符合要求的 IP 数量不足！");
-        }        
+        }
 
-        // 对结果进行排序
+        // 对结果进行业务排序
         common::sort_results(&mut qualified_results);
+
         qualified_results
     }
 }
