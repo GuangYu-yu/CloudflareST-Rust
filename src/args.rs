@@ -1,6 +1,5 @@
 use std::env;
 use std::time::Duration;
-use std::collections::HashMap;
 use colored::*;  // 用于终端彩色输出
 
 /// 命令行参数配置结构体
@@ -80,74 +79,84 @@ impl Args {
     pub fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
         let mut parsed = Self::new();
-        
-        let map = Self::parse_args_to_map(&args);
+        let vec = Self::parse_args_to_vec(&args);
 
-        // 布尔参数
-        parsed.help = map.contains_key("h") || map.contains_key("help");
-        parsed.httping = map.contains_key("httping");
-        parsed.disable_download = map.contains_key("dd");
-        parsed.test_all = map.contains_key("all4");
-        parsed.show_port = map.contains_key("sp");
-//        parsed.icmp_ping = map.contains_key("ping");
+        for (k, v_opt) in vec {
+            match k.as_str() {
+                // 布尔参数
+                "h" | "help" => parsed.help = true,
+                "httping" => parsed.httping = true,
+                "dd" => parsed.disable_download = true,
+                "all4" => parsed.test_all = true,
+                "sp" => parsed.show_port = true,
+                // "ping" => parsed.icmp_ping = true,
 
-        // hu 可以有值也可以没有值
-        if let Some(hu_opt) = map.get("hu") {
-            parsed.httping_urls_flag = true;
-            parsed.httping = true;
-            parsed.httping_urls = hu_opt.clone().unwrap_or_default();
+                // hu 可以有值也可以没有值
+                "hu" => {
+                    parsed.httping_urls_flag = true;
+                    parsed.httping = true;
+                    parsed.httping_urls = v_opt.unwrap_or_default();
+                }
+
+                // 数值参数
+                "t"   => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.ping_times = v.clamp(1, u16::MAX); }
+                "dn"  => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.test_count = v.clamp(1, u16::MAX); }
+                "tp"  => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.tcp_port = v.clamp(1, u16::MAX); }
+                "p"   => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.print_num = v.clamp(1, u16::MAX); }
+                "tlr" => if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) { parsed.max_loss_rate = v.clamp(0.0, 1.0); }
+                "sl"  => if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) { parsed.min_speed = v.clamp(0.0, f32::MAX); }
+                "tn" => parsed.target_num = v_opt.and_then(|s| s.parse().ok()),
+                "n"   => if let Some(v) = v_opt.and_then(|s| s.parse::<usize>().ok()) { parsed.max_threads = v.clamp(1, 1024); }
+
+                // 时间参数
+                "dt"      => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.timeout_duration = Some(Duration::from_secs(v.clamp(1, 120))); }
+                "timeout" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.global_timeout_duration = Some(Duration::from_secs(v.clamp(1, 36000))); }
+                "tl"  => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.max_delay = Duration::from_millis(v.clamp(0, 2000)); },
+                "tll" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.min_delay = Duration::from_millis(v.clamp(0, parsed.max_delay.as_millis().min(u64::MAX as u128) as u64)); },
+
+                // 字符串参数
+                "url" => parsed.url = v_opt.unwrap_or_else(|| parsed.url.clone()),
+                "urlist" => parsed.urlist = v_opt.unwrap_or_else(|| parsed.urlist.clone()),
+                "colo" => parsed.httping_cf_colo = v_opt.unwrap_or_else(|| parsed.httping_cf_colo.clone()),
+                "f" => parsed.ip_file = v_opt.unwrap_or_else(|| parsed.ip_file.clone()),
+                "ip" => parsed.ip_text = v_opt.unwrap_or_else(|| parsed.ip_text.clone()),
+                "ipurl" => parsed.ip_url = v_opt.unwrap_or_else(|| parsed.ip_url.clone()),
+                "o" => parsed.output = v_opt.unwrap_or_else(|| parsed.output.clone()),
+
+                // 无效参数：打印错误并退出
+                _ => {
+                    print_help();
+                    println!("{}", format!("无效的参数: {k}").red().bold());
+                    std::process::exit(1);
+                }
+            }
         }
-
-        // 数值参数
-        parsed.ping_times = parse_arg_str(&map, "t").and_then(|s| s.parse().ok()).unwrap_or(parsed.ping_times);
-        parsed.test_count = parse_arg_str(&map, "dn").and_then(|s| s.parse().ok()).unwrap_or(parsed.test_count);
-        parsed.tcp_port = parse_arg_str(&map, "tp").and_then(|s| s.parse().ok()).unwrap_or(parsed.tcp_port);
-        parsed.print_num = parse_arg_str(&map, "p").and_then(|s| s.parse().ok()).unwrap_or(parsed.print_num);
-        parsed.max_loss_rate = parse_arg_str(&map, "tlr").and_then(|s| s.parse().ok()).unwrap_or(parsed.max_loss_rate);
-        parsed.min_speed = parse_arg_str(&map, "sl").and_then(|s| s.parse().ok()).unwrap_or(parsed.min_speed);
-        parsed.target_num = parse_arg_str(&map, "tn").and_then(|s| s.parse().ok());
-        parsed.max_threads = parse_arg_str(&map, "n").and_then(|s| s.parse::<usize>().ok().map(|v| v.clamp(1, 1024))).unwrap_or(parsed.max_threads);
-
-        // 时间参数
-        parsed.timeout_duration = parse_arg_str(&map, "dt").and_then(|s| s.parse::<u64>().ok().map(Duration::from_secs)).map(Some).unwrap_or(parsed.timeout_duration);
-        parsed.global_timeout_duration = parse_arg_str(&map, "timeout").and_then(|s| s.parse::<u64>().ok().map(Duration::from_secs));
-        parsed.max_delay = parse_arg_str(&map, "tl").and_then(|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.max_delay);
-        parsed.min_delay = parse_arg_str(&map, "tll").and_then(|s| s.parse::<u64>().ok().map(Duration::from_millis)).unwrap_or(parsed.min_delay);
-
-        // 字符串参数
-        parsed.url = parse_arg_str(&map, "url").map(|s| s.to_string()).unwrap_or_else(|| parsed.url.clone());
-        parsed.urlist = parse_arg_str(&map, "urlist").map(|s| s.to_string()).unwrap_or_else(|| parsed.urlist.clone());
-        parsed.httping_cf_colo = parse_arg_str(&map, "colo").map(|s| s.to_string()).unwrap_or_else(|| parsed.httping_cf_colo.clone());
-        parsed.ip_file = parse_arg_str(&map, "f").map(|s| s.to_string()).unwrap_or_else(|| parsed.ip_file.clone());
-        parsed.ip_text = parse_arg_str(&map, "ip").map(|s| s.to_string()).unwrap_or_else(|| parsed.ip_text.clone());
-        parsed.ip_url = parse_arg_str(&map, "ipurl").map(|s| s.to_string()).unwrap_or_else(|| parsed.ip_url.clone());
-        parsed.output = parse_arg_str(&map, "o").map(|s| s.to_string()).unwrap_or_else(|| parsed.output.clone());
 
         parsed
     }
 
-    // 将命令行参数解析为HashMap
-    fn parse_args_to_map(args: &[String]) -> HashMap<String, Option<String>> {
-        let mut map = HashMap::new();
+    // 解析命令行
+    fn parse_args_to_vec(args: &[String]) -> Vec<(String, Option<String>)> {
+        let mut vec = Vec::new();
         let mut iter = args.iter().skip(1).peekable();
 
         while let Some(arg) = iter.next() {
             if arg.starts_with('-') {
                 let key = arg.trim_start_matches('-').to_string();
-                let value = match iter.peek() {
-                    Some(next) if !next.starts_with('-') => Some(iter.next().unwrap().clone()),
-                    _ => None,
+                let value = if let Some(next) = iter.peek() {
+                    if !next.starts_with('-') {
+                        Some(iter.next().unwrap().clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 };
-                map.insert(key, value);
+                vec.push((key, value));
             }
         }
-        map
+        vec
     }
-}
-
-/// 参数解析函数
-fn parse_arg_str<'a>(map: &'a HashMap<String, Option<String>>, key: &str) -> Option<&'a str> {
-    map.get(key).and_then(|v| v.as_deref())
 }
 
 /// 解析并验证参数
@@ -160,21 +169,27 @@ pub fn parse_args() -> Args {
         std::process::exit(0);
     }
 
+    // 验证文件是否存在
+    if !args.ip_file.is_empty() && !std::path::Path::new(&args.ip_file).exists() {
+        eprintln!("{}", format!("错误: 指定的文件不存在").red().bold());
+        std::process::exit(1);
+    }
+
     // 验证IP来源参数
     if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
-        eprintln!("错误: 必须指定一个或多个IP来源参数 (-f, -ipurl 或 -ip)");
+        eprintln!("{}", "错误: 必须指定一个或多个IP来源参数 (-f, -ipurl 或 -ip)".red().bold());
         std::process::exit(1);
     }
 
     // 验证HTTPing参数
     if args.httping_urls_flag && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {
-        eprintln!("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 指定测速地址");
+        eprintln!("{}", "错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 指定测速地址".red().bold());
         std::process::exit(1);
     }
 
     // 验证下载测速参数
     if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
-        eprintln!("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址");
+        eprintln!("{}", "错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".red().bold());
         std::process::exit(1);
     }
 
