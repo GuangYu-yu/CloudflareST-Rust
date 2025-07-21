@@ -13,14 +13,14 @@ use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 
 pub struct Ping {
     base: common::BasePing,
-    colo_filters: Vec<String>,
+    colo_filters: Vec<Arc<str>>,
     urlist: Vec<String>,
     use_https: bool,
 }
 
 pub struct HttpingHandlerFactory {
     base: common::BasePing,
-    colo_filters: Vec<String>,
+    colo_filters: Vec<Arc<str>>,
     urls: Vec<String>,
     url_index: Arc<AtomicUsize>,
     use_https: bool,

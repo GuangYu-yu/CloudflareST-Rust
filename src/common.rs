@@ -15,7 +15,7 @@ use std::pin::Pin;
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 // 定义通用的 PingData 结构体
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PingData {
     pub addr: SocketAddr,
     pub sent: u16,
@@ -187,80 +187,75 @@ pub async fn run_ping_test(
     base: &BasePing,
     handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<PingDelaySet, io::Error> {
-    // 检查IP缓冲区是否为空
-    let available_ips = {
-        let ip_buffer_guard = base.ip_buffer.lock().unwrap();
-        if ip_buffer_guard.is_empty() && ip_buffer_guard.total_expected() == 0 {
-            return Ok(Vec::new());
-        }
-        ip_buffer_guard.total_expected()
+    // 获取锁检查是否还有IP可用
+    let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
+
+    if ip_buffer_guard.is_empty() {
+        // 生产者已停止且缓冲为空，没有IP可测，直接返回空结果
+        return Ok(Vec::new());
+    }
+
+    // 线程池最大并发数量
+    let pool_concurrency = crate::pool::GLOBAL_POOL.get().unwrap().max_threads;
+
+    // 计算启动任务数，受目标任务数限制或线程池大小限制
+    let initial_tasks = if let Some(target) = base.args.target_num {
+        pool_concurrency.min(target as usize).max(1)
+    } else {
+        pool_concurrency.max(1)
     };
 
-    // 使用FuturesUnordered来动态管理任务
+    // 创建异步任务管理器
     let mut tasks = FuturesUnordered::new();
-    
-    // 根据实际IP数量和线程池并发级别计算初始任务数
-    let pool_concurrency = crate::pool::GLOBAL_POOL.get().unwrap().max_threads;
-    let initial_tasks = available_ips.min(pool_concurrency).max(1);
-    
-    // 初始填充任务队列
+
+    // 批量初始启动任务
     for _ in 0..initial_tasks {
-        let addr = {
-            let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
-            ip_buffer_guard.pop()
-        };
-        
-        if let Some(addr) = addr {
+        if let Some(addr) = ip_buffer_guard.pop() {
             let task = handler_factory.create_handler(addr);
             tasks.push(tokio::spawn(async move {
                 task.await;
                 Ok::<(), io::Error>(())
             }));
-        }
-    }
-    
-    // 动态处理任务完成和添加新任务
-    while let Some(result) = tasks.next().await {
-        // 检查是否收到超时信号
-        if check_timeout_signal(&base.timeout_flag) {
+        } else {
+            // 没有更多IP可取，跳出循环
             break;
         }
-        
-        // 检查是否达到目标成功数量
-        if let Some(target_num) = base.args.target_num {
-            if base.success_count.load(Ordering::Relaxed) >= target_num as usize {
-                break;
+    }
+    // 释放锁
+    drop(ip_buffer_guard);
+
+    // 动态循环处理完成的任务并添加新任务
+    while !check_timeout_signal(&base.timeout_flag)
+        && base.args.target_num.map_or(true, |t| base.success_count.load(Ordering::Relaxed) < t as usize)
+    {
+        match tasks.next().await {
+            Some(result) => {
+                // 处理已完成的任务结果（这里忽略错误）
+                let _ = result;
             }
+            None => break, // 如果没有更多任务了，退出循环
         }
-        
-        // 处理已完成的任务
-        let _ = result;
-        
-        // 添加新任务
-        let addr = {
-            let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
-            ip_buffer_guard.pop()
-        };
-        
-        if let Some(addr) = addr {
+
+        // 从 ip_buffer 获取新 IP，启动新任务
+        let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
+        if let Some(addr) = ip_buffer_guard.pop() {
             let task = handler_factory.create_handler(addr);
             tasks.push(tokio::spawn(async move {
                 task.await;
                 Ok::<(), io::Error>(())
             }));
         }
+        drop(ip_buffer_guard);
     }
 
-    // 更新进度条为完成状态
+    // 所有任务结束，更新进度条
     base.bar.done();
 
-    // 收集所有测试结果
-    let mut results = {
-        let mut csv_guard = base.csv.lock().unwrap();
-        std::mem::take(&mut *csv_guard)
-    };
-    
-    // 使用common模块的排序函数
+    // 收集结果
+    let mut csv_guard = base.csv.lock().unwrap();
+    let mut results = std::mem::take(&mut *csv_guard);
+
+    // 排序结果
     sort_results(&mut results);
 
     Ok(results)
@@ -314,12 +309,20 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
 }
 
 /// 解析数据中心过滤条件字符串为向量
-pub fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
+pub fn parse_colo_filters(colo_filter: &str) -> Vec<Arc<str>> {
     colo_filter
         .split(',')
         .map(|s| s.trim().to_uppercase())
         .filter(|s| !s.is_empty())
+        .map(|s| s.into())
         .collect()
+}
+
+// 检查数据中心是否匹配过滤条件
+pub fn is_colo_matched(data_center: &str, colo_filters: &[Arc<str>]) -> bool {
+    !data_center.is_empty() && 
+    (colo_filters.is_empty() || 
+     colo_filters.iter().any(|filter| filter.as_ref() == data_center.to_uppercase()))
 }
 
 /// 判断测试结果是否符合筛选条件
@@ -339,55 +342,42 @@ pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
     true
 }
 
-// 检查数据中心是否匹配过滤条件
-pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
-    !data_center.is_empty() && 
-        (colo_filters.is_empty() || 
-         colo_filters.iter().any(|filter| data_center.to_uppercase() == filter.to_uppercase()))
-}
-
 /// 排序结果
 pub fn sort_results(results: &mut PingDelaySet) {
-    // 计算平均值
-    let total_count = results.len() as f32;
-    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, data| {
-        (acc.0 + data.download_speed.unwrap_or(0.0), acc.1 + data.loss_rate(), acc.2 + data.delay)
-    });
+    if results.is_empty() {
+        return;
+    }
 
+    // 先算平均值
+    let total_count = results.len() as f32;
+    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, d| {
+        (acc.0 + d.download_speed.unwrap_or(0.0), acc.1 + d.loss_rate(), acc.2 + d.delay)
+    });
     let avg_speed = total_speed / total_count;
     let avg_loss = total_loss / total_count;
     let avg_delay = total_delay / total_count;
 
-    // 检查是否有下载速度数据
-    let has_download_speed = results.iter().any(|r| r.download_speed.is_some());
-    
-    // 根据是否有下载速度数据选择权重
-    let (speed_weight, delay_weight, loss_weight) = if has_download_speed {
-        // 下载测速结果
-        (0.5, -0.2, -0.3)
-    } else {
-        // ping测速结果
-        (0.0, -0.4, -0.6)
+    let has_speed = results.iter().any(|r| r.download_speed.is_some());
+
+    // 计算分数
+    let score = |d: &PingData| {
+        let speed_diff = d.download_speed.unwrap_or(0.0) - avg_speed;
+        let loss_diff = d.loss_rate() - avg_loss;
+        let delay_diff = d.delay - avg_delay;
+
+        if has_speed {
+            speed_diff * 0.5 + delay_diff * -0.2 + loss_diff * -0.3
+        } else {
+            delay_diff * -0.4 + loss_diff * -0.6
+        }
     };
 
-    // 计算分数并排序
-    results.sort_by(|a, b| {
-        let calculate_score = |data: &PingData| {
-            let speed_diff = data.download_speed.unwrap_or(0.0) - avg_speed;
-            let delay_diff = data.delay - avg_delay;
-            let loss_diff = data.loss_rate() - avg_loss;
-            
-            speed_diff * speed_weight + delay_diff * delay_weight + loss_diff * loss_weight
-        };
-
-        let a_score = calculate_score(a);
-        let b_score = calculate_score(b);
-
-        b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
+    results.sort_unstable_by(|a, b| {
+        score(b).partial_cmp(&score(a)).unwrap_or(std::cmp::Ordering::Equal)
     });
 }
 
 /// 检查是否收到超时信号，如果是则打印信息并返回 true
 pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
-    timeout_flag.load(Ordering::SeqCst)
+    timeout_flag.load(Ordering::Relaxed)
 }

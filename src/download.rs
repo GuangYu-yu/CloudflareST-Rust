@@ -93,7 +93,7 @@ pub struct DownloadTest {
     min_speed: f32,
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
-    colo_filter: String,
+    colo_filter: Arc<Vec<Arc<str>>>,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
 }
@@ -122,7 +122,7 @@ impl DownloadTest {
             min_speed: args.min_speed,
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
-            colo_filter: args.httping_cf_colo.to_string(),
+            colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
         }
@@ -130,7 +130,7 @@ impl DownloadTest {
 
     pub async fn test_download_speed(&mut self) -> Vec<PingData> {
         // 数据中心过滤条件
-        let colo_filters = Arc::new(common::parse_colo_filters(&self.colo_filter));
+        let colo_filters = Arc::clone(&self.colo_filter);
         
         // 创建一个任务来更新进度条的速度显示
         let current_speed: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
@@ -159,13 +159,18 @@ impl DownloadTest {
             if common::check_timeout_signal(&self.timeout_flag) {
                 break;
             }
-            
+
+            // 如果已经找到足够数量的合格结果，提前结束测试
+            if qualified_indices.len() >= self.test_count as usize {
+                break;
+            }
+
             // 使用引用
             let ping_result = &mut self.ping_results[i];
-            
+
             // 获取IP地址和检查是否需要获取 colo
             let need_colo = ping_result.data_center.is_empty();
-            
+
             // 执行下载测速
             let test_url = if !self.urlist.is_empty() {
                 let url_index = i % self.urlist.len();
@@ -173,7 +178,7 @@ impl DownloadTest {
             } else {
                 &self.url
             };
-            
+
             let (speed, maybe_colo) = download_handler(
                 ping_result.addr,
                 test_url,
@@ -183,41 +188,36 @@ impl DownloadTest {
                 Arc::clone(&self.timeout_flag),
                 Arc::clone(&colo_filters),
             ).await;
-            
+
             // 更新下载速度和可能的数据中心信息
             ping_result.download_speed = speed;
-            
+
             if ping_result.data_center.is_empty() {
                 if let Some(colo) = maybe_colo {
                     ping_result.data_center = colo;
                 }
             }
-            
+
             // 检查速度是否符合要求
             let speed_match = match speed {
                 Some(s) => s >= self.min_speed * 1024.0 * 1024.0,
                 None => false,
             };
-            
+
             // 检查数据中心是否符合要求
             let colo_match = if !colo_filters.is_empty() {
                 common::is_colo_matched(&ping_result.data_center, &colo_filters)
             } else {
                 true // 没有过滤条件时视为匹配
             };
-            
+
             // 同时满足速度和数据中心要求
             if speed_match && colo_match {
                 qualified_indices.push(i);
             }
-            
+
             // 更新进度条
             self.bar.as_ref().grow(1, "");
-            
-            // 如果已经找到足够数量的合格结果，提前结束测试
-            if qualified_indices.len() >= self.test_count as usize {
-                break;
-            }
         }
     
         // 中止速度更新任务
@@ -255,7 +255,7 @@ async fn download_handler(
     current_speed: Arc<Mutex<f32>>,
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
-    colo_filters: Arc<Vec<String>>,
+    colo_filters: Arc<Vec<Arc<str>>>,
 ) -> (Option<f32>, Option<String>) {
     
     // 解析原始URL以获取主机名和路径
