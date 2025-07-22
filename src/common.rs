@@ -217,13 +217,18 @@ pub async fn run_ping_test(
     drop(ip_buffer_guard); // 释放锁
 
     // 动态循环处理任务，直到超时或任务耗尽
-    while !check_timeout_signal(&base.timeout_flag) {
-        match tasks.next().await {
-            Some(result) => {
-                let _ = result; // 忽略错误
-            }
-            None => break, // 没有更多任务，退出
+    while let Some(result) = tasks.next().await {
+        // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
+        if check_timeout_signal(&base.timeout_flag)
+            || base.args.target_num
+                .map(|tn| base.success_count.load(Ordering::Relaxed) >= tn as usize)
+                .unwrap_or(false)
+        {
+            break;
         }
+
+        // 处理已完成的任务结果（这里忽略错误）
+        let _ = result;
 
         // 继续添加新任务
         let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
