@@ -52,6 +52,8 @@ impl DownloadHandler {
         // 检查是否需要更新显示速度
         let elapsed_since_last_update = now.duration_since(self.last_update);
         if elapsed_since_last_update.as_millis() >= 500 {
+        // 通过取队列中第一个和最后一个数据点计算字节差和时间差
+        // 若没有数据或时间差无效，速度返回0
         let speed = self.speed_samples
             .front()
             .zip(self.speed_samples.back())
