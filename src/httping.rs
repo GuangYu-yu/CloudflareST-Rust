@@ -91,7 +91,7 @@ impl HandlerFactory for HttpingHandlerFactory {
             let args = Arc::clone(&args);
             let colo_filters = Arc::new(colo_filters);
 
-            for _ in 0..ping_times {
+            for i in 0..ping_times {
                 let client = Arc::clone(&client);
                 let first_success = Arc::clone(&first_success);
                 let url = Arc::clone(&url);
@@ -101,12 +101,11 @@ impl HandlerFactory for HttpingHandlerFactory {
                 if let Ok(Some((delay, dc))) = execute_with_rate_limit(|| async move {
                     let start_time = Instant::now();
 
-                    let result = client
-                        .head(&*url)
-                        .header("Connection", "close")
-                        .send()
-                        .await
-                        .ok();
+                    // 构造请求
+                    let result = {
+                        let builder = client.head(&*url);
+                        if i == ping_times - 1 { builder.header("Connection", "close") } else { builder }
+                    }.send().await.ok();
 
                     if let Some(response) = result {
                         if let Some(dc) = common::extract_data_center(&response) {
@@ -129,7 +128,8 @@ impl HandlerFactory for HttpingHandlerFactory {
                     }
 
                     Ok::<Option<(f32, String)>, io::Error>(None)
-                }).await
+                })
+                .await
                 {
                     recv += 1;
                     total_delay_ms += delay;
