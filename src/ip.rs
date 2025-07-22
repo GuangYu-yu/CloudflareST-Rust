@@ -242,9 +242,11 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
                         }
                     };
                     
-                    let range_size = end - start + 1;
+                    // 如果溢出，就用 u128::MAX
+                    let range_size = (end - start).checked_add(1).unwrap_or(u128::MAX);
+
                     let adjusted_count = count.min(range_size) as usize;
-                    
+
                     // 计算每个区间的间隔大小
                     let interval_size = if adjusted_count > 0 {
                         (range_size / adjusted_count as u128).max(1)
