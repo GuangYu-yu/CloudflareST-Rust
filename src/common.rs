@@ -143,38 +143,22 @@ pub fn extract_data_center(resp: &Response) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// 初始化 Ping 测试的基本参数
-pub fn init_ping_test(args: &Args) -> (Arc<Mutex<IpBuffer>>, Arc<Mutex<PingDelaySet>>, Arc<Bar>) {
+/// Ping 初始化
+pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing {
     // 加载 IP 缓冲区
     let ip_buffer = load_ip_to_buffer(args);
 
     // 获取预计总 IP 数量用于进度条
     let total_expected = ip_buffer.total_expected();
-    
-    // 转换为线程安全的形式
-    let ip_buffer_arc = Arc::new(Mutex::new(ip_buffer));
-    
-    // 创建进度条，使用正确的格式
-    let bar = Arc::new(Bar::new(total_expected as u64, "可用:", ""));
-    
-    (
-        ip_buffer_arc,
-        Arc::new(Mutex::new(Vec::new())),
-        bar
-    )
-}
 
-/// Ping 初始化
-pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing {
-    let (ip_buffer, csv, bar) = init_ping_test(args);
-    
+    // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
-        ip_buffer,
-        csv,
-        bar,
-        Arc::new(args.clone()),
-        Arc::new(AtomicUsize::new(0)),
-        timeout_flag,
+        Arc::new(Mutex::new(ip_buffer)),                  // 转换为线程安全的 IP 缓冲区
+        Arc::new(Mutex::new(Vec::new())),                 // 空的 PingDelaySet，用于记录延迟
+        Arc::new(Bar::new(total_expected as u64, "可用:", "")), // 创建进度条
+        Arc::new(args.clone()),                           // 参数包装
+        Arc::new(AtomicUsize::new(0)),                    // 成功计数器
+        timeout_flag,                                     // 提前中止标记
     )
 }
 
