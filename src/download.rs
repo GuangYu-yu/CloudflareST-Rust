@@ -52,21 +52,19 @@ impl DownloadHandler {
         // 检查是否需要更新显示速度
         let elapsed_since_last_update = now.duration_since(self.last_update);
         if elapsed_since_last_update.as_millis() >= 500 {
-            let speed = if self.speed_samples.len() >= 2 {
-                // 计算窗口内的速度
-                let first = self.speed_samples.front().unwrap();
-                let last = self.speed_samples.back().unwrap();
+        let speed = self.speed_samples
+            .front()
+            .zip(self.speed_samples.back())
+            .and_then(|(first, last)| {
                 let bytes_diff = last.1 - first.1;
                 let time_diff = last.0.duration_since(first.0).as_secs_f32();
-
-                if time_diff > 0.0 {
-                    bytes_diff as f32 / time_diff
+                if bytes_diff == 0 || time_diff <= 0.0 {
+                    None
                 } else {
-                    0.0
+                    Some(bytes_diff as f32 / time_diff)
                 }
-            } else {
-                0.0
-            };
+            })
+            .unwrap_or(0.0);
 
             // 更新当前速度显示
             *self.current_speed.lock().unwrap() = speed;
@@ -214,10 +212,9 @@ impl DownloadTest {
             // 同时满足速度和数据中心要求
             if speed_match && colo_match {
                 qualified_indices.push(i);
+                // 更新进度条
+                self.bar.as_ref().grow(1, "");
             }
-
-            // 更新进度条
-            self.bar.as_ref().grow(1, "");
         }
     
         // 中止速度更新任务
@@ -311,6 +308,7 @@ async fn download_handler(
         let time_start = Instant::now();
         let mut actual_content_read: u64 = 0;
         let mut actual_start_time: Option<Instant> = None;
+        let mut last_data_time: Option<Instant> = None; // 记录最后读取数据的时间
         
         loop {
             let current_time = Instant::now();
@@ -333,6 +331,7 @@ async fn download_handler(
                             actual_start_time = Some(current_time);
                         }
                         actual_content_read += size;
+                        last_data_time = Some(current_time); // 更新最后数据时间
                     }
                 },
                 _ => break,
@@ -341,7 +340,8 @@ async fn download_handler(
         
         // 计算实际速度（只计算预热后的数据）
         actual_start_time.and_then(|start| {
-            let actual_elapsed = Instant::now().duration_since(start).as_secs_f32();
+            let end_time = last_data_time.unwrap_or_else(Instant::now); // 使用最后数据时间
+            let actual_elapsed = end_time.duration_since(start).as_secs_f32();
             if actual_elapsed > 0.0 {
                 Some(actual_content_read as f32 / actual_elapsed)
             } else {
