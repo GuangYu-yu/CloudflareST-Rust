@@ -13,6 +13,7 @@ pub struct Args {
     pub url: String,                      // 单个测速URL
     pub urlist: String,                   // URL列表文件路径
     pub httping: bool,                    // 是否启用HTTPing测试
+    pub httping_code: String,             // HTTPing使用的HTTP状态码
     pub httping_cf_colo: String,          // 指定Cloudflare地区代码
     pub httping_urls: String,             // HTTPing使用的URL列表
     pub httping_urls_flag: bool,          // 是否使用自定义HTTPing URL标志
@@ -52,6 +53,7 @@ impl Args {
             url: String::new(),
             urlist: String::new(),
             httping: false,
+            httping_code: String::new(),
             httping_cf_colo: String::new(),
             httping_urls: String::new(),
             httping_urls_flag: false,
@@ -118,6 +120,7 @@ impl Args {
                 // 字符串参数
                 "url" => parsed.url = v_opt.unwrap_or_else(|| parsed.url.clone()),
                 "urlist" => parsed.urlist = v_opt.unwrap_or_else(|| parsed.urlist.clone()),
+                "hc" => parsed.httping_code = v_opt.unwrap_or_else(|| parsed.httping_code.clone()),
                 "colo" => parsed.httping_cf_colo = v_opt.unwrap_or_else(|| parsed.httping_cf_colo.clone()),
                 "f" => parsed.ip_file = v_opt.unwrap_or_else(|| parsed.ip_file.clone()),
                 "ip" => parsed.ip_text = v_opt.unwrap_or_else(|| parsed.ip_text.clone()),
@@ -235,6 +238,7 @@ pub fn print_help() {
 
     add_arg!("-httping", "使用非 TLS 模式的 Httping", "否");
     add_arg!("-dd", "禁用下载测速", "否");
+    add_arg!("-hc", "指定 HTTPing 的状态码（例如：200,301,302）", "未指定");
     add_arg!("-hu", "延迟测速使用 HTTPS ，可指定其 URL", "否");
     add_arg!("-colo", "指定地区（例如：HKG,SJC）", "未指定");
     add_arg!("-n", "延迟测速的线程数量", "256");
