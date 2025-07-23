@@ -230,16 +230,16 @@ pub fn print_help() {
     add_arg!("-timeout", "程序超时退出时间（秒）", "不限制");
 
     add_arg!("-t", "延迟测速次数", "4");
-    add_arg!("-dn", "下载测速数量", "10");
+    add_arg!("-dn", "下载测速所需符合要求的结果数量", "10");
     add_arg!("-dt", "下载测速时间（秒）", "10");
     add_arg!("-tp", "测速端口", "443");
     add_arg!("-all4", "测速全部 IPv4 地址", "否");
-    add_arg!("-tn", "所需符合要求的 Ping 结果数量", "否");
+    add_arg!("-tn", "当 Ping 到指定可用数量，提前结束 Ping", "否");
 
     add_arg!("-httping", "使用非 TLS 模式的 Httping", "否");
     add_arg!("-dd", "禁用下载测速", "否");
     add_arg!("-hc", "指定 HTTPing 的状态码（例如：200,301,302）", "未指定");
-    add_arg!("-hu", "延迟测速使用 HTTPS ，可指定其 URL", "否");
+    add_arg!("-hu", "使用 HTTPS 进行延迟测速，可指定测速地址", "否");
     add_arg!("-colo", "指定地区（例如：HKG,SJC）", "未指定");
     add_arg!("-n", "延迟测速的线程数量", "256");
 
@@ -248,7 +248,7 @@ pub fn print_help() {
     add_arg!("-tlr", "丢包率上限", "1.00");
     add_arg!("-sl", "下载速度下限（MB/s）", "0.00");
     add_arg!("-p", "终端显示结果数量", "10");
-    add_arg!("-sp", "结果带端口号", "否");
+    add_arg!("-sp", "结果中带端口号", "否");
     add_arg!("-o", "输出结果文件（文件名或文件路径）", "result.csv");
 
     table.printstd();
