@@ -1,16 +1,14 @@
-# CloudflareST-Rust
-
 <div align="center">
+
+# CloudflareST-Rust
 
 **对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
-自建测速地址 [点击前往](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)
-
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust) [![Ask ReadmeX](https://readmex.com/logo.svg)](https://readmex.com/GuangYu-yu/CloudflareST-Rust)
 
-</div>
+**⚠️ 警告：工具仅用于简单的网络测速，造成的一切后果自负**
 
-> **⚠️ 警告：工具仅用于简单的网络测速，造成的一切后果自负**
+</div>
 
 ## 📝 使用建议
 
