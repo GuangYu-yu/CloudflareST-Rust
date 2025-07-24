@@ -166,34 +166,44 @@ impl Args {
 /// 解析并验证参数
 pub fn parse_args() -> Args {
     let args = Args::parse();
+    let mut errors = Vec::new(); // 错误类提示
+    let mut warnings = Vec::new(); // 注意类提示
 
-    // 显示帮助信息并退出
     if args.help {
         print_help();
         std::process::exit(0);
     }
 
-    // 验证文件是否存在
     if !args.ip_file.is_empty() && !std::path::Path::new(&args.ip_file).exists() {
-        eprintln!("{}", format!("错误: 指定的文件不存在").red().bold());
-        std::process::exit(1);
+        errors.push("错误: 指定的文件不存在".to_string());
     }
 
-    // 验证IP来源参数
     if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
-        eprintln!("{}", "错误: 必须指定一个或多个IP来源参数 (-f, -ipurl 或 -ip)".red().bold());
-        std::process::exit(1);
+        errors.push("错误: 必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)".to_string());
     }
 
-    // 验证HTTPing参数
     if args.httping_urls_flag && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {
-        eprintln!("{}", "错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 指定测速地址".red().bold());
-        std::process::exit(1);
+        errors.push("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址".to_string());
     }
 
-    // 验证下载测速参数
     if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
-        eprintln!("{}", "错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".red().bold());
+        errors.push("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".to_string());
+    }
+
+    if args.disable_download && !args.httping_urls_flag && (!args.url.is_empty() || !args.urlist.is_empty()) {
+        warnings.push("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu".to_string());
+    }
+
+    // 打印警告（黄色）但不中断程序
+    for warn in &warnings {
+        println!("{}", warn.yellow().bold());
+    }
+
+    // 打印错误并退出
+    if !errors.is_empty() {
+        for err in &errors {
+            eprintln!("{}", err.red().bold());
+        }
         std::process::exit(1);
     }
 
