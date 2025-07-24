@@ -36,7 +36,7 @@ pub fn init_global_pool(max_threads: usize) {
 pub async fn execute_with_rate_limit<F, Fut, T, E>(f: F) -> Result<T, E>
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<T, E>>,
+    Fut: Future<Output = Result<T, E>>,
 {
     // 获取许可
     let _permit = GLOBAL_POOL.get().unwrap().acquire().await;

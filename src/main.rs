@@ -23,7 +23,7 @@ async fn main() {
     let args = args::parse_args();
     
     // 初始化全局线程池
-    crate::pool::init_global_pool(args.max_threads as usize);
+    pool::init_global_pool(args.max_threads);
 
     // 创建全局超时标志
     let timeout_flag = Arc::new(AtomicBool::new(false));
