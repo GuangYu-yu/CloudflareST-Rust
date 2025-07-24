@@ -64,7 +64,7 @@
 | `-httping` | 使用非 TLS 模式的 Httping | N/A | 否 |
 | `-dd` | 禁用下载测速 | N/A | 否 |
 | `-hc` | 指定 HTTPing 的状态码 | 200,301,302 | 未指定 |
-| `-hu` | 使用 HTTPS 进行延迟测速，可指定测速地址 | None or https://example.com | 否 |
+| `-hu` | 使用 HTTPS 进行延迟测速，可指定测速地址 | None or https://cp.cloudflare.com | 否 |
 | `-colo` | 匹配指定地区 | HKG,sjc | 未指定 |
 | `-n` | 延迟测速的线程数量 | N/A | 256 |
 
