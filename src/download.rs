@@ -149,31 +149,28 @@ impl DownloadTest {
                 }
             }
         });
-    
-        // 存储合格项的索引
-        let mut qualified_indices = Vec::new();
-        
-        // 逐个IP进行测速
-        for i in 0..self.ping_results.len() {
+
+        let mut ping_queue = self.ping_results.drain(..).collect::<VecDeque<_>>();
+        let mut qualified_results = Vec::with_capacity(self.test_count as usize);
+        let mut tested_count = 0;
+
+        while let Some(mut ping_result) = ping_queue.pop_front() {
             // 检查是否收到超时信号
             if common::check_timeout_signal(&self.timeout_flag) {
                 break;
             }
 
             // 如果已经找到足够数量的合格结果，提前结束测试
-            if qualified_indices.len() >= self.test_count as usize {
+            if qualified_results.len() >= self.test_count as usize {
                 break;
             }
-
-            // 使用引用
-            let ping_result = &mut self.ping_results[i];
 
             // 获取IP地址和检查是否需要获取 colo
             let need_colo = ping_result.data_center.is_empty();
 
             // 执行下载测速
             let test_url = if !self.urlist.is_empty() {
-                let url_index = i % self.urlist.len();
+                let url_index = tested_count % self.urlist.len();
                 &self.urlist[url_index]
             } else {
                 &self.url
@@ -213,26 +210,20 @@ impl DownloadTest {
 
             // 同时满足速度和数据中心要求
             if speed_match && colo_match {
-                qualified_indices.push(i);
+                qualified_results.push(ping_result);
                 // 更新进度条
                 self.bar.as_ref().grow(1, "");
             }
+            
+            // 更新已测试计数
+            tested_count += 1;
         }
-    
+
         // 中止速度更新任务
         speed_update_handle.abort();
         
         // 更新进度条为完成状态
         self.bar.done();
-
-        // 按索引降序排序，保证swap_remove时不会引起索引失效
-        qualified_indices.sort_unstable_by(|a, b| b.cmp(a));
-
-        // 零克隆提取合格项
-        let mut qualified_results = Vec::with_capacity(qualified_indices.len());
-        for index in qualified_indices {
-            qualified_results.push(self.ping_results.swap_remove(index));
-        }
 
         // 如果没有找到足够的结果，打印提示
         if qualified_results.len() < self.test_count as usize {
