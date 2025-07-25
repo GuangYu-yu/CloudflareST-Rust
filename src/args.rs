@@ -112,20 +112,20 @@ impl Args {
                 "n"   => if let Some(v) = v_opt.and_then(|s| s.parse::<usize>().ok()) { parsed.max_threads = v.clamp(1, 1024); }
 
                 // 时间参数
-                "dt"      => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.timeout_duration = Some(Duration::from_secs(v.clamp(1, 120))); }
-                "timeout" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.global_timeout_duration = Some(Duration::from_secs(v.clamp(1, 36000))); }
-                "tl"  => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.max_delay = Duration::from_millis(v.clamp(0, 2000)); },
-                "tll" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.min_delay = Duration::from_millis(v.clamp(0, parsed.max_delay.as_millis().min(u64::MAX as u128) as u64)); },
+                "dt" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.timeout_duration = Some(Duration::from_secs(v.clamp(1, 120))); },
+                "timeout" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.global_timeout_duration = Some(Duration::from_secs(v.clamp(1, 36000))); },
+                "tl" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.max_delay = Duration::from_millis(v.clamp(0, 2000)); },
+                "tll" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.min_delay = Duration::from_millis(v.clamp(0, parsed.max_delay.as_millis() as u64)); },
 
                 // 字符串参数
-                "url" => parsed.url = v_opt.unwrap_or_else(|| parsed.url.clone()),
-                "urlist" => parsed.urlist = v_opt.unwrap_or_else(|| parsed.urlist.clone()),
-                "hc" => parsed.httping_code = v_opt.unwrap_or_else(|| parsed.httping_code.clone()),
-                "colo" => parsed.httping_cf_colo = v_opt.unwrap_or_else(|| parsed.httping_cf_colo.clone()),
-                "f" => parsed.ip_file = v_opt.unwrap_or_else(|| parsed.ip_file.clone()),
-                "ip" => parsed.ip_text = v_opt.unwrap_or_else(|| parsed.ip_text.clone()),
-                "ipurl" => parsed.ip_url = v_opt.unwrap_or_else(|| parsed.ip_url.clone()),
-                "o" => parsed.output = v_opt.unwrap_or_else(|| parsed.output.clone()),
+                "url" => if let Some(v) = v_opt { parsed.url = v; }
+                "urlist" => if let Some(v) = v_opt { parsed.urlist = v; }
+                "hc" => if let Some(v) = v_opt { parsed.httping_code = v; }
+                "colo" => if let Some(v) = v_opt { parsed.httping_cf_colo = v; }
+                "f" => if let Some(v) = v_opt { parsed.ip_file = v; }
+                "ip" => if let Some(v) = v_opt { parsed.ip_text = v; }
+                "ipurl" => if let Some(v) = v_opt { parsed.ip_url = v; }
+                "o" => if let Some(v) = v_opt { parsed.output = v; }
 
                 // 无效参数：打印错误并退出
                 _ => {
@@ -182,12 +182,13 @@ pub fn parse_args() -> Args {
         errors.push("错误: 必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)".to_string());
     }
 
-    if args.httping_urls_flag && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {
-        errors.push("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址".to_string());
-    }
-
-    if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
-        errors.push("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".to_string());
+    // 先检查 -hu 参数的特殊情况  
+    if args.httping_urls_flag && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {  
+        errors.push("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址".to_string());  
+    }  
+    // 然后检查一般的下载测试情况，但排除已经被 -hu 检查过的情况  
+    else if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {  
+        errors.push("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".to_string());  
     }
 
     if args.disable_download &&   
