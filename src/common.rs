@@ -185,14 +185,19 @@ pub async fn run_ping_test(
     // 创建异步任务管理器
     let mut tasks = FuturesUnordered::new();
 
+    // 创建并推送任务
+    let spawn_task = |addr: SocketAddr| {
+        let task = handler_factory.create_handler(addr);
+        tokio::spawn(async move {
+            task.await;
+            Ok::<(), io::Error>(())
+        })
+    };
+
     // 批量初始启动任务
     for _ in 0..pool_concurrency {
-        if let Some(addr) = ip_buffer_guard.pop() {
-            let task = handler_factory.create_handler(addr);
-            tasks.push(tokio::spawn(async move {
-                task.await;
-                Ok::<(), io::Error>(())
-            }));
+        if let Some(addr) = ip_buffer_guard.pop().await {
+            tasks.push(spawn_task(addr));
         } else {
             break; // 没有更多IP
         }
@@ -211,19 +216,13 @@ pub async fn run_ping_test(
             break;
         }
 
-        // 处理已完成的任务结果（这里忽略错误）
+        // 忽略任务结果错误
         let _ = result;
 
         // 继续添加新任务
-        let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
-        if let Some(addr) = ip_buffer_guard.pop() {
-            let task = handler_factory.create_handler(addr);
-            tasks.push(tokio::spawn(async move {
-                task.await;
-                Ok::<(), io::Error>(())
-            }));
+        if let Some(addr) = base.ip_buffer.lock().unwrap().pop().await {
+            tasks.push(spawn_task(addr));
         }
-        drop(ip_buffer_guard);
     }
 
     // 所有任务结束，更新进度条

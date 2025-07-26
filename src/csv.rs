@@ -75,9 +75,12 @@ impl PrintResult for Vec<PingData> {
 
         // 添加数据行，最多显示 args.print_num 条
         for result in self.iter().take(args.print_num.into()) {
-            let fields = ping_data_to_fields(result);
-            let mut row = Row::new(fields.iter().map(|f| Cell::new(f)).collect());
-            row[0] = Cell::new(&result.display_addr(args.show_port));
+            let first_cell = Cell::new(&result.display_addr(args.show_port));
+            let other_cells = ping_data_to_fields(result)
+                .into_iter()
+                .skip(1)
+                .map(|field| Cell::new(&field));
+            let row = Row::new(std::iter::once(first_cell).chain(other_cells).collect());
             table.add_row(row);
         }
 
