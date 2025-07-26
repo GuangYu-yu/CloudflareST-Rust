@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
-use rand::Rng;
+use fastrand;
 use ipnet::IpNet;
 use std::thread;
 use tokio::sync::mpsc;
@@ -47,7 +47,7 @@ impl CidrState {
 
     /// 生成下一个随机IP地址
     /// 根据当前索引在指定区间内生成随机IP
-    fn next_ip(&mut self, rng: &mut impl Rng, tcp_port: u16) -> Option<SocketAddr> {
+    fn next_ip(&mut self, tcp_port: u16) -> Option<SocketAddr> {
         if self.current_index >= self.total_count {
             return None;
         }
@@ -59,7 +59,7 @@ impl CidrState {
             self.start + ((self.current_index + 1) as u128 * self.interval_size - 1)
         };
 
-        let random_ip = rng.random_range(interval_start..=interval_end);
+        let random_ip = fastrand::u128(interval_start..=interval_end);
         self.current_index += 1;
 
         match self.network {
@@ -266,7 +266,6 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     
     // 启动生产者线程，负责生成IP地址
     thread::spawn(move || {
-        let mut rng = rand::rng();
         let mut cidr_states: VecDeque<_> = cidr_info.into_iter()
             .map(|(net, count, start, end, size)| 
                 CidrState::new(net, count, start, end, size)
@@ -299,7 +298,7 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
             
             // 使用迭代器方式处理CIDR状态
             if let Some((ip, finished)) = cidr_states.iter_mut().next().and_then(|state| {
-                let ip = state.next_ip(&mut rng, tcp_port);
+                let ip = state.next_ip(tcp_port);
                 let finished = state.current_index >= state.total_count;
                 Some((ip, finished))
             }) {

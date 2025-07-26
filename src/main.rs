@@ -12,7 +12,7 @@ mod common;
 use std::thread;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use rand::prelude::*;
+use fastrand;
 use crate::csv::PrintResult;
 use crate::common::PingData;
 
@@ -39,7 +39,7 @@ async fn main() {
     }
     
     // 初始化随机数种子
-    init_rand_seed();
+    let _ = fastrand::u32(..);
     
     println!("# CloudflareST-Rust\n");
     
@@ -84,10 +84,4 @@ async fn main() {
     ping_data.print(&args);
     
     println!("程序执行完毕");
-}
-
-// 初始化随机数种子
-fn init_rand_seed() {
-    let mut rng = rand::rng();
-    let _: u32 = rng.random();
 }
