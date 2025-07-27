@@ -29,8 +29,7 @@
 - 📋 支持从指定 URL 中获取测速地址列表（`-urlist`）
 - 🌐 使用了 Httping 或下载测速之后，会在结果显示数据中心
 - ⏱️ 支持给程序限制运行时间，超时后立即结算结果并退出
-- 🔄 使用 `-httping` 时，不带 TLS，通过 `http://<IP>/cdn-cgi/trace` 进行测速
-- 🔒 使用 `-hu` 时， 进行 HTTPS 延迟测速，如果没有为其指定测速地址，则与下载测速共用地址
+- 🔄 使用 -httping 参数时，不带 TLS，通过 `http://<IP>/cdn-cgi/trace` 进行测速
 
 ## 🚀 示例命令
 
@@ -40,9 +39,11 @@
 
 > [!IMPORTANT]
 >- speed.cloudflare.com 无法进行 HTTP 下载测速，需[自建](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)测速地址
+>- -hu 和 -url 参数分别指定 HTTPS 延迟测速和下载测速的测速地址，如果 -hu 不带值则与下载测速共用地址
 >- 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
 >- 注意队列数量和实时下载速度，设置合理的筛选条件
 >- 可用 IP 数量是 Ping 通的，并非经历过筛选的数量
+>- 如果不想写入文件，直接使用 -o 参数并不带值即可
 
 ## 📋 参数说明
 
