@@ -4,7 +4,7 @@
 
 **对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust) [![Ask ReadmeX](https://readmex.com/logo.svg)](https://readmex.com/GuangYu-yu/CloudflareST-Rust)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust) [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **⚠️ 警告：工具仅用于简单的网络测速，造成的一切后果自负**
 
@@ -12,10 +12,10 @@
 
 ## 📝 使用建议
 
-- 建议指定大范围 CIDR 较大测速数量，并使用 `-tn` 参数
+- 建议从大范围 CIDR 中指定较大测速数量，并使用 `-tn` 参数
   - 例如：`-ip 2606:4700::/48=100000 -tn 30000`
   - 含义是：对 2606:4700::/48 最多测速 100000 个随机 IP，并在测速到 30000 个可用 IP 后结束延迟测速
-- 因为是流式处理，因此即便测速任意数量随机 IP，都是实时生成、测速、过滤，内存中只有符合要求的结果
+- 因为采取了流式处理，每个 IP 都实时生成，并在测速后过滤，内存中始终只有符合要求的结果
 
 ## ✨ 功能特点
 
@@ -141,9 +141,3 @@ curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/main/cfop
 ```
 
 `bash cf` 进入菜单
-
----
-
-## 📄 License
-
-The GPL-3.0 License.
