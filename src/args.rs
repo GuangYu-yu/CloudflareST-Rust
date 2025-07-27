@@ -31,7 +31,7 @@ pub struct Args {
     pub ip_file: String,                  // IP列表文件路径
     pub ip_text: String,                  // 直接指定的IP列表
     pub ip_url: String,                   // 获取IP的URL地址
-    pub output: String,                   // 结果输出文件
+    pub output: Option<String>,           // 结果输出文件
     
     // 功能开关
     pub test_all: bool,                   // 是否测试所有IP
@@ -69,7 +69,7 @@ impl Args {
             ip_file: String::new(),
             ip_text: String::new(),
             ip_url: String::new(),
-            output: "result.csv".to_string(),      // 默认输出文件
+            output: Some("result.csv".to_string()),      // 默认输出文件
             test_all: false,
             help: false,
             show_port: false,
@@ -125,7 +125,7 @@ impl Args {
                 "f" => if let Some(v) = v_opt { parsed.ip_file = v; }
                 "ip" => if let Some(v) = v_opt { parsed.ip_text = v; }
                 "ipurl" => if let Some(v) = v_opt { parsed.ip_url = v; }
-                "o" => if let Some(v) = v_opt { parsed.output = v; }
+                "o" => parsed.output = v_opt,
 
                 // 无效参数：打印错误并退出
                 _ => {

@@ -22,11 +22,11 @@ pub trait PrintResult {
 
 /// 从 PingResult 导出 CSV 文件
 pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
-    if results.is_empty() || args.output.is_empty() {
+    if results.is_empty() || args.output.is_none() {
         return Ok(());
     }
 
-    let file = File::create(&args.output)?;
+    let file = File::create(args.output.as_ref().unwrap())?;
     let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(32 * 1024, file));
 
     // 写入表头
@@ -88,8 +88,8 @@ impl PrintResult for Vec<PingData> {
         table.printstd();
 
         // 如果有输出文件，打印提示
-        if !args.output.is_empty() {
-            println!("\n[信息] 测速结果已写入 {} 文件，可使用记事本/表格软件查看", args.output);
+        if let Some(ref output) = args.output {
+            println!("\n[信息] 测速结果已写入 {} 文件，可使用记事本/表格软件查看", output);
         }
     }
 }
