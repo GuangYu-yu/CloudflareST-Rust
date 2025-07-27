@@ -225,8 +225,8 @@ pub async fn run_ping_test(
         }
     }
 
-    // 所有任务结束，更新进度条
-    base.bar.done();
+    // 完成进度条但保持当前进度
+    base.bar.done_at_current_pos();
 
     // 收集和排序结果
     let mut csv_guard = base.csv.lock().unwrap();

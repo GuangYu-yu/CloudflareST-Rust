@@ -81,11 +81,23 @@ impl Bar {
         self.progress_bar.set_message(suffix);
     }
     
+/* 
+    //完成进度条
     pub fn done(&self) {
         // 使用原子操作检查并设置完成状态
         if self.is_done.compare_exchange(0, 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
             // 只有成功将状态从 0 改为 1 时才执行
             self.progress_bar.finish();
+        }
+    }
+*/  
+    
+    /// 完成进度条但保持当前位置
+    pub fn done_at_current_pos(&self) {
+        // 使用原子操作检查并设置完成状态
+        if self.is_done.compare_exchange(0, 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            // 只有成功将状态从 0 改为 1 时才执行
+            self.progress_bar.as_ref().abandon();
         }
     }
 }

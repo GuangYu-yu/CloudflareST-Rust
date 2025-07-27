@@ -155,13 +155,10 @@ impl DownloadTest {
         let mut tested_count = 0;
 
         while let Some(mut ping_result) = ping_queue.pop_front() {
-            // 检查是否收到超时信号
-            if common::check_timeout_signal(&self.timeout_flag) {
-                break;
-            }
-
-            // 如果已经找到足够数量的合格结果，提前结束测试
-            if qualified_results.len() >= self.test_count as usize {
+            // 检查是否收到超时信号或已经找到足够数量的合格结果
+            if common::check_timeout_signal(&self.timeout_flag)
+                || qualified_results.len() >= self.test_count as usize
+            {
                 break;
             }
 
@@ -222,8 +219,8 @@ impl DownloadTest {
         // 中止速度更新任务
         speed_update_handle.abort();
         
-        // 更新进度条为完成状态
-        self.bar.done();
+        // 完成进度条但保持当前进度
+        self.bar.done_at_current_pos();
 
         // 如果没有找到足够的结果，打印提示
         if qualified_results.len() < self.test_count as usize {
