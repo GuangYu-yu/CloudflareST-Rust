@@ -4,7 +4,10 @@
 
 **对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust) [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![GitHub Star](https://img.shields.io/github/stars/GuangYu-yu/CloudflareST-Rust.svg?style=flat-square&label=Star&color=00ADD8&logo=github)](https://github.com/GuangYu-yu/CloudflareST-Rust/)
+[![GitHub Fork](https://img.shields.io/github/forks/GuangYu-yu/CloudflareST-Rust.svg?style=flat-square&label=Fork&color=00ADD8&logo=github)](https://github.com/GuangYu-yu/CloudflareST-Rust/)
 
 **⚠️ 警告：工具仅用于简单的网络测速，造成的一切后果自负**
 
@@ -14,7 +17,7 @@
 
 - 建议从大范围 CIDR 中指定较大测速数量，并使用 `-tn` 参数
   - 例如：`-ip 2606:4700::/48=100000 -tn 30000`
-  - 含义是：对 2606:4700::/48 最多测速 100000 个随机 IP，并在测速到 30000 个可用 IP 后结束延迟测速
+  - 含义是：对 2606:4700::/48 最多测速 100000 个随机 IP，并在测速到 30000 个可用 IP 后立即结算
 - 因为采取了流式处理，每个 IP 都实时生成，并在测速后过滤，内存中始终只有符合要求的结果
 
 ## ✨ 功能特点
@@ -26,18 +29,20 @@
 - 📋 支持从指定 URL 中获取测速地址列表（`-urlist`）
 - 🌐 使用了 Httping 或下载测速之后，会在结果显示数据中心
 - ⏱️ 支持给程序限制运行时间，超时后立即结算结果并退出
-- 🏁 当 IP 的 Ping 通数量达到 `-tn` 所指定的数量，则立即结算并开始执行下载测速
 - 🔄 使用 `-httping` 时，不带 TLS，通过 `http://<IP>/cdn-cgi/trace` 进行测速
 - 🔒 使用 `-hu` 时， 进行 HTTPS 延迟测速，如果没有为其指定测速地址，则与下载测速共用地址
-- 🔢 可对 CIDR 指定生成的随机 IP 数量，用于测速使用，例如：`2606:4700::/48=100000`
-- ⚠️ 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
-- ⚙️ 注意队列数量和实时下载速度，设置合理的筛选条件
 
 ## 🚀 示例命令
 
 ```bash
 -ip 2606:4700:100::/48=10000,2606:4700:102::/48=10000 -tn 5000 -dn 10 -sl 15 -hu cp.cloudflare.com -url https://speed.cloudflare.com/__down?bytes=524288000
 ```
+
+> [!IMPORTANT]
+>- speed.cloudflare.com 无法进行 HTTP 下载测速，需[自建](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)测速地址
+>- 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
+>- 注意队列数量和实时下载速度，设置合理的筛选条件
+>- 可用 IP 数量是 Ping 通的，并非经历过筛选的数量
 
 ## 📋 参数说明
 
