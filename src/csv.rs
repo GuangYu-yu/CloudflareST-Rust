@@ -1,49 +1,19 @@
 use std::fs::File;
 use std::io::{self, BufWriter};
-use tabled::{Table, Tabled};
-use tabled::settings::{Style, Modify, object::Rows};
+use prettytable::{Table, Row, Cell, format};
 use crate::args::Args;
 use crate::PingData;
 
-/// 辅助宏：计算字段个数
-macro_rules! count_idents {
-    ($($idents:ident),*) => {
-        <[()]>::len(&[$(count_idents!(@sub $idents)),*])
-    };
-    (@sub $ident:ident) => { () };
-}
+const TABLE_HEADERS: [&str; 7] = [
+    "IP 地址", 
+    "已发送", 
+    "已接收", 
+    "丢包率", 
+    "平均延迟", 
+    "下载速度(MB/s)", 
+    "数据中心"
+];
 
-/// 宏：一次性定义结构体和对应表头数组
-macro_rules! define_result_struct {
-    (
-        $name:ident,
-        $( ($field:ident, $title:expr) ),+ $(,)?
-    ) => {
-        #[derive(Tabled)]
-        pub struct $name {
-            $(
-                #[tabled(rename = $title)]
-                pub $field: String,
-            )+
-        }
-
-        pub const TABLE_HEADERS: [&str; count_idents!($($field),+)] = [
-            $($title),+
-        ];
-    };
-}
-
-// 使用宏定义 ResultData 结构体和 TABLE_HEADERS
-define_result_struct!(
-    ResultData,
-    (ip_addr, "IP 地址"),
-    (sent, "已发送"),
-    (received, "已接收"),
-    (loss_rate, "丢包率"),
-    (delay, "平均延迟"),
-    (download_speed, "下载速度(MB/s)"),
-    (data_center, "数据中心"),
-);
 
 /// 定义结果打印 trait
 pub trait PrintResult {
@@ -59,7 +29,7 @@ pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
     let file = File::create(&args.output)?;
     let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(32 * 1024, file));
 
-    // 写入表头（用宏自动生成的常量）
+    // 写入表头
     writer.write_record(&TABLE_HEADERS)?;
 
     // 写入数据
@@ -74,40 +44,57 @@ pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
 }
 
 impl PrintResult for Vec<PingData> {
+    /// 实现结果打印功能
     fn print(&self, args: &Args) {
         if self.is_empty() {
             println!("\n[信息] 测速结果 IP 数量为 0，跳过输出结果");
             return;
         }
 
-        let mut results_data = Vec::new();
+        let mut table = Table::new();
         
+        // 可选的表格格式（选择其中一种）：
+        // * FORMAT_DEFAULT - 默认样式，带有边框和分隔线
+        // * FORMAT_NO_BORDER - 无外部边框，但保留列和行的分隔线
+        // * FORMAT_NO_BORDER_LINE_SEPARATOR - 无外部边框和行分隔线，仅保留列分隔线
+        // * FORMAT_NO_COLSEP - 无列分隔符，仅保留行分隔线和边框
+        // * FORMAT_NO_LINESEP - 无行分隔线和标题分隔线，仅保留列分隔符和边框
+        // * FORMAT_NO_LINESEP_WITH_TITLE - 无行分隔线，但保留标题分隔线
+        // * FORMAT_NO_TITLE - 类似于默认样式，但没有标题行下的特殊分隔线
+        // * FORMAT_CLEAN - 无任何分隔符，仅保留内容对齐
+        // * FORMAT_BORDERS_ONLY - 仅显示外部边框和标题分隔线
+        // * FORMAT_BOX_CHARS - 使用盒字符（如 ┌─┬─┐）绘制边框和分隔线，适用于支持 Unicode 的终端
+        table.set_format(*format::consts::FORMAT_CLEAN);
+        
+        // 添加表头，使用青色
+        table.add_row(Row::new(
+            TABLE_HEADERS.iter()
+                .map(|&h| Cell::new(h).style_spec("Fc"))
+                .collect::<Vec<_>>()
+        ));
+
+        // 添加数据行，最多显示 args.print_num 条
         for result in self.iter().take(args.print_num.into()) {
-            let fields = ping_data_to_fields(result);
-            results_data.push(ResultData {
-                ip_addr: result.display_addr(args.show_port),
-                sent: fields[1].clone(),
-                received: fields[2].clone(),
-                loss_rate: fields[3].clone(),
-                delay: fields[4].clone(),
-                download_speed: fields[5].clone(),
-                data_center: fields[6].clone(),
-            });
+            let first_cell = Cell::new(&result.display_addr(args.show_port));
+            let other_cells = ping_data_to_fields(result)
+                .into_iter()
+                .skip(1)
+                .map(|field| Cell::new(&field));
+            let row = Row::new(std::iter::once(first_cell).chain(other_cells).collect());
+            table.add_row(row);
         }
 
-        let mut table = Table::new(results_data);
-        table
-            .with(Style::blank())  // 去掉所有边框
-            .with(Modify::new(Rows::first()).with(tabled::settings::Color::FG_CYAN)); // 表头青色
-        println!("{}", table);
+        // 打印表格
+        table.printstd();
 
+        // 如果有输出文件，打印提示
         if !args.output.is_empty() {
             println!("\n[信息] 测速结果已写入 {} 文件，可使用记事本/表格软件查看", args.output);
         }
     }
 }
 
-/// 将 PingData 转换为字符串字段
+/// 将 PingData 转换为通用数据格式
 fn ping_data_to_fields(data: &PingData) -> Vec<String> {
     vec![
         data.addr.to_string(),

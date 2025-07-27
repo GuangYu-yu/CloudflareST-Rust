@@ -1,8 +1,7 @@
 use std::env;
 use std::time::Duration;
-use nu_ansi_term::Color::*;  // 用于终端彩色输出
-use nu_ansi_term::Style;
-use tabled::{Table, Tabled};
+use colored::*;  // 用于终端彩色输出
+use prettytable::{Table, Row, Cell, format};
 
 /// 命令行参数配置结构体
 #[derive(Clone)]
@@ -131,7 +130,7 @@ impl Args {
                 // 无效参数：打印错误并退出
                 _ => {
                     print_help();
-                    println!("{}", Red.bold().paint(format!("无效的参数: {k}")));
+                    println!("{}", format!("无效的参数: {k}").red().bold());
                     std::process::exit(1);
                 }
             }
@@ -198,13 +197,13 @@ pub fn parse_args() -> Args {
 
     // 打印警告（黄色）但不中断程序
     for warn in &warnings {
-        println!("{}", Yellow.bold().paint(warn));
+        println!("{}", warn.yellow().bold());
     }
 
     // 打印错误并退出
     if !errors.is_empty() {
         for err in &errors {
-            eprintln!("{}", Red.bold().paint(err));
+            eprintln!("{}", err.red().bold());
         }
         std::process::exit(1);
     }
@@ -215,28 +214,22 @@ pub fn parse_args() -> Args {
 /// 打印帮助信息
 pub fn print_help() {
     // 打印标题
-    println!("{}", Blue.bold().paint("# CloudflareST-Rust"));
+    println!("{}", "# CloudflareST-Rust".bold().blue());
 
-    #[derive(Tabled)]
-    struct Arg {
-        #[tabled(rename = " ")]
-        name: String,
-        #[tabled(rename = " ")]
-        desc: String,
-        #[tabled(rename = " ")]
-        default: String,
-    }
+    // 创建表格
+    let mut table = Table::new();
 
-    let mut args_data = Vec::new();
+    // 设置表格样式（可选）
+    table.set_format(*format::consts::FORMAT_CLEAN);
 
     // Helper：插入参数行
     macro_rules! add_arg {
         ($name:expr, $desc:expr, $default:expr) => {
-            args_data.push(Arg {
-                name: format!(" {:<12}", Green.paint($name)),
-                desc: format!("{:<16}", $desc),
-                default: format!("{:<10}", Style::new().dimmed().paint($default)),
-            });
+            table.add_row(Row::new(vec![
+                Cell::new(&format!(" {:<12}", $name.green())),   // 参数列：缩进+左对齐+宽度
+                Cell::new(&format!("{:<16}", $desc)),     // 描述列
+                Cell::new(&format!("{:<10}", $default.dimmed())),  // 默认值列
+            ]));
         };
     }
 
@@ -269,6 +262,5 @@ pub fn print_help() {
     add_arg!("-sp", "结果中带端口号", "否");
     add_arg!("-o", "输出结果文件（文件名或文件路径）", "result.csv");
 
-    let mut table = Table::new(args_data);
-    println!("{}", table.with(tabled::settings::Style::blank()));
+    table.printstd();
 }
