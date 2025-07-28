@@ -119,15 +119,15 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
 }
 
 /// 创建基础客户端构建器
-fn create_base_client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+fn client_builder() -> reqwest::ClientBuilder {
+    Client::builder()
         // 使用用户标识常量
         .user_agent(USER_AGENT)
 }
 
 /// 构建 Reqwest 客户端
 pub async fn build_reqwest_client(addr: SocketAddr, host: &str, timeout_ms: u64) -> Option<Client> {
-    let client = create_base_client_builder()
+    let client = client_builder()
         .resolve(host, addr) // 解析域名
         .timeout(Duration::from_millis(timeout_ms)) // 整个请求超时时间
 //        .danger_accept_invalid_certs(true)  // 跳过证书验证
@@ -251,7 +251,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
     // 最多尝试指定次数
     for i in 1..=max_retries {
         // 创建带User-Agent的客户端
-        let client = create_base_client_builder().build().ok();
+        let client = client_builder().build().ok();
             
         if let Some(client) = client {
             if let Some(response) = client.get(url).send().await.ok() {
