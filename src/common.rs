@@ -118,12 +118,18 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     (avg_ms * 100.0).round() / 100.0
 }
 
+/// 创建基础客户端构建器
+fn create_base_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        // 使用用户标识常量
+        .user_agent(USER_AGENT)
+}
+
 /// 构建 Reqwest 客户端
 pub async fn build_reqwest_client(addr: SocketAddr, host: &str, timeout_ms: u64) -> Option<Client> {
-    let client = Client::builder()
+    let client = create_base_client_builder()
         .resolve(host, addr) // 解析域名
         .timeout(Duration::from_millis(timeout_ms)) // 整个请求超时时间
-        .user_agent(USER_AGENT)  // 使用常量
 //        .danger_accept_invalid_certs(true)  // 跳过证书验证
 //        .pool_max_idle_per_host(0) // 禁用连接复用
         .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
@@ -153,12 +159,12 @@ pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing 
 
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
-        Arc::new(Mutex::new(ip_buffer)),                  // 转换为线程安全的 IP 缓冲区
-        Arc::new(Mutex::new(Vec::new())),                 // 空的 PingDelaySet，用于记录延迟
-        Arc::new(Bar::new(total_expected as u64, "可用:", "")), // 创建进度条
-        Arc::new(args.clone()),                           // 参数包装
-        Arc::new(AtomicUsize::new(0)),                    // 成功计数器
-        timeout_flag,                                     // 提前中止标记
+        Arc::new(Mutex::new(ip_buffer)),                                            // 转换为线程安全的 IP 缓冲区
+        Arc::new(Mutex::new(Vec::new())),                                                 // 空的 PingDelaySet，用于记录延迟
+        Arc::new(Bar::new(total_expected as u64, "可用:", "")),  // 创建进度条
+        Arc::new(args.clone()),                                                          // 参数包装
+        Arc::new(AtomicUsize::new(0)),                                          // 成功计数器
+        timeout_flag,                                                                               // 提前中止标记
     )
 }
 
@@ -244,19 +250,24 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
 
     // 最多尝试指定次数
     for i in 1..=max_retries {
-        if let Some(response) = reqwest::get(url).await.ok() {
-            if let Ok(content) = response.text().await {
-                return content.lines()
-                    .map(|line| line.trim())
-                    .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                    .map(|line| line.to_string())
-                    .collect();
+        // 创建带User-Agent的客户端
+        let client = create_base_client_builder().build().ok();
+            
+        if let Some(client) = client {
+            if let Some(response) = client.get(url).send().await.ok() {
+                if let Ok(content) = response.text().await {
+                    return content.lines()
+                        .map(|line| line.trim())
+                        .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                        .map(|line| line.to_string())
+                        .collect();
+                }
             }
         }
         
         // 只有在不是最后一次尝试时才打印重试信息和等待
         if i < max_retries {
-            println!("列表请求失败，正在重试 ({}/{})", i, max_retries);
+            println!("列表请求失败，正在第{}次重试..", i);
             tokio::time::sleep(Duration::from_secs(1)).await;
         } else {
             println!("获取列表已达到最大重试次数");
@@ -269,7 +280,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
 /// 从 URL 列表或单一 URL 获取测试 URL 列表
 pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
     if !urlist.is_empty() {
-        let list = get_list(urlist, 3).await;
+        let list = get_list(urlist, 5).await;
         if !list.is_empty() {
             return list;
         }
