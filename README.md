@@ -38,7 +38,7 @@
 ```
 
 > [!IMPORTANT]
->- speed.cloudflare.com 无法进行 HTTP 下载测速，需[自建](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)测速地址
+>- `speed.cloudflare.com` 无法进行 HTTP 下载测速，需[自建](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)测速地址
 >- -hu 参数指定 HTTPS 延迟测速的 URL 地址，如果不带值则与下载测速共用地址
 >- 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
 >- 注意队列数量和实时下载速度，设置合理的筛选条件
