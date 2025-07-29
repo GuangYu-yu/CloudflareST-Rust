@@ -83,7 +83,7 @@ impl Ping {
 // TCP连接测试函数
 async fn tcping(addr: SocketAddr) -> Option<f32> {
     let connect_result = tokio::time::timeout(
-        std::time::Duration::from_millis(2000), // 超时时间
+        std::time::Duration::from_millis(1000), // 超时时间
         async {
             let start_time = Instant::now();
             match TcpStream::connect(&addr).await {
