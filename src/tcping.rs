@@ -34,6 +34,9 @@ impl HandlerFactory for TcpingHandlerFactory {
                 }).await {
                     recv += 1;
                     total_delay_ms += delay;
+                    
+                    // 成功时等待100ms再进行下一次ping
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             }
 

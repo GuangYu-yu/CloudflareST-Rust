@@ -50,9 +50,8 @@ impl HandlerFactory for HttpingHandlerFactory {
             };
 
             let ping_times = args.ping_times;
-            let mut recv = 0;
-            let mut total_delay_ms = 0.0;
-            let mut data_center = String::new();
+            let mut delays = Vec::with_capacity(ping_times as usize);
+            let mut data_center = None;
             let mut should_continue = true;
 
             // 创建客户端
@@ -84,13 +83,6 @@ impl HandlerFactory for HttpingHandlerFactory {
                 }
             };
 
-            let first_success = Arc::new(AtomicBool::new(false));
-
-            // 克隆非 Copy 变量到循环中
-            let url = Arc::new(url);
-            let args = Arc::clone(&args);
-            let colo_filters = Arc::new(colo_filters);
-
             // 解析允许的状态码列表
             let allowed_codes = Arc::new((!args.httping_code.is_empty()).then(|| {
                 args.httping_code
@@ -100,48 +92,37 @@ impl HandlerFactory for HttpingHandlerFactory {
             }));
 
             for i in 0..ping_times {
+                // 检查是否需要继续测试
+                if !should_continue {
+                    break;
+                }
+
                 let client = Arc::clone(&client);
-                let first_success = Arc::clone(&first_success);
-                let url = Arc::clone(&url);
-                let args = Arc::clone(&args);
-                let colo_filters = Arc::clone(&colo_filters);
-                let allowed_codes = Arc::clone(&allowed_codes);
-                
-                if let Ok(Some((delay, dc))) = execute_with_rate_limit(|| async move {
+                let url = url.clone();
+                let colo_filters = colo_filters.clone();
+                let allowed_codes = allowed_codes.clone();
+
+                match execute_with_rate_limit(|| async move {
                     let start_time = Instant::now();
 
                     // 构造请求
                     let result = {
-                        let builder = client.head(&*url);
+                        let builder = client.head(&url);
                         if i == ping_times - 1 { builder.header("Connection", "close") } else { builder }
                     }.send().await.ok();
 
                     if let Some(response) = result {
                         // 判断状态码
-                        if let Some(codes) = allowed_codes.as_ref().as_deref() {
+                        if let Some(ref codes) = *allowed_codes {
                             let status = response.status().as_u16();
                             if !codes.contains(&status) {
-                                // 状态码不匹配
                                 return Ok::<Option<(f32, String)>, io::Error>(None);
                             }
                         }
 
                         if let Some(dc) = common::extract_data_center(&response) {
-                            // 只在第一次成功时执行过滤判断
-                            let was_first = !first_success.swap(true, Ordering::Relaxed);
-
-                            if was_first {
-                                if !args.httping_cf_colo.is_empty()
-                                    && !dc.is_empty()
-                                    && !colo_filters.is_empty()
-                                    && !common::is_colo_matched(&dc, &colo_filters)
-                                {
-                                    return Ok::<Option<(f32, String)>, io::Error>(None);
-                                }
-                            }
-
                             let delay = start_time.elapsed().as_secs_f32() * 1000.0;
-                            return Ok::<Option<(f32, String)>, io::Error>(Some((delay, dc)));
+                            return Ok(Some((delay, dc)));
                         }
                     }
 
@@ -149,34 +130,55 @@ impl HandlerFactory for HttpingHandlerFactory {
                 })
                 .await
                 {
-                    recv += 1;
-                    total_delay_ms += delay;
+                    Ok(Some((delay, dc))) => {
+                        // 成功时等待200ms
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-                    if data_center.is_empty() {
-                        data_center = dc;
+                        // 如果是第一次成功响应
+                        if data_center.is_none() {
+                            // 检查数据中心过滤条件
+                            if !args.httping_cf_colo.is_empty() && 
+                            !common::is_colo_matched(&dc, &colo_filters)
+                            {
+                                should_continue = false;
+                                continue; // 跳过后续处理
+                            }
+
+                            data_center = Some(dc);
+                        }
+
+                        delays.push(delay);
+                    },
+                    _ => {
+                        // 失败或错误情况，不做特殊处理
                     }
-                } else {
-                    // 连接失败或不匹配过滤条件，提前中断
-                    should_continue = false;
-                }
-
-                if !should_continue {
-                    break;
                 }
             }
 
-            // 计算平均延迟
-            let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
+            // 如果因为数据中心不匹配而终止测试，则不记录结果
+            if !should_continue {
+                // 更新进度条但不记录结果
+                let current_success = success_count.load(Ordering::Relaxed);
+                bar.grow(1, current_success.to_string());
+                return;
+            }
 
+            // 计算成功次数和平均延迟
+            let recv = delays.len();
             if recv > 0 {
-                // 连接成功，增加成功计数
+                let total_delay_ms: f32 = delays.iter().sum();
+                let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv as u16);
+
+                // 增加成功计数
                 let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
 
                 // 创建测试数据
-                let mut data = PingData::new(addr, ping_times, recv, avg_delay_ms);
-                data.data_center = data_center;
+                let mut data = PingData::new(addr, ping_times, recv as u16, avg_delay_ms);
+                if let Some(dc) = data_center {
+                    data.data_center = dc;
+                }
 
-                // 应用筛选条件（但不影响进度条计数）
+                // 应用筛选条件
                 if common::should_keep_result(&data, &args) {
                     let mut csv_guard = csv.lock().unwrap();
                     csv_guard.push(data);
@@ -185,7 +187,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                 // 更新进度条（使用成功连接数）
                 bar.grow(1, new_success_count.to_string());
             } else {
-                // 连接失败，更新进度条
+                // 没有成功连接，但也需要更新进度条
                 let current_success = success_count.load(Ordering::Relaxed);
                 bar.grow(1, current_success.to_string());
             }
