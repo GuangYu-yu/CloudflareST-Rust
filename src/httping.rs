@@ -74,7 +74,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                 }
             };
 
-            let client = match common::build_reqwest_client(addr, &host, 2000).await {
+            let client = match common::build_reqwest_client(addr, &host, 1800).await {
                 Some(client) => Arc::new(client),
                 None => {
                     // 连接失败，更新进度条
