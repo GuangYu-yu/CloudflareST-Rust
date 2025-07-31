@@ -86,14 +86,14 @@ impl DownloadHandler {
 }
 
 pub struct DownloadTest {
-    url: Arc<str>,
-    urlist: Vec<Arc<str>>,
+    url: String,
+    urlist: Vec<String>,
     timeout: Option<Duration>,
     test_count: u16,
     min_speed: f32,
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
-    colo_filter: Arc<Vec<Arc<str>>>,
+    colo_filter: Arc<Vec<String>>,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
 }
@@ -101,7 +101,7 @@ pub struct DownloadTest {
 impl DownloadTest {
     pub async fn new(args: &Args, ping_results: Vec<PingData>, timeout_flag: Arc<AtomicBool>) -> Self {
         // 使用 common 模块获取 URL 列表
-        let urlist_vec = common::get_url_list(&args.url, &args.urlist).await.into_iter().map(|s| s.into()).collect();
+        let urlist_vec = common::get_url_list(&args.url, &args.urlist).await;
 
         // 计算实际需要测试的数量
         let test_num = min(args.test_count as u32, ping_results.len() as u32);
@@ -115,7 +115,7 @@ impl DownloadTest {
                 args.min_speed, args.test_count, ping_results.len());
         
         Self {
-            url: args.url.as_str().into(),
+            url: args.url.clone(),
             urlist: urlist_vec,
             timeout: args.timeout_duration,
             test_count: args.test_count,
@@ -242,7 +242,7 @@ async fn download_handler(
     current_speed: Arc<Mutex<f32>>,
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
-    colo_filters: Arc<Vec<Arc<str>>>,
+    colo_filters: Arc<Vec<String>>,
 ) -> (Option<f32>, Option<String>) {
     
     // 解析原始URL以获取主机名和路径

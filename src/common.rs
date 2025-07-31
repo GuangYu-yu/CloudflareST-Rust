@@ -243,7 +243,7 @@ pub async fn run_ping_test(
 }
 
 /// 从URL获取列表
-pub async fn get_list(url: &str, max_retries: u8) -> Vec<Arc<str>> {
+pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
     if url.is_empty() {
         return Vec::new();
     }
@@ -259,7 +259,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<Arc<str>> {
                     return content.lines()
                         .map(|line| line.trim())
                         .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                        .map(|line| line.into())
+                        .map(|line| line.to_string())
                         .collect();
                 }
             }
@@ -278,7 +278,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<Arc<str>> {
 }
 
 /// 从 URL 列表或单一 URL 获取测试 URL 列表
-pub async fn get_url_list(url: &str, urlist: &str) -> Vec<Arc<str>> {
+pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
     if !urlist.is_empty() {
         let list = get_list(urlist, 5).await;
         if !list.is_empty() {
@@ -288,27 +288,26 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<Arc<str>> {
     
     // 使用单一URL作为默认值
     if !url.is_empty() {
-        vec![url.into()]
+        vec![url.to_string()]
     } else {
         Vec::new()
     }
 }
 
 /// 解析数据中心过滤条件字符串为向量
-pub fn parse_colo_filters(colo_filter: &str) -> Vec<Arc<str>> {
+pub fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
     colo_filter
         .split(',')
         .map(|s| s.trim().to_uppercase())
         .filter(|s| !s.is_empty())
-        .map(|s| s.into())
         .collect()
 }
 
 // 检查数据中心是否匹配过滤条件
-pub fn is_colo_matched(data_center: &str, colo_filters: &[Arc<str>]) -> bool {
+pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
     !data_center.is_empty() && 
     (colo_filters.is_empty() || 
-     colo_filters.iter().any(|filter| filter.as_ref() == data_center.to_uppercase()))
+     colo_filters.iter().any(|filter| filter == &data_center.to_uppercase()))
 }
 
 /// 判断测试结果是否符合筛选条件
