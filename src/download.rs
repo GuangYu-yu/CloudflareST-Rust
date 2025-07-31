@@ -86,8 +86,8 @@ impl DownloadHandler {
 }
 
 pub struct DownloadTest {
-    url: String,
-    urlist: Vec<String>,
+    url: Arc<str>,
+    urlist: Vec<Arc<str>>,
     timeout: Option<Duration>,
     test_count: u16,
     min_speed: f32,
@@ -101,7 +101,7 @@ pub struct DownloadTest {
 impl DownloadTest {
     pub async fn new(args: &Args, ping_results: Vec<PingData>, timeout_flag: Arc<AtomicBool>) -> Self {
         // 使用 common 模块获取 URL 列表
-        let urlist_vec = common::get_url_list(&args.url, &args.urlist).await;
+        let urlist_vec = common::get_url_list(&args.url, &args.urlist).await.into_iter().map(|s| s.into()).collect();
 
         // 计算实际需要测试的数量
         let test_num = min(args.test_count as u32, ping_results.len() as u32);
@@ -115,7 +115,7 @@ impl DownloadTest {
                 args.min_speed, args.test_count, ping_results.len());
         
         Self {
-            url: args.url.to_string(),
+            url: args.url.as_str().into(),
             urlist: urlist_vec,
             timeout: args.timeout_duration,
             test_count: args.test_count,

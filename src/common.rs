@@ -243,7 +243,7 @@ pub async fn run_ping_test(
 }
 
 /// 从URL获取列表
-pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
+pub async fn get_list(url: &str, max_retries: u8) -> Vec<Arc<str>> {
     if url.is_empty() {
         return Vec::new();
     }
@@ -259,7 +259,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
                     return content.lines()
                         .map(|line| line.trim())
                         .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                        .map(|line| line.to_string())
+                        .map(|line| line.into())
                         .collect();
                 }
             }
@@ -278,7 +278,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
 }
 
 /// 从 URL 列表或单一 URL 获取测试 URL 列表
-pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
+pub async fn get_url_list(url: &str, urlist: &str) -> Vec<Arc<str>> {
     if !urlist.is_empty() {
         let list = get_list(urlist, 5).await;
         if !list.is_empty() {
@@ -288,7 +288,7 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
     
     // 使用单一URL作为默认值
     if !url.is_empty() {
-        vec![url.to_string()]
+        vec![url.into()]
     } else {
         Vec::new()
     }

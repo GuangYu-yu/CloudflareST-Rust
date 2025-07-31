@@ -36,7 +36,7 @@ impl HandlerFactory for HttpingHandlerFactory {
 
         Box::pin(async move {
             // 根据模式选择URL
-            let url = if use_https {
+            let url = Arc::new(if use_https {
                 // HTTPS模式：从URL列表中选择（轮询）
                 let current_index = url_index.fetch_add(1, Ordering::Relaxed) % urls.len();
                 urls[current_index].clone()
@@ -47,7 +47,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                     host_str = format!("[{}]", addr.ip());
                 }
                 Ping::build_trace_url("http", &host_str)
-            };
+            });
 
             let ping_times = args.ping_times;
             let mut delays = Vec::with_capacity(ping_times as usize);
@@ -98,16 +98,16 @@ impl HandlerFactory for HttpingHandlerFactory {
                 }
 
                 let client = Arc::clone(&client);
-                let url = url.clone();
-                let colo_filters = colo_filters.clone();
-                let allowed_codes = allowed_codes.clone();
+                let colo_filters = &colo_filters;
+                let allowed_codes = &*allowed_codes;
+                let url = Arc::clone(&url);
 
                 match execute_with_rate_limit(|| async move {
                     let start_time = Instant::now();
 
                     // 构造请求
                     let result = {
-                        let builder = client.head(&url);
+                        let builder = client.head(url.as_str());
                         if i == ping_times - 1 { builder.header("Connection", "close") } else { builder }
                     }.send().await.ok();
 
