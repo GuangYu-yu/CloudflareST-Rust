@@ -11,6 +11,11 @@ on:
         description: '创建发布版本'
         type: boolean
         default: true
+      project_name:
+        description: '项目名称'
+        type: string
+        default: 'CloudflareST-Rust'
+        required: true
 
 jobs:
   cleanup_releases:
@@ -48,32 +53,32 @@ jobs:
             runner: windows-latest
             arch: AMD64
             target: x86_64-pc-windows-msvc
-            binary_name: CloudflareST-Rust.exe
+            binary_name: ${{ github.event.inputs.project_name }}.exe
           - os: Windows
             runner: windows-latest
             arch: ARM64
             target: aarch64-pc-windows-msvc
-            binary_name: CloudflareST-Rust.exe
+            binary_name: ${{ github.event.inputs.project_name }}.exe
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
             target: x86_64-unknown-linux-musl
-            binary_name: CloudflareST-Rust
+            binary_name: ${{ github.event.inputs.project_name }}
           - os: Linux
             runner: ubuntu-latest
             arch: ARM64
             target: aarch64-unknown-linux-musl
-            binary_name: CloudflareST-Rust
+            binary_name: ${{ github.event.inputs.project_name }}
           - os: MacOS
             runner: macos-latest
             arch: AMD64
             target: x86_64-apple-darwin
-            binary_name: CloudflareST-Rust
+            binary_name: ${{ github.event.inputs.project_name }}
           - os: MacOS
             runner: macos-latest
             arch: ARM64
             target: aarch64-apple-darwin
-            binary_name: CloudflareST-Rust
+            binary_name: ${{ github.event.inputs.project_name }}
 
     steps:
       - name: 等待清理旧版本完成
@@ -116,7 +121,7 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: CloudflareST-Rust-${{ matrix.os }}_${{ matrix.arch }}
+          name: ${{ github.event.inputs.project_name }}-${{ matrix.os }}_${{ matrix.arch }}
           path: binaries/${{ matrix.os }}_${{ matrix.arch }}/
 
   strip_binaries:
@@ -131,7 +136,7 @@ jobs:
 
       - name: 使用 llvm-strip
         run: |
-          Get-ChildItem -Recurse -File stripped_artifacts -Include *.exe, CloudflareST-Rust | ForEach-Object {
+          Get-ChildItem -Recurse -File stripped_artifacts -Include *.exe, ${{ github.event.inputs.project_name }} | ForEach-Object {
             Write-Host "Stripping $($_.FullName)"
             & "llvm-strip" $_.FullName
           }
@@ -162,8 +167,8 @@ jobs:
         run: |
           rm -rf binaries
           mkdir -p binaries
-          for dir in downloaded_artifacts/CloudflareST-Rust-*/; do
-            platform_name=$(basename "$dir" | sed 's/CloudflareST-Rust-//')
+          for dir in downloaded_artifacts/${{ github.event.inputs.project_name }}-*/; do
+            platform_name=$(basename "$dir" | sed 's/${{ github.event.inputs.project_name }}-//')
             mkdir -p "binaries/$platform_name"
             cp -r "$dir"/* "binaries/$platform_name/"
           done
@@ -194,17 +199,17 @@ jobs:
       - name: 准备发布文件
         run: |
           mkdir -p release
-          for dir in artifacts/CloudflareST-Rust-*/; do
-            platform_name=$(basename "$dir" | sed 's/CloudflareST-Rust-//')
+          for dir in artifacts/${{ github.event.inputs.project_name }}-*/; do
+            platform_name=$(basename "$dir" | sed 's/${{ github.event.inputs.project_name }}-//')
             os_name=$(echo "$platform_name" | cut -d'_' -f1 | tr '[:upper:]' '[:lower:]')
             arch_name=$(echo "$platform_name" | cut -d'_' -f2 | tr '[:upper:]' '[:lower:]')
             mkdir -p "temp_$platform_name"
             cp "$dir"/* "temp_$platform_name/"
             cd "temp_$platform_name"
             if [[ "$os_name" == "windows" ]]; then
-              zip -r "../release/CloudflareST-Rust_${os_name}_${arch_name}.zip" .
+              zip -r "../release/${{ github.event.inputs.project_name }}_${os_name}_${arch_name}.zip" .
             else
-              tar -czf "../release/CloudflareST-Rust_${os_name}_${arch_name}.tar.gz" .
+              tar -czf "../release/${{ github.event.inputs.project_name }}_${os_name}_${arch_name}.tar.gz" .
             fi
             cd ..
             rm -rf "temp_$platform_name"
@@ -213,7 +218,7 @@ jobs:
       - name: 创建发布版本
         uses: softprops/action-gh-release@v1
         with:
-          name: "CloudflareST-Rust 最新版本"
+          name: "${{ github.event.inputs.project_name }} 最新版本"
           tag_name: "latest"
           files: release/*
           draft: false
