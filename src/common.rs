@@ -239,6 +239,13 @@ pub async fn run_ping_test(
     let mut results = std::mem::take(&mut *csv_guard);
     sort_results(&mut results);
 
+/*
+    // 如果设置了目标数量，只保留前 target_num 个结果
+    if let Some(target_num) = base.args.target_num {
+        results.truncate(target_num as usize);
+    }
+*/
+
     Ok(results)
 }
 
