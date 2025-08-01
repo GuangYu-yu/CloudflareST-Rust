@@ -79,16 +79,6 @@ jobs:
             arch: ARM64
             target: aarch64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
-          - os: Android
-            runner: ubuntu-latest
-            arch: ARM64
-            target: aarch64-linux-android
-            binary_name: ${{ github.event.inputs.project_name }}
-          - os: Android
-            runner: ubuntu-latest
-            arch: AMD64
-            target: x86_64-linux-android
-            binary_name: ${{ github.event.inputs.project_name }}
 
     steps:
       - name: 等待清理旧版本完成
