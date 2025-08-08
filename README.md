@@ -135,7 +135,7 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 如果仅获取 `CloudflareST-Rust`，可使用：
 
 ```bash
-curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/refs/heads/main/setup_cloudflarest.sh | bash
+curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/CloudFlare-DDNS/refs/heads/main/setup/setup_cloudflarest.sh | bash
 ```
 
 > - 安卓下载 [Termux](https://github.com/termux/termux-app/releases)
@@ -143,7 +143,5 @@ curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/refs/head
 或者可使用 [工具](https://github.com/GuangYu-yu/opw-cloudflare)，能测速并解析到 Cloudflare 或提交到 Github：
 
 ```bash
-curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/opw-cloudflare/main/cfopw.sh | bash
+curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/CloudFlare-DDNS/refs/heads/main/setup/cfopw.sh | bash
 ```
-
-`bash cf` 进入菜单
