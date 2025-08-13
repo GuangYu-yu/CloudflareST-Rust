@@ -13,8 +13,9 @@ use crate::common::get_list;
 /// 用于管理和分发需要测试的IP地址
 pub struct IpBuffer {
     total_expected: usize,                      // 预期总IP数量
-    cidr_states: tokio::sync::Mutex<Vec<CidrState>>, // CIDR状态列表
+    cidr_states: Vec<Arc<tokio::sync::Mutex<CidrState>>>, // 每个CIDR独立锁
     single_ips: tokio::sync::Mutex<Vec<SocketAddr>>, // 单个IP地址列表
+    current_cidr: AtomicUsize,                  // 轮询索引
     tcp_port: u16,                             // TCP端口
 }
 
@@ -76,16 +77,23 @@ impl CidrState {
 impl IpBuffer {
     /// 创建新的IP获取实例
     fn new(cidr_states: Vec<CidrState>, single_ips: Vec<SocketAddr>, total_expected: usize, tcp_port: u16) -> Self {
+        // 将每个CIDR状态包装成独立的Arc<Mutex>
+        let cidr_states: Vec<Arc<tokio::sync::Mutex<CidrState>>> = cidr_states
+            .into_iter()
+            .map(|state| Arc::new(tokio::sync::Mutex::new(state)))
+            .collect();
+            
         Self {
             total_expected,
-            cidr_states: tokio::sync::Mutex::new(cidr_states),
+            cidr_states,
             single_ips: tokio::sync::Mutex::new(single_ips),
+            current_cidr: AtomicUsize::new(0),
             tcp_port,
         }
     }
 
     /// 获取一个IP地址
-    /// 异步版本，使用tokio锁
+    /// 使用分片锁
     pub async fn pop(&self) -> Option<SocketAddr> {
         // 优先返回单个IP
         {
@@ -95,20 +103,26 @@ impl IpBuffer {
             }
         }
         
-        // 轮询CIDR块生成IP
-        let mut cidr_states = self.cidr_states.lock().await;
-        let i = 0;
-        while i < cidr_states.len() {
-            if let Some(ip) = cidr_states[i].next_ip(self.tcp_port) {
-                return Some(ip);
-            } else {
-                // 如果CIDR块已用完，移除它
-                cidr_states.remove(i);
-                // 不需要增加i，因为remove后元素会前移
+        // 如果没有CIDR状态，直接返回None
+        if self.cidr_states.is_empty() {
+            return None;
+        }
+        
+        // 轮询所有CIDR分片，每个分片最多尝试一次
+        let cidr_count = self.cidr_states.len();
+        for _ in 0..cidr_count {
+            let idx = self.current_cidr.fetch_add(1, Ordering::Relaxed) % cidr_count;
+            
+            if let Ok(mut cidr_state) = self.cidr_states[idx].try_lock() {
+                if let Some(ip) = cidr_state.next_ip(self.tcp_port) {
+                    return Some(ip);
+                }
+                // 这个CIDR用完了，我们跳过它
+                // 其他线程可能正在使用相同的索引
             }
         }
         
-        None
+        None // 所有CIDR都被占用或用完
     }
 
     /// 获取预期总IP数量
