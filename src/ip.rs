@@ -4,10 +4,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 use fastrand;
 use ipnet::IpNet;
-use std::thread;
-use tokio::sync::mpsc;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use std::collections::VecDeque;
+use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 use crate::args::Args;
 use crate::common::get_list;
@@ -15,52 +12,53 @@ use crate::common::get_list;
 /// IP地址获取结构体
 /// 用于管理和分发需要测试的IP地址
 pub struct IpBuffer {
-    ip_receiver: mpsc::UnboundedReceiver<SocketAddr>,  // IP地址接收通道
-    ip_sender: Option<mpsc::UnboundedSender<()>>,      // 请求发送器（用于控制生产速率）
-    total_expected: usize,              // 预期总IP数量
-    producer_active: Arc<AtomicBool>,   // 生产者活动状态标志
+    total_expected: usize,                      // 预期总IP数量
+    cidr_states: tokio::sync::Mutex<Vec<CidrState>>, // CIDR状态列表
+    single_ips: tokio::sync::Mutex<Vec<SocketAddr>>, // 单个IP地址列表
+    tcp_port: u16,                             // TCP端口
 }
 
 /// CIDR网络状态结构体
 /// 用于管理CIDR网络中的IP地址生成
 struct CidrState {
     network: IpNet,         // 网络地址
-    current_index: usize,   // 当前索引
     total_count: usize,     // 总数量
     interval_size: u128,    // 间隔大小
     start: u128,            // 起始地址
     end: u128,              // 结束地址
+    index_counter: Arc<AtomicUsize>, // 原子计数器，用于轮询
 }
 
 impl CidrState {
     /// 创建新的CIDR状态实例
-    fn new(network: IpNet, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
+    fn new(network: IpNet, count: usize, start: u128, end: u128, interval_size: u128, index_counter: Arc<AtomicUsize>) -> Self {
         Self {
             network,
-            current_index: 0,
             total_count: count,
             interval_size,
             start,
             end,
+            index_counter,
         }
     }
 
     /// 生成下一个随机IP地址
     /// 根据当前索引在指定区间内生成随机IP
     fn next_ip(&mut self, tcp_port: u16) -> Option<SocketAddr> {
-        if self.current_index >= self.total_count {
+        let current_index = self.index_counter.fetch_add(1, Ordering::Relaxed);
+        
+        if current_index >= self.total_count {
             return None;
         }
 
-        let interval_start = self.start + (self.current_index as u128 * self.interval_size);
-        let interval_end = if self.current_index == self.total_count - 1 {
+        let interval_start = self.start + (current_index as u128 * self.interval_size);
+        let interval_end = if current_index == self.total_count - 1 {
             self.end
         } else {
-            self.start + ((self.current_index + 1) as u128 * self.interval_size - 1)
+            self.start + ((current_index + 1) as u128 * self.interval_size - 1)
         };
 
         let random_ip = fastrand::u128(interval_start..=interval_end);
-        self.current_index += 1;
 
         match self.network {
             IpNet::V4(_) => Some(SocketAddr::new(
@@ -77,36 +75,45 @@ impl CidrState {
 
 impl IpBuffer {
     /// 创建新的IP获取实例
-    fn new(ip_rx: mpsc::UnboundedReceiver<SocketAddr>, req_tx: Option<mpsc::UnboundedSender<()>>, producer_active: Arc<AtomicBool>) -> Self {
+    fn new(cidr_states: Vec<CidrState>, single_ips: Vec<SocketAddr>, total_expected: usize, tcp_port: u16) -> Self {
         Self {
-            ip_receiver: ip_rx,
-            ip_sender: req_tx,
-            total_expected: 0,
-            producer_active,
+            total_expected,
+            cidr_states: tokio::sync::Mutex::new(cidr_states),
+            single_ips: tokio::sync::Mutex::new(single_ips),
+            tcp_port,
         }
     }
 
     /// 获取一个IP地址
-    /// 如果生产者活跃，会先发送请求信号
-    pub async fn pop(&mut self) -> Option<SocketAddr> {
-        if self.producer_active.load(Ordering::Relaxed) {
-            if let Some(sender) = &self.ip_sender {
-                let _ = sender.send(());
+    /// 异步版本，使用tokio锁
+    pub async fn pop(&self) -> Option<SocketAddr> {
+        // 优先返回单个IP
+        {
+            let mut single_ips = self.single_ips.lock().await;
+            if let Some(ip) = single_ips.pop() {
+                return Some(ip);
             }
-            return self.ip_receiver.recv().await;
         }
+        
+        // 轮询CIDR块生成IP
+        let mut cidr_states = self.cidr_states.lock().await;
+        let i = 0;
+        while i < cidr_states.len() {
+            if let Some(ip) = cidr_states[i].next_ip(self.tcp_port) {
+                return Some(ip);
+            } else {
+                // 如果CIDR块已用完，移除它
+                cidr_states.remove(i);
+                // 不需要增加i，因为remove后元素会前移
+            }
+        }
+        
         None
     }
 
     /// 获取预期总IP数量
     pub fn total_expected(&self) -> usize {
         self.total_expected
-    }
-
-    /// 检查是否为空
-    pub fn is_empty(&self) -> bool {
-        !self.producer_active.load(Ordering::Relaxed) && 
-        self.ip_receiver.is_empty()
     }
 }
 
@@ -167,29 +174,19 @@ fn parse_ip_range(ip_range: &str) -> (String, Option<u128>) {
     }
 }
 
-/// 根据配置参数收集所有IP地址并创建生产者线程
+/// 根据配置参数收集所有IP地址并创建IP缓冲区
 pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
-    // 使用无界通道实现按需生成
-    let (ip_tx, ip_rx) = mpsc::unbounded_channel::<SocketAddr>();
-    let (req_tx, mut req_rx) = mpsc::unbounded_channel::<()>();  // 异步请求通道
-    
-    let producer_active = Arc::new(AtomicBool::new(true));
-    let mut ip_buffer = IpBuffer::new(ip_rx, Some(req_tx), producer_active.clone());
-    
-    let ip_text = config.ip_text.clone();
-    let ip_url = config.ip_url.clone();
-    let ip_file = config.ip_file.clone();
-    let test_all = config.test_all;
-    
-    // 异步收集所有IP地址来源
+    // 收集所有IP地址来源
     let ip_sources = tokio::task::block_in_place(|| {
+        let ip_text = config.ip_text.clone();
+        let ip_url = config.ip_url.clone();
+        let ip_file = config.ip_file.clone();
         tokio::runtime::Handle::current().block_on(collect_ip_sources(&ip_text, &ip_url, &ip_file))
     });
     
     // 如果没有IP地址，直接返回空
     if ip_sources.is_empty() {
-        producer_active.store(false, Ordering::Relaxed);
-        return ip_buffer;
+        return IpBuffer::new(Vec::new(), Vec::new(), 0, config.tcp_port);
     }
     
     let mut single_ips = Vec::new();
@@ -228,7 +225,7 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
                 },
                 _ => {
                     // 计算需要测试的IP数量
-                    let count = calculate_ip_count(&ip_range_str, custom_count, test_all);
+                    let count = calculate_ip_count(&ip_range_str, custom_count, config.test_all);
                     let (start, end) = match &network {
                         IpNet::V4(ipv4_net) => {
                             let start = u32::from_be_bytes(ipv4_net.network().octets()) as u128;
@@ -261,70 +258,15 @@ pub fn load_ip_to_buffer(config: &Args) -> IpBuffer {
         }
     }
     
-    ip_buffer.total_expected = total_expected;
-    let tcp_port = config.tcp_port;
+    // 创建CIDR状态列表
+    let cidr_states: Vec<_> = cidr_info.into_iter()
+        .map(|(net, count, start, end, size)| {
+            let index_counter = Arc::new(AtomicUsize::new(0));
+            CidrState::new(net, count, start, end, size, index_counter)
+        })
+        .collect();
     
-    // 启动生产者线程，负责生成IP地址
-    thread::spawn(move || {
-        let mut cidr_states: VecDeque<_> = cidr_info.into_iter()
-            .map(|(net, count, start, end, size)| 
-                CidrState::new(net, count, start, end, size)
-            )
-            .collect();
-        
-        let mut total_remaining = total_expected;
-        let mut single_ips = single_ips.into_iter().collect::<Vec<_>>();
-        
-        // 主循环：持续生成IP地址直到完成
-        while total_remaining > 0 {
-            // 等待消费者请求
-            // 这里仍使用阻塞接收，因为在普通线程中
-            if req_rx.blocking_recv().is_none() {
-                break;
-            }
-            
-            // 优先发送预先生成的单个IP
-            if let Some(ip) = single_ips.pop() {
-                if ip_tx.send(ip).is_ok() {
-                    total_remaining -= 1;
-                }
-                continue;
-            }
-            
-            // 轮询CIDR块生成IP
-            if cidr_states.is_empty() {
-                break;
-            }
-            
-            // 使用迭代器方式处理CIDR状态
-            if let Some((ip, finished)) = cidr_states.iter_mut().next().and_then(|state| {
-                let ip = state.next_ip(tcp_port);
-                let finished = state.current_index >= state.total_count;
-                Some((ip, finished))
-            }) {
-                if let Some(addr) = ip {
-                    if ip_tx.send(addr).is_ok() {
-                        total_remaining -= 1;
-                    }
-                }
-                
-                // 如果当前CIDR已完成，移除它
-                if finished {
-                    cidr_states.pop_front();
-                } else {
-                    // 将当前CIDR移到队列末尾，实现轮询
-                    if let Some(state) = cidr_states.pop_front() {
-                        cidr_states.push_back(state);
-                    }
-                }
-            }
-        }
-        
-        // 标记生产者已完成
-        producer_active.store(false, Ordering::Relaxed);
-    });
-    
-    ip_buffer
+    IpBuffer::new(cidr_states, single_ips, total_expected, config.tcp_port)
 }
 
 /// 计算需要测试的IP地址数量
