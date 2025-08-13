@@ -69,7 +69,7 @@ pub fn print_speed_test_info(mode: &str, args: &Args) {
 /// 基础Ping结构体，包含所有公共字段
 #[derive(Clone)]
 pub struct BasePing {
-    pub ip_buffer: Arc<Mutex<IpBuffer>>,
+    pub ip_buffer: Arc<IpBuffer>,
     pub csv: Arc<Mutex<PingDelaySet>>,
     pub bar: Arc<Bar>,
     pub args: Arc<Args>,
@@ -79,7 +79,7 @@ pub struct BasePing {
 
 impl BasePing {
     pub fn new(
-        ip_buffer: Arc<Mutex<IpBuffer>>,
+        ip_buffer: Arc<IpBuffer>,
         csv: Arc<Mutex<PingDelaySet>>,
         bar: Arc<Bar>,
         args: Arc<Args>,
@@ -159,12 +159,12 @@ pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing 
 
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
-        Arc::new(Mutex::new(ip_buffer)),                                            // 转换为线程安全的 IP 缓冲区
-        Arc::new(Mutex::new(Vec::new())),                                                 // 空的 PingDelaySet，用于记录延迟
-        Arc::new(Bar::new(total_expected as u64, "可用:", "")),  // 创建进度条
-        Arc::new(args.clone()),                                                          // 参数包装
-        Arc::new(AtomicUsize::new(0)),                                          // 成功计数器
-        timeout_flag,                                                                               // 提前中止标记
+        Arc::new(ip_buffer),                                                    // 无锁的 IP 缓冲区
+        Arc::new(Mutex::new(Vec::new())),                           // 空的 PingDelaySet，用于记录延迟
+        Arc::new(Bar::new(total_expected as u64, "可用:", "")),                // 创建进度条
+        Arc::new(args.clone()),                                                 // 参数包装
+        Arc::new(AtomicUsize::new(0)),                                         // 成功计数器
+        timeout_flag,                                                          // 提前中止标记
     )
 }
 
@@ -177,14 +177,6 @@ pub async fn run_ping_test(
     base: &BasePing,
     handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<PingDelaySet, io::Error> {
-    // 获取锁检查是否还有IP可用
-    let mut ip_buffer_guard = base.ip_buffer.lock().unwrap();
-
-    if ip_buffer_guard.is_empty() {
-        // 生产者已停止且缓冲为空，没有IP可测，直接返回空结果
-        return Ok(Vec::new());
-    }
-
     // 线程池最大并发数量
     let pool_concurrency = crate::pool::GLOBAL_POOL.get().unwrap().max_threads;
 
@@ -202,14 +194,12 @@ pub async fn run_ping_test(
 
     // 批量初始启动任务
     for _ in 0..pool_concurrency {
-        if let Some(addr) = ip_buffer_guard.pop().await {
+        if let Some(addr) = base.ip_buffer.pop().await {
             tasks.push(spawn_task(addr));
         } else {
             break; // 没有更多IP
         }
     }
-
-    drop(ip_buffer_guard); // 释放锁
 
     // 动态循环处理任务，直到超时或任务耗尽
     while let Some(result) = tasks.next().await {
@@ -226,7 +216,7 @@ pub async fn run_ping_test(
         let _ = result;
 
         // 继续添加新任务
-        if let Some(addr) = base.ip_buffer.lock().unwrap().pop().await {
+        if let Some(addr) = base.ip_buffer.pop().await {
             tasks.push(spawn_task(addr));
         }
     }
