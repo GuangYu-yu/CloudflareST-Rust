@@ -159,7 +159,7 @@ pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing 
 
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
-        Arc::new(ip_buffer),                                                    // 无锁的 IP 缓冲区
+        Arc::new(ip_buffer),                                                    // IP 缓冲区
         Arc::new(Mutex::new(Vec::new())),                           // 空的 PingDelaySet，用于记录延迟
         Arc::new(Bar::new(total_expected as u64, "可用:", "")),                // 创建进度条
         Arc::new(args.clone()),                                                 // 参数包装
