@@ -24,7 +24,7 @@ impl Bar {
         let pb = ProgressBar::new(count);
         
         let template = format!(
-            "{{msg:.green}} [{{bar:{}.cyan/blue}}] {} {{prefix:.green}} {}", 
+            "{{msg:.yellow}} [{{bar:{}.cyan/blue}}] {} {{prefix:.green}} {}", 
             bar_length,
             start_str, 
             end_str

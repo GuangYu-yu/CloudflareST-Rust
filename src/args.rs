@@ -191,7 +191,7 @@ pub fn parse_args() -> Args {
         errors.push("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".to_string());  
     }
 
-    if args.disable_download && args.httping_urls_flag && !args.httping_urls.is_empty() && (!args.url.is_empty() || !args.urlist.is_empty()) {  
+    if args.disable_download && (!args.url.is_empty() || !args.urlist.is_empty()) && !(args.httping_urls_flag && args.httping_urls.is_empty()) {  
         warnings.push("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu".to_string());  
     }
 
