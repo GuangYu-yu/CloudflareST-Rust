@@ -94,9 +94,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: 安装 Zig
-        uses: korandoru/setup-zig@v1.7.1
+        uses: mlugg/setup-zig@v2.0.5
         with:
-          zig-version: master
+          version: master
 
       - name: 尝试 cargo-zigbuild 构建
         run: |
