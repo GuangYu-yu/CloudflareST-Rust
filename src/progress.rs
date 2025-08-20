@@ -24,7 +24,7 @@ impl Bar {
         let pb = ProgressBar::new(count);
         
         let template = format!(
-            "{{pos}}/{{len}} [{{bar:{}.cyan/blue}}] {} {{msg:.green}} {}", 
+            "{{msg:.green}} [{{bar:{}.cyan/blue}}] {} {{prefix:.green}} {}", 
             bar_length,
             start_str, 
             end_str
@@ -78,7 +78,16 @@ impl Bar {
             return;
         }
         
-        self.progress_bar.set_message(suffix);
+        self.progress_bar.set_prefix(suffix);
+    }
+    
+    pub fn set_message(&self, message: impl Into<Cow<'static, str>>) {
+        // 检查状态
+        if self.is_done() {
+            return;
+        }
+        
+        self.progress_bar.set_message(message);
     }
     
 /* 

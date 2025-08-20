@@ -75,6 +75,7 @@ pub struct BasePing {
     pub args: Arc<Args>,
     pub success_count: Arc<AtomicUsize>,
     pub timeout_flag: Arc<AtomicBool>,
+    pub tested_count: Arc<AtomicUsize>,
 }
 
 impl BasePing {
@@ -85,6 +86,7 @@ impl BasePing {
         args: Arc<Args>,
         success_count: Arc<AtomicUsize>,
         timeout_flag: Arc<AtomicBool>,
+        tested_count: Arc<AtomicUsize>,
     ) -> Self {
         Self {
             ip_buffer,
@@ -93,15 +95,17 @@ impl BasePing {
             args,
             success_count,
             timeout_flag,
+            tested_count,
         }
     }
 
-    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>) {
+    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>, Arc<AtomicUsize>) {
         (
             Arc::clone(&self.csv),
             Arc::clone(&self.bar),
             Arc::clone(&self.args),
             Arc::clone(&self.success_count),
+            Arc::clone(&self.tested_count),
         )
     }
 }
@@ -165,6 +169,7 @@ pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing 
         Arc::new(args.clone()),                                                 // 参数包装
         Arc::new(AtomicUsize::new(0)),                                         // 成功计数器
         timeout_flag,                                                          // 提前中止标记
+        Arc::new(AtomicUsize::new(0)),                                         // 已测试计数器
     )
 }
 
@@ -362,4 +367,18 @@ pub fn sort_results(results: &mut PingDelaySet) {
 /// 检查是否收到超时信号，如果是则打印信息并返回 true
 pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
     timeout_flag.load(Ordering::Relaxed)
+}
+
+/// 统一的进度条更新函数
+pub fn update_progress_bar(
+    bar: &Arc<Bar>,
+    tested_count: &Arc<AtomicUsize>,
+    success_count: &Arc<AtomicUsize>,
+    total_ips: usize,
+    success_count_override: Option<usize>,
+) {
+    let current_tested = tested_count.fetch_add(1, Ordering::Relaxed) + 1;
+    let current_success = success_count_override.unwrap_or_else(|| success_count.load(Ordering::Relaxed));
+    bar.grow(1, format!("{}/{}", current_tested, total_ips));
+    bar.set_suffix(current_success.to_string());
 }

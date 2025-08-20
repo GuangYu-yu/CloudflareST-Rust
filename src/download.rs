@@ -205,15 +205,19 @@ impl DownloadTest {
                 true // 没有过滤条件时视为匹配
             };
 
+            // 更新已测试计数
+            tested_count += 1;
+            
             // 同时满足速度和数据中心要求
             if speed_match && colo_match {
                 qualified_results.push(ping_result);
-                // 更新进度条
+                // 只有找到合格结果时才推进进度条（进度条进度基于合格数/test_num）
                 self.bar.as_ref().grow(1, "");
             }
             
-            // 更新已测试计数
-            tested_count += 1;
+            // 更新左侧显示：合格数 已测数
+            let qualified_count = qualified_results.len();
+            self.bar.as_ref().set_message(format!("{}|{}", qualified_count, tested_count));
         }
 
         // 中止速度更新任务

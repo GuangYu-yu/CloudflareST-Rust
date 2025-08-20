@@ -25,9 +25,10 @@ pub struct IcmpingHandlerFactory {
 
 impl HandlerFactory for IcmpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        let (csv, bar, args, success_count) = self.base.clone_shared_state();
+        let (csv, bar, args, success_count, tested_count) = self.base.clone_shared_state();
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
+        let total_ips = self.base.ip_buffer.total_expected();
 
         Box::pin(async move {
             let ip = addr.ip();
@@ -54,19 +55,21 @@ impl HandlerFactory for IcmpingHandlerFactory {
             // 计算平均延迟
             let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
 
-            if recv > 0 {
-                success_count.fetch_add(1, Ordering::Relaxed);
+            let success_count_override = if recv > 0 {
+                let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
                 let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
                 
                 if common::should_keep_result(&data, &args) {
                     let mut csv_guard = csv.lock().unwrap();
                     csv_guard.push(data);
                 }
-            }
+                Some(new_success_count)
+            } else {
+                None
+            };
             
-            // 无论成功与否，每个IP测试完成后都增加1个计数
-            let current_count = success_count.load(Ordering::Relaxed);
-            bar.grow(1, current_count.to_string());
+            // 更新进度条
+            common::update_progress_bar(&bar, &tested_count, &success_count, total_ips, success_count_override);
         })
     }
 }

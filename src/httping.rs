@@ -28,13 +28,19 @@ pub struct HttpingHandlerFactory {
 
 impl HandlerFactory for HttpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count) = self.base.clone_shared_state();
+        let (csv, bar, args, success_count, tested_count) = self.base.clone_shared_state();
         let colo_filters = self.colo_filters.clone();
         let urls = self.urls.clone();
         let url_index = Arc::clone(&self.url_index);
         let use_https = self.use_https;
+        let total_ips = self.base.ip_buffer.total_expected();
 
         Box::pin(async move {
+            // 更新进度条
+            let update_progress = |success_count_override: Option<usize>| {
+                common::update_progress_bar(&bar, &tested_count, &success_count, total_ips, success_count_override);
+            };
+
             // 根据模式选择URL
             let url = Arc::new(if use_https {
                 // HTTPS模式：从URL列表中选择（轮询）
@@ -60,15 +66,13 @@ impl HandlerFactory for HttpingHandlerFactory {
                     Some(host) => host.to_string(),
                     None => {
                         // 连接失败，更新进度条
-                        let current_success = success_count.load(Ordering::Relaxed);
-                        bar.grow(1, current_success.to_string());
+                        update_progress(None);
                         return;
                     }
                 },
                 Err(_) => {
                     // 连接失败，更新进度条
-                    let current_success = success_count.load(Ordering::Relaxed);
-                    bar.grow(1, current_success.to_string());
+                    update_progress(None);
                     return;
                 }
             };
@@ -77,8 +81,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                 Some(client) => Arc::new(client),
                 None => {
                     // 连接失败，更新进度条
-                    let current_success = success_count.load(Ordering::Relaxed);
-                    bar.grow(1, current_success.to_string());
+                    update_progress(None);
                     return;
                 }
             };
@@ -158,8 +161,7 @@ impl HandlerFactory for HttpingHandlerFactory {
             // 如果因为数据中心不匹配而终止测试，则不记录结果
             if !should_continue {
                 // 更新进度条但不记录结果
-                let current_success = success_count.load(Ordering::Relaxed);
-                bar.grow(1, current_success.to_string());
+                update_progress(None);
                 return;
             }
 
@@ -185,11 +187,10 @@ impl HandlerFactory for HttpingHandlerFactory {
                 }
 
                 // 更新进度条（使用成功连接数）
-                bar.grow(1, new_success_count.to_string());
+                update_progress(Some(new_success_count));
             } else {
                 // 没有成功连接，但也需要更新进度条
-                let current_success = success_count.load(Ordering::Relaxed);
-                bar.grow(1, current_success.to_string());
+                update_progress(None);
             }
         })
     }
