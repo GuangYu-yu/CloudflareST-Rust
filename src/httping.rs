@@ -28,7 +28,7 @@ pub struct HttpingHandlerFactory {
 
 impl HandlerFactory for HttpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count, tested_count) = self.base.clone_shared_state();
+        let (csv, bar, args, success_count, tested_count, timeout_flag) = self.base.clone_shared_state();
         let colo_filters = self.colo_filters.clone();
         let urls = self.urls.clone();
         let url_index = Arc::clone(&self.url_index);
@@ -95,6 +95,11 @@ impl HandlerFactory for HttpingHandlerFactory {
             }));
 
             for i in 0..ping_times {
+                // 检查超时信号，如果超时则立即退出
+                if timeout_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                
                 // 检查是否需要继续测试
                 if !should_continue {
                     break;

@@ -99,13 +99,14 @@ impl BasePing {
         }
     }
 
-    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>, Arc<AtomicUsize>, Arc<AtomicBool>) {
         (
             Arc::clone(&self.csv),
             Arc::clone(&self.bar),
             Arc::clone(&self.args),
             Arc::clone(&self.success_count),
             Arc::clone(&self.tested_count),
+            Arc::clone(&self.timeout_flag),
         )
     }
 }
@@ -209,11 +210,15 @@ pub async fn run_ping_test(
     // 动态循环处理任务，直到超时或任务耗尽
     while let Some(result) = tasks.next().await {
         // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
-        if check_timeout_signal(&base.timeout_flag)
-            || base.args.target_num
-                .map(|tn| base.success_count.load(Ordering::Relaxed) >= tn as usize)
-                .unwrap_or(false)
+        if check_timeout_signal(&base.timeout_flag) || 
+           base.args.target_num
+               .map(|tn| base.success_count.load(Ordering::Relaxed) >= tn as usize)
+               .unwrap_or(false)
         {
+            // 如果达到目标数量但还未设置超时标志，则设置超时标志
+            if !check_timeout_signal(&base.timeout_flag) {
+                base.timeout_flag.store(true, Ordering::Relaxed);
+            }
             break;
         }
 
@@ -233,13 +238,6 @@ pub async fn run_ping_test(
     let mut csv_guard = base.csv.lock().unwrap();
     let mut results = std::mem::take(&mut *csv_guard);
     sort_results(&mut results);
-
-/*
-    // 如果设置了目标数量，只保留前 target_num 个结果
-    if let Some(target_num) = base.args.target_num {
-        results.truncate(target_num as usize);
-    }
-*/
 
     Ok(results)
 }

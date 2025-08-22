@@ -25,7 +25,7 @@ pub struct IcmpingHandlerFactory {
 
 impl HandlerFactory for IcmpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        let (csv, bar, args, success_count, tested_count) = self.base.clone_shared_state();
+        let (csv, bar, args, success_count, tested_count, timeout_flag) = self.base.clone_shared_state();
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
         let total_ips = self.base.ip_buffer.total_expected();
@@ -44,6 +44,11 @@ impl HandlerFactory for IcmpingHandlerFactory {
             };
             
             for _ in 0..ping_times {
+                // 检查超时信号，如果超时则立即退出
+                if timeout_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                
                 if let Ok(Some(delay)) = execute_with_rate_limit(|| async {
                     Ok::<Option<f32>, io::Error>(icmp_ping(addr, &args, &client).await)
                 }).await {

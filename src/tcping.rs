@@ -22,7 +22,7 @@ pub struct TcpingHandlerFactory {
 
 impl HandlerFactory for TcpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count, tested_count) = self.base.clone_shared_state();
+        let (csv, bar, args, success_count, tested_count, timeout_flag) = self.base.clone_shared_state();
         let total_ips = self.base.ip_buffer.total_expected();
         
         Box::pin(async move {
@@ -31,6 +31,11 @@ impl HandlerFactory for TcpingHandlerFactory {
             let mut total_delay_ms = 0.0;
 
             for _ in 0..ping_times {
+                // 检查超时信号，如果超时则立即退出
+                if timeout_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                
                 if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
                     Ok::<Option<f32>, io::Error>(tcping(addr).await)
                 }).await {
