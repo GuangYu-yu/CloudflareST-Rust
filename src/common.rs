@@ -215,10 +215,6 @@ pub async fn run_ping_test(
                .map(|tn| base.success_count.load(Ordering::Relaxed) >= tn as usize)
                .unwrap_or(false)
         {
-            // 如果达到目标数量但还未设置超时标志，则设置超时标志
-            if !check_timeout_signal(&base.timeout_flag) {
-                base.timeout_flag.store(true, Ordering::Relaxed);
-            }
             break;
         }
 
