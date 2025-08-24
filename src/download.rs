@@ -144,7 +144,7 @@ impl DownloadTest {
                     break;
                 }
                 let speed = *current_speed.lock().unwrap();
-                if speed > 0.0 {
+                if speed >= 0.0 {
                     bar.as_ref().set_suffix(format!("{:.2} MB/s", speed / 1024.0 / 1024.0));
                 }
             }
@@ -181,6 +181,7 @@ impl DownloadTest {
                 need_colo,
                 Arc::clone(&self.timeout_flag),
                 Arc::clone(&colo_filters),
+                Arc::clone(&self.bar),
             ).await;
 
             // 更新下载速度和可能的数据中心信息
@@ -247,6 +248,7 @@ async fn download_handler(
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
+    bar: Arc<Bar>,
 ) -> (Option<f32>, Option<String>) {
     
     // 解析原始URL以获取主机名和路径
@@ -274,6 +276,9 @@ async fn download_handler(
     
     // 创建下载处理器
     let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
+    
+    // 在发起请求前清空速度显示
+    bar.as_ref().set_suffix("");
     
     // 发送请求
     let response = client.get(url).send().await.ok();
@@ -345,9 +350,6 @@ async fn download_handler(
     } else {
         None
     };
-    
-    // 重置当前速度显示
-    *current_speed.lock().unwrap() = 0.0;
-    
+
     (avg_speed, data_center)
 }
