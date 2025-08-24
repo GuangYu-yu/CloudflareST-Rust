@@ -347,11 +347,11 @@ async fn download_handler(
             if actual_elapsed > 0.0 {
                 Some(actual_content_read as f32 / actual_elapsed)
             } else {
-                无
+                None
             }
         })
     } else {
-        无
+        None
     };
 
     (avg_speed, data_center)
