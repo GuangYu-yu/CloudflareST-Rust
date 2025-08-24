@@ -113,8 +113,6 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 
 [信息] 测速结果已写入 result.csv 文件，可使用记事本/表格软件查看
 程序执行完毕
-
-
 ```
 
 ## 📥 下载链接
@@ -140,7 +138,7 @@ curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/CloudFlare-DDNS/refs/hea
 
 > - 安卓下载 [Termux](https://github.com/termux/termux-app/releases)
 
-或者可使用 [工具](https://github.com/GuangYu-yu/opw-cloudflare)，能测速并解析到 Cloudflare 或提交到 Github：
+或者可使用 [工具](https://github.com/GuangYu-yu/CloudFlare-DDNS)，能测速并解析到 Cloudflare 或提交到 Github：
 
 ```bash
 curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/CloudFlare-DDNS/refs/heads/main/setup/cfopw.sh | bash
