@@ -251,6 +251,12 @@ async fn download_handler(
     bar: Arc<Bar>,
 ) -> (Option<f32>, Option<String>) {
     
+    // 在每次新的下载开始前重置速度为0
+    *current_speed.lock().unwrap() = 0.0;
+    
+    // 在发起请求前清空速度显示
+    bar.as_ref().set_suffix("");
+    
     // 解析原始URL以获取主机名和路径
     let url_parts = match url::Url::parse(url) {
         Ok(parts) => parts,
@@ -276,9 +282,6 @@ async fn download_handler(
     
     // 创建下载处理器
     let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
-    
-    // 在发起请求前清空速度显示
-    bar.as_ref().set_suffix("");
     
     // 发送请求
     let response = client.get(url).send().await.ok();
@@ -344,11 +347,11 @@ async fn download_handler(
             if actual_elapsed > 0.0 {
                 Some(actual_content_read as f32 / actual_elapsed)
             } else {
-                None
+                无
             }
         })
     } else {
-        None
+        无
     };
 
     (avg_speed, data_center)
