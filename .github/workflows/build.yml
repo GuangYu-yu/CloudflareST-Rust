@@ -76,12 +76,7 @@ jobs:
           cargo install --locked cargo-zigbuild
           cargo update
           echo "尝试使用 cargo-zigbuild 构建..."
-          cargo zigbuild --release --target ${{ matrix.target }}
-          if [ ${{ runner.os }} = "Windows" ]; then
-            echo "修复 cargo-zigbuild 生成的 .bat 文件行结束符..."
-            powershell -Command "Get-ChildItem -Path '$env:USERPROFILE\AppData\Local\cargo-zigbuild' -Include *.bat -Recurse | ForEach-Object { $content = Get-Content $_.FullName -Raw -Encoding UTF8; $content = $content -replace \"`n\", \"`r`n\"; Set-Content $_.FullName -Value $content -NoNewline -Encoding ASCII }"
-          fi
-          if [ $? -ne 0 ]; then
+          if ! cargo zigbuild --release --target ${{ matrix.target }}; then
             echo "cargo-zigbuild 构建失败，使用 cargo build 进行回退..."
             cargo build --release --target ${{ matrix.target }} || exit 1
           fi
