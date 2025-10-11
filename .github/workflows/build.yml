@@ -18,29 +18,6 @@ on:
         required: true
 
 jobs:
-  cleanup_releases:
-    name: 清理旧版本发布
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.create_release == 'true' }}
-    steps:
-      - name: 删除旧版本
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { owner, repo } = context.repo;
-            const releases = await github.rest.repos.listReleases({ owner, repo });
-            for (const release of releases.data) {
-              await github.rest.repos.deleteRelease({ owner, repo, release_id: release.id });
-              if (release.tag_name) {
-                try {
-                  await github.rest.git.deleteRef({ owner, repo, ref: `tags/${release.tag_name}` });
-                } catch (e) {
-                  console.log(`Failed to delete tag ${release.tag_name}: ${e}`);
-                }
-              }
-            }
-
   build:
     name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -81,10 +58,6 @@ jobs:
             binary_name: ${{ github.event.inputs.project_name }}
 
     steps:
-      - name: 等待清理旧版本完成
-        if: ${{ github.event.inputs.create_release == 'true' }}
-        run: echo "等待清理旧版本完成"
-
       - name: 检出代码
         uses: actions/checkout@v4
 
@@ -103,13 +76,16 @@ jobs:
           cargo install --locked cargo-zigbuild
           cargo update
           echo "尝试使用 cargo-zigbuild 构建..."
-          if ! cargo zigbuild --release --target ${{ matrix.target }}; then
+          cargo zigbuild --release --target ${{ matrix.target }}
+          if [ ${{ runner.os }} = "Windows" ]; then
+            echo "修复 cargo-zigbuild 生成的 .bat 文件行结束符..."
+            powershell -Command "Get-ChildItem -Path '$env:USERPROFILE\AppData\Local\cargo-zigbuild' -Include *.bat -Recurse | ForEach-Object { $content = Get-Content $_.FullName -Raw -Encoding UTF8; $content = $content -replace \"`n\", \"`r`n\"; Set-Content $_.FullName -Value $content -NoNewline -Encoding ASCII }"
+          fi
+          if [ $? -ne 0 ]; then
             echo "cargo-zigbuild 构建失败，使用 cargo build 进行回退..."
             cargo build --release --target ${{ matrix.target }} || exit 1
           fi
         shell: bash
-        env:
-          RUSTFLAGS: -Clink-args=-nologo
 
       - name: 创建二进制目录
         run: mkdir -p binaries/${{ matrix.os }}_${{ matrix.arch }}
@@ -185,12 +161,30 @@ jobs:
 
   create_release:
     name: 创建发布版本
-    needs: [strip_binaries, cleanup_releases]
+    needs: [strip_binaries]
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.create_release == 'true' }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+
+      - name: 删除旧版本
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const releases = await github.rest.repos.listReleases({ owner, repo });
+            for (const release of releases.data) {
+              await github.rest.repos.deleteRelease({ owner, repo, release_id: release.id });
+              if (release.tag_name) {
+                try {
+                  await github.rest.git.deleteRef({ owner, repo, ref: `tags/${release.tag_name}` });
+                } catch (e) {
+                  console.log(`Failed to delete tag ${release.tag_name}: ${e}`);
+                }
+              }
+            }
 
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
