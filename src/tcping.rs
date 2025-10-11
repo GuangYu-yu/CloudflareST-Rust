@@ -42,8 +42,8 @@ impl HandlerFactory for TcpingHandlerFactory {
                     recv += 1;
                     total_delay_ms += delay;
                     
-                    // 成功时等待100ms再进行下一次ping
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    // 成功时等待200ms再进行下一次ping
+                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
                 }
             }
 
@@ -75,7 +75,7 @@ impl Ping {
         common::print_speed_test_info("Tcping", args);
         
         // 初始化测试环境
-        let base = common::create_base_ping(args, timeout_flag);
+        let base = common::create_base_ping(args, timeout_flag).await;
 
         Ok(Ping { base })
     }

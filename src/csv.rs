@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, BufWriter};
 use prettytable::{Table, Row, Cell, format};
 use crate::args::Args;
-use crate::PingData;
+use crate::common::{PingData, PingDataRef};
 
 const TABLE_HEADERS: [&str; 7] = [
     "IP 地址", 
@@ -34,8 +34,8 @@ pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
 
     // 写入数据
     for result in results {
-        let mut record = ping_data_to_fields(result);
-        record[0] = result.display_addr(args.show_port);
+        let mut record = ping_data_to_fields(&result.as_ref());
+        record[0] = result.as_ref().display_addr(args.show_port);
         writer.write_record(&record)?;
     }
 
@@ -75,8 +75,9 @@ impl PrintResult for Vec<PingData> {
 
         // 添加数据行，最多显示 args.print_num 条
         for result in self.iter().take(args.print_num.into()) {
-            let first_cell = Cell::new(&result.display_addr(args.show_port));
-            let other_cells = ping_data_to_fields(result)
+            let result_ref = result.as_ref();
+            let first_cell = Cell::new(&result_ref.display_addr(args.show_port));
+            let other_cells = ping_data_to_fields(&result_ref)
                 .into_iter()
                 .skip(1)
                 .map(|field| Cell::new(&field));
@@ -94,8 +95,8 @@ impl PrintResult for Vec<PingData> {
     }
 }
 
-/// 将 PingData 转换为通用数据格式
-fn ping_data_to_fields(data: &PingData) -> Vec<String> {
+/// 将 PingDataRef 转换为通用数据格式
+fn ping_data_to_fields(data: &PingDataRef) -> Vec<String> {
     vec![
         data.addr.to_string(),
         data.sent.to_string(),

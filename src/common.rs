@@ -15,7 +15,6 @@ use std::pin::Pin;
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 // 定义通用的 PingData 结构体
-#[derive(Clone)]
 pub struct PingData {
     pub addr: SocketAddr,
     pub sent: u16,
@@ -23,6 +22,28 @@ pub struct PingData {
     pub delay: f32,
     pub download_speed: Option<f32>,
     pub data_center: String,
+}
+
+pub struct PingDataRef<'a> {
+    pub addr: &'a SocketAddr,
+    pub sent: u16,
+    pub received: u16,
+    pub delay: f32,
+    pub download_speed: Option<f32>,
+    pub data_center: &'a str,
+}
+
+impl<'a> From<&'a PingData> for PingDataRef<'a> {
+    fn from(data: &'a PingData) -> Self {
+        PingDataRef {
+            addr: &data.addr,
+            sent: data.sent,
+            received: data.received,
+            delay: data.delay,
+            download_speed: data.download_speed,
+            data_center: &data.data_center,
+        }
+    }
 }
 
 impl PingData {
@@ -36,6 +57,13 @@ impl PingData {
             data_center: String::new(),
         }
     }
+    
+    pub fn as_ref(&self) -> PingDataRef<'_> {
+        PingDataRef::from(self)
+    }
+}
+
+impl<'a> PingDataRef<'a> {
     pub fn loss_rate(&self) -> f32 {
         if self.sent == 0 {
             return 0.0;
@@ -133,11 +161,11 @@ fn client_builder() -> reqwest::ClientBuilder {
 /// 构建 Reqwest 客户端
 pub async fn build_reqwest_client(addr: SocketAddr, host: &str, timeout_ms: u64) -> Option<Client> {
     let client = client_builder()
-        .resolve(host, addr) // 解析域名
-        .timeout(Duration::from_millis(timeout_ms)) // 整个请求超时时间
-//        .danger_accept_invalid_certs(true)  // 跳过证书验证
-//        .pool_max_idle_per_host(0) // 禁用连接复用
-        .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
+        .resolve(host, addr)                           // 解析域名
+        .timeout(Duration::from_millis(timeout_ms))    // 整个请求超时时间
+//        .danger_accept_invalid_certs(true)         // 跳过证书验证  
+//        .pool_max_idle_per_host(0)                 // 禁用连接复用
+        .redirect(reqwest::redirect::Policy::none())   // 禁止重定向
         .build()
         .ok();
     
@@ -155,27 +183,27 @@ pub fn extract_data_center(resp: &Response) -> Option<String> {
 }
 
 /// Ping 初始化
-pub fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing {
+pub async fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing {
     // 加载 IP 缓冲区
-    let ip_buffer = load_ip_to_buffer(args);
+    let ip_buffer = load_ip_to_buffer(args).await;
 
     // 获取预计总 IP 数量用于进度条
     let total_expected = ip_buffer.total_expected();
 
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
-        Arc::new(ip_buffer),                                                    // IP 缓冲区
-        Arc::new(Mutex::new(Vec::new())),                           // 空的 PingDelaySet，用于记录延迟
-        Arc::new(Bar::new(total_expected as u64, "可用:", "")),                // 创建进度条
-        Arc::new(args.clone()),                                                 // 参数包装
-        Arc::new(AtomicUsize::new(0)),                                         // 成功计数器
-        timeout_flag,                                                          // 提前中止标记
-        Arc::new(AtomicUsize::new(0)),                                         // 已测试计数器
+        Arc::new(ip_buffer),                                    // IP 缓冲区
+        Arc::new(Mutex::new(Vec::new())),                       // 空的 PingDelaySet，用于记录延迟
+        Arc::new(Bar::new(total_expected as u64, "可用:", "")), // 创建进度条
+        Arc::new(args.clone()),                                 // 参数包装
+        Arc::new(AtomicUsize::new(0)),                          // 成功计数器
+        timeout_flag,                                           // 提前中止标记
+        Arc::new(AtomicUsize::new(0)),                          // 已测试计数器
     )
 }
 
 pub trait HandlerFactory: Send + Sync + 'static {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
 
 /// 通用的 ping 测试运行函数
@@ -190,18 +218,14 @@ pub async fn run_ping_test(
     let mut tasks = FuturesUnordered::new();
 
     // 创建并推送任务
-    let spawn_task = |addr: SocketAddr| {
-        let task = handler_factory.create_handler(addr);
-        tokio::spawn(async move {
-            task.await;
-            Ok::<(), io::Error>(())
-        })
+    let create_task = |addr: SocketAddr| {
+        handler_factory.create_handler(addr)
     };
 
     // 批量初始启动任务
     for _ in 0..pool_concurrency {
         if let Some(addr) = base.ip_buffer.pop().await {
-            tasks.push(spawn_task(addr));
+            tasks.push(create_task(addr));
         } else {
             break; // 没有更多IP
         }
@@ -223,7 +247,7 @@ pub async fn run_ping_test(
 
         // 继续添加新任务
         if let Some(addr) = base.ip_buffer.pop().await {
-            tasks.push(spawn_task(addr));
+            tasks.push(create_task(addr));
         }
     }
 
@@ -231,8 +255,12 @@ pub async fn run_ping_test(
     base.bar.done_at_current_pos();
 
     // 收集和排序结果
-    let mut csv_guard = base.csv.lock().unwrap();
-    let mut results = std::mem::take(&mut *csv_guard);
+    let results = {
+        let mut csv_guard = base.csv.lock().unwrap();
+        std::mem::take(&mut *csv_guard)
+    };
+    
+    let mut results = results;
     sort_results(&mut results);
 
     Ok(results)
@@ -250,14 +278,20 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
         let client = client_builder().build().ok();
             
         if let Some(client) = client {
-            if let Some(response) = client.get(url).send().await.ok() {
-                if let Ok(content) = response.text().await {
-                    return content.lines()
-                        .map(|line| line.trim())
-                        .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                        .map(|line| line.to_string())
-                        .collect();
+            let content = {
+                if let Some(response) = client.get(url).send().await.ok() {
+                    response.text().await.ok()
+                } else {
+                    None
                 }
+            };
+            
+            if let Some(content) = content {
+                return content.lines()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                    .map(|line| line.to_string())
+                    .collect();
             }
         }
         
@@ -308,14 +342,16 @@ pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
 
 /// 判断测试结果是否符合筛选条件
 pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
+    let data_ref = data.as_ref();
+    
     // 检查丢包率
-    if data.loss_rate() > args.max_loss_rate {
+    if data_ref.loss_rate() > args.max_loss_rate {
         return false;
     }
     
     // 检查延迟上下限
-    if data.delay < args.min_delay.as_millis() as f32 ||
-       data.delay > args.max_delay.as_millis() as f32 {
+    if data_ref.delay < args.min_delay.as_millis() as f32 ||
+       data_ref.delay > args.max_delay.as_millis() as f32 {
         return false;
     }
     
@@ -329,11 +365,17 @@ pub fn sort_results(results: &mut PingDelaySet) {
         return;
     }
 
-    // 先算平均值
-    let total_count = results.len() as f32;
-    let (total_speed, total_loss, total_delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, d| {
-        (acc.0 + d.download_speed.unwrap_or(0.0), acc.1 + d.loss_rate(), acc.2 + d.delay)
-    });
+    let (total_count, total_speed, total_loss, total_delay) = {
+        let count = results.len() as f32;
+        let (speed, loss, delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, d| {
+            let d_ref = d.as_ref();
+            (acc.0 + d_ref.download_speed.unwrap_or(0.0), 
+             acc.1 + d_ref.loss_rate(), 
+             acc.2 + d_ref.delay)
+        });
+        (count, speed, loss, delay)
+    };
+    
     let avg_speed = total_speed / total_count;
     let avg_loss = total_loss / total_count;
     let avg_delay = total_delay / total_count;
@@ -342,9 +384,10 @@ pub fn sort_results(results: &mut PingDelaySet) {
 
     // 计算分数
     let score = |d: &PingData| {
-        let speed_diff = d.download_speed.unwrap_or(0.0) - avg_speed;
-        let loss_diff = d.loss_rate() - avg_loss;
-        let delay_diff = d.delay - avg_delay;
+        let d_ref = d.as_ref();
+        let speed_diff = d_ref.download_speed.unwrap_or(0.0) - avg_speed;
+        let loss_diff = d_ref.loss_rate() - avg_loss;
+        let delay_diff = d_ref.delay - avg_delay;
 
         if has_speed {
             speed_diff * 0.5 + delay_diff * -0.2 + loss_diff * -0.3

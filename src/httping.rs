@@ -114,27 +114,35 @@ impl HandlerFactory for HttpingHandlerFactory {
                     let start_time = Instant::now();
 
                     // 构造请求
-                    let result = {
-                        let builder = client.head(url.as_str());
-                        if i == ping_times - 1 { builder.header("Connection", "close") } else { builder }
-                    }.send().await.ok();
+                    let delay_result = {
+                        let result = {
+                            let builder = client.head(url.as_str());
+                            if i == ping_times - 1 { builder.header("Connection", "close") } else { builder }
+                        }.send().await.ok();
 
-                    if let Some(response) = result {
-                        // 判断状态码
-                        if let Some(ref codes) = *allowed_codes {
-                            let status = response.status().as_u16();
-                            if !codes.contains(&status) {
-                                return Ok::<Option<(f32, String)>, io::Error>(None);
+                        // 简化逻辑：只有当所有条件都满足时才计算延迟
+                        result.and_then(|response| {
+                            // 检查状态码
+                            let status_valid = if let Some(ref codes) = *allowed_codes {
+                                codes.contains(&response.status().as_u16())
+                            } else {
+                                true // 没有状态码限制时视为有效
+                            };
+
+                            if status_valid {
+                                // 提取数据中心信息并计算延迟
+                                common::extract_data_center(&response).map(|dc| {
+                                    let delay = start_time.elapsed().as_secs_f32() * 1000.0;
+                                    (delay, dc)
+                                })
+                            } else {
+                                None
                             }
-                        }
+                        })
+                        // response在作用域结束时自动释放
+                    };
 
-                        if let Some(dc) = common::extract_data_center(&response) {
-                            let delay = start_time.elapsed().as_secs_f32() * 1000.0;
-                            return Ok(Some((delay, dc)));
-                        }
-                    }
-
-                    Ok::<Option<(f32, String)>, io::Error>(None)
+                    Ok::<Option<(f32, String)>, io::Error>(delay_result)
                 })
                 .await
                 {
@@ -256,7 +264,7 @@ impl Ping {
         common::print_speed_test_info("Httping", args);
         
         // 初始化测试环境
-        let base = common::create_base_ping(args, timeout_flag);
+        let base = common::create_base_ping(args, timeout_flag).await;
 
         Ok(Ping {
             base,

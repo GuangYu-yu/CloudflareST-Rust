@@ -24,7 +24,7 @@ pub struct IcmpingHandlerFactory {
 }
 
 impl HandlerFactory for IcmpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let (csv, bar, args, success_count, tested_count, timeout_flag) = self.base.clone_shared_state();
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
@@ -85,7 +85,7 @@ impl Ping {
         common::print_speed_test_info("ICMP-Ping", args);
         
         // 初始化测试环境
-        let base = common::create_base_ping(args, timeout_flag);
+        let base = common::create_base_ping(args, timeout_flag).await;
         let client_v4 = Arc::new(Client::new(&Config::default())?);
         let client_v6 = Arc::new(Client::new(&Config::builder().kind(ICMP::V6).build())?);
 

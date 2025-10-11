@@ -193,6 +193,8 @@ impl DownloadTest {
                 }
             }
 
+            let ping_result_ref = ping_result.as_ref();
+            
             // 检查速度是否符合要求
             let speed_match = match speed {
                 Some(s) => s >= self.min_speed * 1024.0 * 1024.0,
@@ -201,7 +203,7 @@ impl DownloadTest {
 
             // 检查数据中心是否符合要求
             let colo_match = if !colo_filters.is_empty() {
-                common::is_colo_matched(&ping_result.data_center, &colo_filters)
+                common::is_colo_matched(&ping_result_ref.data_center, &colo_filters)
             } else {
                 true // 没有过滤条件时视为匹配
             };
@@ -322,21 +324,24 @@ async fn download_handler(
             }
             
             // 读取数据块
-            match resp.chunk().await.ok() {
-                Some(Some(chunk)) => {
-                    let size = chunk.len() as u64;
-                    handler.update_data_received(size);
-                    
-                    // 如果已经过了预热时间，开始记录实际下载数据
-                    if elapsed >= warm_up_duration {
-                        if actual_start_time.is_none() {
-                            actual_start_time = Some(current_time);
+            {
+                match resp.chunk().await.ok() {
+                    Some(Some(chunk)) => {
+                        let size = chunk.len() as u64;
+                        handler.update_data_received(size);
+                        
+                        // 如果已经过了预热时间，开始记录实际下载数据
+                        if elapsed >= warm_up_duration {
+                            if actual_start_time.is_none() {
+                                actual_start_time = Some(current_time);
+                            }
+                            actual_content_read += size;
+                            last_data_time = Some(current_time); // 更新最后数据时间
                         }
-                        actual_content_read += size;
-                        last_data_time = Some(current_time); // 更新最后数据时间
-                    }
-                },
-                _ => break,
+                    },
+                    _ => break,
+                }
+                // chunk在作用域结束时自动释放
             }
         }
         
