@@ -108,6 +108,8 @@ jobs:
             cargo build --release --target ${{ matrix.target }} || exit 1
           fi
         shell: bash
+        env:
+          RUSTFLAGS: -Clink-args=-nologo
 
       - name: 创建二进制目录
         run: mkdir -p binaries/${{ matrix.os }}_${{ matrix.arch }}
