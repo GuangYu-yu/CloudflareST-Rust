@@ -1,15 +1,15 @@
-use std::net::SocketAddr;
-use std::time::Duration;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
-use std::io;
-use reqwest::{Client, Response};
-use futures::stream::{FuturesUnordered, StreamExt};
 use crate::args::Args;
-use crate::progress::Bar;
 use crate::ip::{IpBuffer, load_ip_to_buffer};
+use crate::progress::Bar;
+use futures::stream::{FuturesUnordered, StreamExt};
+use reqwest::{Client, Response};
 use std::future::Future;
+use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 // 定义浏览器标识常量
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -57,7 +57,7 @@ impl PingData {
             data_center: String::new(),
         }
     }
-    
+
     pub fn as_ref(&self) -> PingDataRef<'_> {
         PingDataRef::from(self)
     }
@@ -127,7 +127,16 @@ impl BasePing {
         }
     }
 
-    pub fn clone_shared_state(&self) -> (Arc<Mutex<PingDelaySet>>, Arc<Bar>, Arc<Args>, Arc<AtomicUsize>, Arc<AtomicUsize>, Arc<AtomicBool>) {
+    pub fn clone_shared_state(
+        &self,
+    ) -> (
+        Arc<Mutex<PingDelaySet>>,
+        Arc<Bar>,
+        Arc<Args>,
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+        Arc<AtomicBool>,
+    ) {
         (
             Arc::clone(&self.csv),
             Arc::clone(&self.bar),
@@ -144,7 +153,7 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     if success_count == 0 {
         return 0.0;
     }
-    
+
     // 计算平均值
     let avg_ms = total_delay_ms / success_count as f32;
     // 四舍五入到两位小数
@@ -161,20 +170,21 @@ fn client_builder() -> reqwest::ClientBuilder {
 /// 构建 Reqwest 客户端
 pub async fn build_reqwest_client(addr: SocketAddr, host: &str, timeout_ms: u64) -> Option<Client> {
     let client = client_builder()
-        .resolve(host, addr)                           // 解析域名
-        .timeout(Duration::from_millis(timeout_ms))    // 整个请求超时时间
-//        .danger_accept_invalid_certs(true)         // 跳过证书验证  
-//        .pool_max_idle_per_host(0)                 // 禁用连接复用
-        .redirect(reqwest::redirect::Policy::none())   // 禁止重定向
+        .resolve(host, addr) // 解析域名
+        .timeout(Duration::from_millis(timeout_ms)) // 整个请求超时时间
+        //        .danger_accept_invalid_certs(true)         // 跳过证书验证
+        //        .pool_max_idle_per_host(0)                 // 禁用连接复用
+        .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
         .build()
         .ok();
-    
+
     client
 }
 
 /// 从响应中提取数据中心信息
 pub fn extract_data_center(resp: &Response) -> Option<String> {
-    resp.headers().get("cf-ray")?
+    resp.headers()
+        .get("cf-ray")?
         .to_str()
         .ok()?
         .rsplit('-')
@@ -218,9 +228,7 @@ pub async fn run_ping_test(
     let mut tasks = FuturesUnordered::new();
 
     // 创建并推送任务
-    let create_task = |addr: SocketAddr| {
-        handler_factory.create_handler(addr)
-    };
+    let create_task = |addr: SocketAddr| handler_factory.create_handler(addr);
 
     // 批量初始启动任务
     for _ in 0..pool_concurrency {
@@ -234,10 +242,12 @@ pub async fn run_ping_test(
     // 动态循环处理任务，直到超时或任务耗尽
     while let Some(result) = tasks.next().await {
         // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
-        if check_timeout_signal(&base.timeout_flag) || 
-           base.args.target_num
-               .map(|tn| base.success_count.load(Ordering::Relaxed) >= tn as usize)
-               .unwrap_or(false)
+        if check_timeout_signal(&base.timeout_flag)
+            || base
+                .args
+                .target_num
+                .map(|tn| base.success_count.load(Ordering::Relaxed) >= tn as usize)
+                .unwrap_or(false)
         {
             break;
         }
@@ -259,7 +269,7 @@ pub async fn run_ping_test(
         let mut csv_guard = base.csv.lock().unwrap();
         std::mem::take(&mut *csv_guard)
     };
-    
+
     let mut results = results;
     sort_results(&mut results);
 
@@ -276,7 +286,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
     for i in 1..=max_retries {
         // 创建带User-Agent的客户端
         let client = client_builder().build().ok();
-            
+
         if let Some(client) = client {
             let content = {
                 if let Some(response) = client.get(url).send().await.ok() {
@@ -285,16 +295,19 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
                     None
                 }
             };
-            
+
             if let Some(content) = content {
-                return content.lines()
+                return content
+                    .lines()
                     .map(|line| line.trim())
-                    .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                    .filter(|line| {
+                        !line.is_empty() && !line.starts_with("//") && !line.starts_with('#')
+                    })
                     .map(|line| line.to_string())
                     .collect();
             }
         }
-        
+
         // 只有在不是最后一次尝试时才打印重试信息和等待
         if i < max_retries {
             println!("列表请求失败，正在第{}次重试..", i);
@@ -303,7 +316,7 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
             println!("获取列表已达到最大重试次数");
         }
     }
-    
+
     Vec::new()
 }
 
@@ -315,7 +328,7 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
             return list;
         }
     }
-    
+
     // 使用单一URL作为默认值
     if !url.is_empty() {
         vec![url.to_string()]
@@ -335,26 +348,29 @@ pub fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
 
 // 检查数据中心是否匹配过滤条件
 pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
-    !data_center.is_empty() && 
-    (colo_filters.is_empty() || 
-     colo_filters.iter().any(|filter| filter == &data_center.to_uppercase()))
+    !data_center.is_empty()
+        && (colo_filters.is_empty()
+            || colo_filters
+                .iter()
+                .any(|filter| filter == &data_center.to_uppercase()))
 }
 
 /// 判断测试结果是否符合筛选条件
 pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
     let data_ref = data.as_ref();
-    
+
     // 检查丢包率
     if data_ref.loss_rate() > args.max_loss_rate {
         return false;
     }
-    
+
     // 检查延迟上下限
-    if data_ref.delay < args.min_delay.as_millis() as f32 ||
-       data_ref.delay > args.max_delay.as_millis() as f32 {
+    if data_ref.delay < args.min_delay.as_millis() as f32
+        || data_ref.delay > args.max_delay.as_millis() as f32
+    {
         return false;
     }
-    
+
     // 通过所有筛选条件
     true
 }
@@ -369,13 +385,15 @@ pub fn sort_results(results: &mut PingDelaySet) {
         let count = results.len() as f32;
         let (speed, loss, delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, d| {
             let d_ref = d.as_ref();
-            (acc.0 + d_ref.download_speed.unwrap_or(0.0), 
-             acc.1 + d_ref.loss_rate(), 
-             acc.2 + d_ref.delay)
+            (
+                acc.0 + d_ref.download_speed.unwrap_or(0.0),
+                acc.1 + d_ref.loss_rate(),
+                acc.2 + d_ref.delay,
+            )
         });
         (count, speed, loss, delay)
     };
-    
+
     let avg_speed = total_speed / total_count;
     let avg_loss = total_loss / total_count;
     let avg_delay = total_delay / total_count;
@@ -397,7 +415,9 @@ pub fn sort_results(results: &mut PingDelaySet) {
     };
 
     results.sort_unstable_by(|a, b| {
-        score(b).partial_cmp(&score(a)).unwrap_or(std::cmp::Ordering::Equal)
+        score(b)
+            .partial_cmp(&score(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 }
 
@@ -415,7 +435,8 @@ pub fn update_progress_bar(
     success_count_override: Option<usize>,
 ) {
     let current_tested = tested_count.fetch_add(1, Ordering::Relaxed) + 1;
-    let current_success = success_count_override.unwrap_or_else(|| success_count.load(Ordering::Relaxed));
+    let current_success =
+        success_count_override.unwrap_or_else(|| success_count.load(Ordering::Relaxed));
     bar.grow(1, format!("{}/{}", current_tested, total_ips));
     bar.set_suffix(current_success.to_string());
 }

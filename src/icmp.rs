@@ -5,7 +5,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
-use rand::random;
+use fastrand;
 use crate::pool::execute_with_rate_limit;
 
 use crate::args::Args;
@@ -114,7 +114,7 @@ impl Ping {
 async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
     let ip = addr.ip();
     let payload = [0; 56];
-    let identifier = PingIdentifier(random::<u16>());
+    let identifier = PingIdentifier(fastrand::u16(0..=u16::MAX));
     let mut rtt = None;
 
     let mut pinger = client.pinger(ip, identifier).await;

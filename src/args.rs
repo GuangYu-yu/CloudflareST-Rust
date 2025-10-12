@@ -1,55 +1,55 @@
+use colored::*; // 用于终端彩色输出
+use prettytable::{Cell, Row, Table, format};
 use std::env;
 use std::time::Duration;
-use colored::*;  // 用于终端彩色输出
-use prettytable::{Table, Row, Cell, format};
 
 /// 命令行参数配置结构体
 #[derive(Clone)]
 pub struct Args {
     // 网络测试参数
-//    pub icmp_ping: bool,                  // 是否使用ICMP Ping测速
-    pub ping_times: u16,                  // Ping测试次数
-    pub tcp_port: u16,                    // TCP端口号
-    pub url: String,                      // 单个测速URL
-    pub urlist: String,                   // URL列表文件路径
-    pub httping: bool,                    // 是否启用HTTPing测试
-    pub httping_code: String,             // HTTPing使用的HTTP状态码
-    pub httping_cf_colo: String,          // 指定Cloudflare地区代码
-    pub httping_urls: String,             // HTTPing使用的URL列表
-    pub httping_urls_flag: bool,          // 是否使用自定义HTTPing URL标志
-    pub max_delay: Duration,              // 最大可接受延迟
-    pub min_delay: Duration,              // 最小可接受延迟
-    pub max_loss_rate: f32,               // 最大丢包率阈值
-    pub test_count: u16,                  // 下载测试次数
+    //    pub icmp_ping: bool,                  // 是否使用ICMP Ping测速
+    pub ping_times: u16,                    // Ping测试次数
+    pub tcp_port: u16,                      // TCP端口号
+    pub url: String,                        // 单个测速URL
+    pub urlist: String,                     // URL列表文件路径
+    pub httping: bool,                      // 是否启用HTTPing测试
+    pub httping_code: String,               // HTTPing使用的HTTP状态码
+    pub httping_cf_colo: String,            // 指定Cloudflare地区代码
+    pub httping_urls: String,               // HTTPing使用的URL列表
+    pub httping_urls_flag: bool,            // 是否使用自定义HTTPing URL标志
+    pub max_delay: Duration,                // 最大可接受延迟
+    pub min_delay: Duration,                // 最小可接受延迟
+    pub max_loss_rate: f32,                 // 最大丢包率阈值
+    pub test_count: u16,                    // 下载测试次数
     pub timeout_duration: Option<Duration>, // 单次测试超时时间
-    pub min_speed: f32,                   // 最低下载速度要求(MB/s)
-    pub disable_download: bool,           // 是否禁用下载测试
-    
+    pub min_speed: f32,                     // 最低下载速度要求(MB/s)
+    pub disable_download: bool,             // 是否禁用下载测试
+
     // 结果处理参数
-    pub target_num: Option<u32>,          // 提前结束测试的目标数量
-    pub print_num: u16,                   // 显示结果数量
-    pub ip_file: String,                  // IP列表文件路径
-    pub ip_text: String,                  // 直接指定的IP列表
-    pub ip_url: String,                   // 获取IP的URL地址
-    pub output: Option<String>,           // 结果输出文件
-    
+    pub target_num: Option<u32>, // 提前结束测试的目标数量
+    pub print_num: u16,          // 显示结果数量
+    pub ip_file: String,         // IP列表文件路径
+    pub ip_text: String,         // 直接指定的IP列表
+    pub ip_url: String,          // 获取IP的URL地址
+    pub output: Option<String>,  // 结果输出文件
+
     // 功能开关
-    pub test_all: bool,                   // 是否测试所有IP
-    pub help: bool,                       // 是否显示帮助信息
-    pub show_port: bool,                  // 是否在结果中显示端口
-    
+    pub test_all: bool,  // 是否测试所有IP
+    pub help: bool,      // 是否显示帮助信息
+    pub show_port: bool, // 是否在结果中显示端口
+
     // 高级设置
     pub global_timeout_duration: Option<Duration>, // 全局超时设置
-    pub max_threads: usize,               // 最大线程数
+    pub max_threads: usize,                        // 最大线程数
 }
 
 impl Args {
     /// 创建默认参数配置
     pub fn new() -> Self {
         Self {
-//            icmp_ping: false,
-            ping_times: 4,                        // 默认Ping测试4次
-            tcp_port: 443,                       // 默认使用443端口
+            //            icmp_ping: false,
+            ping_times: 4, // 默认Ping测试4次
+            tcp_port: 443, // 默认使用443端口
             url: String::new(),
             urlist: String::new(),
             httping: false,
@@ -58,23 +58,23 @@ impl Args {
             httping_urls: String::new(),
             httping_urls_flag: false,
             max_delay: Duration::from_millis(2000), // 默认最大延迟2000ms
-            min_delay: Duration::from_millis(0),  // 默认最小延迟0ms
-            max_loss_rate: 1.0,                   // 默认最大丢包率100%
-            test_count: 10,                       // 默认下载测试10次
+            min_delay: Duration::from_millis(0),    // 默认最小延迟0ms
+            max_loss_rate: 1.0,                     // 默认最大丢包率100%
+            test_count: 10,                         // 默认下载测试10次
             timeout_duration: Some(Duration::from_secs(10)), // 默认单次超时10秒
-            min_speed: 0.0,                       // 默认最低速度0MB/s
+            min_speed: 0.0,                         // 默认最低速度0MB/s
             disable_download: false,
             target_num: None,
-            print_num: 10,                        // 默认显示前10个结果
+            print_num: 10, // 默认显示前10个结果
             ip_file: String::new(),
             ip_text: String::new(),
             ip_url: String::new(),
-            output: Some("result.csv".to_string()),      // 默认输出文件
+            output: Some("result.csv".to_string()), // 默认输出文件
             test_all: false,
             help: false,
             show_port: false,
-            global_timeout_duration: None,         // 默认无全局超时
-            max_threads: 256,                     // 默认最大线程数256
+            global_timeout_duration: None, // 默认无全局超时
+            max_threads: 256,              // 默认最大线程数256
         }
     }
 
@@ -102,29 +102,103 @@ impl Args {
                 }
 
                 // 数值参数
-                "t"   => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.ping_times = v.clamp(1, u16::MAX); }
-                "dn"  => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.test_count = v.clamp(1, u16::MAX); }
-                "tp"  => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.tcp_port = v.clamp(1, u16::MAX); }
-                "p"   => if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) { parsed.print_num = v.clamp(1, u16::MAX); }
-                "tlr" => if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) { parsed.max_loss_rate = v.clamp(0.0, 1.0); }
-                "sl"  => if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) { parsed.min_speed = v.clamp(0.0, f32::MAX); }
+                "t" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
+                        parsed.ping_times = v.clamp(1, u16::MAX);
+                    }
+                }
+                "dn" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
+                        parsed.test_count = v.clamp(1, u16::MAX);
+                    }
+                }
+                "tp" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
+                        parsed.tcp_port = v.clamp(1, u16::MAX);
+                    }
+                }
+                "p" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
+                        parsed.print_num = v.clamp(1, u16::MAX);
+                    }
+                }
+                "tlr" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) {
+                        parsed.max_loss_rate = v.clamp(0.0, 1.0);
+                    }
+                }
+                "sl" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) {
+                        parsed.min_speed = v.clamp(0.0, f32::MAX);
+                    }
+                }
                 "tn" => parsed.target_num = v_opt.and_then(|s| s.parse().ok()),
-                "n"   => if let Some(v) = v_opt.and_then(|s| s.parse::<usize>().ok()) { parsed.max_threads = v.clamp(1, 1024); }
+                "n" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<usize>().ok()) {
+                        parsed.max_threads = v.clamp(1, 1024);
+                    }
+                }
 
                 // 时间参数
-                "dt" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.timeout_duration = Some(Duration::from_secs(v.clamp(1, 120))); },
-                "timeout" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.global_timeout_duration = Some(Duration::from_secs(v.clamp(1, 36000))); },
-                "tl" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.max_delay = Duration::from_millis(v.clamp(0, 2000)); },
-                "tll" => if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) { parsed.min_delay = Duration::from_millis(v.clamp(0, parsed.max_delay.as_millis() as u64)); },
+                "dt" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
+                        parsed.timeout_duration = Some(Duration::from_secs(v.clamp(1, 120)));
+                    }
+                }
+                "timeout" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
+                        parsed.global_timeout_duration =
+                            Some(Duration::from_secs(v.clamp(1, 36000)));
+                    }
+                }
+                "tl" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
+                        parsed.max_delay = Duration::from_millis(v.clamp(0, 2000));
+                    }
+                }
+                "tll" => {
+                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
+                        parsed.min_delay =
+                            Duration::from_millis(v.clamp(0, parsed.max_delay.as_millis() as u64));
+                    }
+                }
 
                 // 字符串参数
-                "url" => if let Some(v) = v_opt { parsed.url = v; }
-                "urlist" => if let Some(v) = v_opt { parsed.urlist = v; }
-                "hc" => if let Some(v) = v_opt { parsed.httping_code = v; }
-                "colo" => if let Some(v) = v_opt { parsed.httping_cf_colo = v; }
-                "f" => if let Some(v) = v_opt { parsed.ip_file = v; }
-                "ip" => if let Some(v) = v_opt { parsed.ip_text = v; }
-                "ipurl" => if let Some(v) = v_opt { parsed.ip_url = v; }
+                "url" => {
+                    if let Some(v) = v_opt {
+                        parsed.url = v;
+                    }
+                }
+                "urlist" => {
+                    if let Some(v) = v_opt {
+                        parsed.urlist = v;
+                    }
+                }
+                "hc" => {
+                    if let Some(v) = v_opt {
+                        parsed.httping_code = v;
+                    }
+                }
+                "colo" => {
+                    if let Some(v) = v_opt {
+                        parsed.httping_cf_colo = v;
+                    }
+                }
+                "f" => {
+                    if let Some(v) = v_opt {
+                        parsed.ip_file = v;
+                    }
+                }
+                "ip" => {
+                    if let Some(v) = v_opt {
+                        parsed.ip_text = v;
+                    }
+                }
+                "ipurl" => {
+                    if let Some(v) = v_opt {
+                        parsed.ip_url = v;
+                    }
+                }
                 "o" => parsed.output = v_opt,
 
                 // 无效参数：打印错误并退出
@@ -182,17 +256,28 @@ pub fn parse_args() -> Args {
         errors.push("错误: 必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)".to_string());
     }
 
-    // 先检查 -hu 参数的特殊情况  
-    if args.httping_urls_flag && args.httping_urls.is_empty() && args.url.is_empty() && args.urlist.is_empty() {  
-        errors.push("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址".to_string());  
-    }  
-    // 然后检查一般的下载测试情况，但排除已经被 -hu 检查过的情况  
-    else if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {  
-        errors.push("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".to_string());  
+    // 先检查 -hu 参数的特殊情况
+    if args.httping_urls_flag
+        && args.httping_urls.is_empty()
+        && args.url.is_empty()
+        && args.urlist.is_empty()
+    {
+        errors.push(
+            "错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址"
+                .to_string(),
+        );
+    }
+    // 然后检查一般的下载测试情况，但排除已经被 -hu 检查过的情况
+    else if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
+        errors.push("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".to_string());
     }
 
-    if args.disable_download && (!args.url.is_empty() || !args.urlist.is_empty()) && !(args.httping_urls_flag && args.httping_urls.is_empty()) {  
-        warnings.push("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu".to_string());  
+    if args.disable_download
+        && (!args.url.is_empty() || !args.urlist.is_empty())
+        && !(args.httping_urls_flag && args.httping_urls.is_empty())
+    {
+        warnings
+            .push("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu".to_string());
     }
 
     // 打印警告（黄色）但不中断程序
@@ -233,7 +318,11 @@ pub fn print_help() {
         };
     }
 
-    add_arg!("-url", "TLS 模式的 Httping 或下载测速所使用的 URL", "未指定");
+    add_arg!(
+        "-url",
+        "TLS 模式的 Httping 或下载测速所使用的 URL",
+        "未指定"
+    );
     add_arg!("-urlist", "从 URL 内读取测速地址列表", "未指定");
     add_arg!("-f", "从指定文件名或文件路径获取 IP 或 CIDR", "未指定");
     add_arg!("-ip", "直接指定 IP 或 CIDR（多个用逗号分隔）", "未指定");
@@ -249,7 +338,11 @@ pub fn print_help() {
 
     add_arg!("-httping", "使用非 TLS 模式的 Httping", "否");
     add_arg!("-dd", "禁用下载测速", "否");
-    add_arg!("-hc", "指定 HTTPing 的状态码（例如：200,301,302）", "未指定");
+    add_arg!(
+        "-hc",
+        "指定 HTTPing 的状态码（例如：200,301,302）",
+        "未指定"
+    );
     add_arg!("-hu", "使用 HTTPS 进行延迟测速，可指定测速地址", "否");
     add_arg!("-colo", "指定地区（例如：HKG,SJC）", "未指定");
     add_arg!("-n", "延迟测速的线程数量", "256");

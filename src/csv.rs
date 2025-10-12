@@ -1,19 +1,18 @@
-use std::fs::File;
-use std::io::{self, BufWriter};
-use prettytable::{Table, Row, Cell, format};
 use crate::args::Args;
 use crate::common::{PingData, PingDataRef};
+use prettytable::{Cell, Row, Table, format};
+use std::fs::File;
+use std::io::{self, BufWriter};
 
 const TABLE_HEADERS: [&str; 7] = [
-    "IP 地址", 
-    "已发送", 
-    "已接收", 
-    "丢包率", 
-    "平均延迟", 
-    "下载速度(MB/s)", 
-    "数据中心"
+    "IP 地址",
+    "已发送",
+    "已接收",
+    "丢包率",
+    "平均延迟",
+    "下载速度(MB/s)",
+    "数据中心",
 ];
-
 
 /// 定义结果打印 trait
 pub trait PrintResult {
@@ -52,7 +51,7 @@ impl PrintResult for Vec<PingData> {
         }
 
         let mut table = Table::new();
-        
+
         // 可选的表格格式（选择其中一种）：
         // * FORMAT_DEFAULT - 默认样式，带有边框和分隔线
         // * FORMAT_NO_BORDER - 无外部边框，但保留列和行的分隔线
@@ -65,12 +64,13 @@ impl PrintResult for Vec<PingData> {
         // * FORMAT_BORDERS_ONLY - 仅显示外部边框和标题分隔线
         // * FORMAT_BOX_CHARS - 使用盒字符（如 ┌─┬─┐）绘制边框和分隔线，适用于支持 Unicode 的终端
         table.set_format(*format::consts::FORMAT_CLEAN);
-        
+
         // 添加表头，使用青色
         table.add_row(Row::new(
-            TABLE_HEADERS.iter()
+            TABLE_HEADERS
+                .iter()
                 .map(|&h| Cell::new(h).style_spec("Fc"))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         ));
 
         // 添加数据行，最多显示 args.print_num 条
@@ -90,7 +90,10 @@ impl PrintResult for Vec<PingData> {
 
         // 如果有输出文件，打印提示
         if let Some(ref output) = args.output {
-            println!("\n[信息] 测速结果已写入 {} 文件，可使用记事本/表格软件查看", output);
+            println!(
+                "\n[信息] 测速结果已写入 {} 文件，可使用记事本/表格软件查看",
+                output
+            );
         }
     }
 }

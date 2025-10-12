@@ -1,15 +1,15 @@
+use std::future::Future;
+use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::net::TcpStream;
-use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::future::Future;
-use std::pin::Pin;
 
 use crate::args::Args;
+use crate::common::{self, HandlerFactory, PingData, PingDelaySet};
 use crate::pool::execute_with_rate_limit;
-use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 
 // Ping 主体结构体
 pub struct Ping {
@@ -22,9 +22,10 @@ pub struct TcpingHandlerFactory {
 
 impl HandlerFactory for TcpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count, tested_count, timeout_flag) = self.base.clone_shared_state();
+        let (csv, bar, args, success_count, tested_count, timeout_flag) =
+            self.base.clone_shared_state();
         let total_ips = self.base.ip_buffer.total_expected();
-        
+
         Box::pin(async move {
             let ping_times = args.ping_times;
             let mut recv = 0;
@@ -35,13 +36,15 @@ impl HandlerFactory for TcpingHandlerFactory {
                 if timeout_flag.load(Ordering::Relaxed) {
                     break;
                 }
-                
+
                 if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
                     Ok::<Option<f32>, io::Error>(tcping(addr).await)
-                }).await {
+                })
+                .await
+                {
                     recv += 1;
                     total_delay_ms += delay;
-                    
+
                     // 成功时等待200ms再进行下一次ping
                     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
                 }
@@ -53,7 +56,7 @@ impl HandlerFactory for TcpingHandlerFactory {
             let success_count_override = if recv > 0 {
                 let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
                 let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
-                
+
                 if common::should_keep_result(&data, &args) {
                     let mut csv_guard = csv.lock().unwrap();
                     csv_guard.push(data);
@@ -62,9 +65,15 @@ impl HandlerFactory for TcpingHandlerFactory {
             } else {
                 None
             };
-            
+
             // 更新进度条
-            common::update_progress_bar(&bar, &tested_count, &success_count, total_ips, success_count_override);
+            common::update_progress_bar(
+                &bar,
+                &tested_count,
+                &success_count,
+                total_ips,
+                success_count_override,
+            );
         })
     }
 }
@@ -73,7 +82,7 @@ impl Ping {
     pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
         // 打印开始延迟测试的信息
         common::print_speed_test_info("Tcping", args);
-        
+
         // 初始化测试环境
         let base = common::create_base_ping(args, timeout_flag).await;
 
@@ -107,7 +116,8 @@ async fn tcping(addr: SocketAddr) -> Option<f32> {
                 Err(_) => None,
             }
         },
-    ).await;
+    )
+    .await;
 
     connect_result.unwrap_or(None)
 }

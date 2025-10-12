@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::OnceLock;
-use tokio::sync::{Semaphore, OwnedSemaphorePermit};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub struct ThreadPool {
     // 使用信号量控制并发

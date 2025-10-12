@@ -1,15 +1,15 @@
-use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
-use std::time::Instant;
-use std::io;
-use url::Url;
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::future::Future;
+use std::io;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Instant;
+use url::Url;
 
 use crate::args::Args;
+use crate::common::{self, HandlerFactory, PingData, PingDelaySet};
 use crate::pool::execute_with_rate_limit;
-use crate::common::{self, PingData, PingDelaySet, HandlerFactory};
 
 pub struct Ping {
     base: common::BasePing,
@@ -28,7 +28,8 @@ pub struct HttpingHandlerFactory {
 
 impl HandlerFactory for HttpingHandlerFactory {
     fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count, tested_count, timeout_flag) = self.base.clone_shared_state();
+        let (csv, bar, args, success_count, tested_count, timeout_flag) =
+            self.base.clone_shared_state();
         let colo_filters = self.colo_filters.clone();
         let urls = self.urls.clone();
         let url_index = Arc::clone(&self.url_index);
@@ -38,7 +39,13 @@ impl HandlerFactory for HttpingHandlerFactory {
         Box::pin(async move {
             // 更新进度条
             let update_progress = |success_count_override: Option<usize>| {
-                common::update_progress_bar(&bar, &tested_count, &success_count, total_ips, success_count_override);
+                common::update_progress_bar(
+                    &bar,
+                    &tested_count,
+                    &success_count,
+                    total_ips,
+                    success_count_override,
+                );
             };
 
             // 根据模式选择URL
@@ -99,7 +106,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                 if timeout_flag.load(Ordering::Relaxed) {
                     break;
                 }
-                
+
                 // 检查是否需要继续测试
                 if !should_continue {
                     break;
@@ -117,8 +124,15 @@ impl HandlerFactory for HttpingHandlerFactory {
                     let delay_result = {
                         let result = {
                             let builder = client.head(url.as_str());
-                            if i == ping_times - 1 { builder.header("Connection", "close") } else { builder }
-                        }.send().await.ok();
+                            if i == ping_times - 1 {
+                                builder.header("Connection", "close")
+                            } else {
+                                builder
+                            }
+                        }
+                        .send()
+                        .await
+                        .ok();
 
                         // 简化逻辑：只有当所有条件都满足时才计算延迟
                         result.and_then(|response| {
@@ -153,8 +167,8 @@ impl HandlerFactory for HttpingHandlerFactory {
                         // 如果是第一次成功响应
                         if data_center.is_none() {
                             // 检查数据中心过滤条件
-                            if !args.httping_cf_colo.is_empty() && 
-                            !common::is_colo_matched(&dc, &colo_filters)
+                            if !args.httping_cf_colo.is_empty()
+                                && !common::is_colo_matched(&dc, &colo_filters)
                             {
                                 should_continue = false;
                                 continue; // 跳过后续处理
@@ -164,7 +178,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                         }
 
                         delays.push(delay);
-                    },
+                    }
                     _ => {
                         // 失败或错误情况，不做特殊处理
                     }
@@ -217,7 +231,7 @@ impl Ping {
     pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
         // 判断是否使用-hu参数（无论是否传值）
         let use_https = !args.httping_urls.is_empty() || args.httping_urls_flag;
-        
+
         let urlist = if use_https {
             let url_to_trace = |url: &str| -> String {
                 if let Ok(parsed) = Url::parse(url) {
@@ -227,10 +241,11 @@ impl Ping {
                 }
                 Self::build_trace_url("https", url)
             };
-            
+
             if !args.httping_urls.is_empty() {
                 // -hu参数有值，使用指定的URL列表
-                args.httping_urls.split(',')
+                args.httping_urls
+                    .split(',')
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .map(|url| url_to_trace(&url))
@@ -239,20 +254,21 @@ impl Ping {
                 // -hu参数无值，从-url或-urlist获取域名列表
                 let url_list = common::get_url_list(&args.url, &args.urlist).await;
                 // 只提取域名部分
-                url_list.iter()
-                    .map(|url| url_to_trace(url))
-                    .collect()
+                url_list.iter().map(|url| url_to_trace(url)).collect()
             }
         } else {
             // 不使用HTTPS模式，无需获取URL列表
             Vec::new()
         };
-        
+
         // 如果使用HTTPS模式但URL列表为空，返回错误
         if use_https && urlist.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "警告：URL列表为空"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "警告：URL列表为空",
+            ));
         }
-        
+
         // 解析 colo 过滤条件
         let colo_filters = if !args.httping_cf_colo.is_empty() {
             common::parse_colo_filters(&args.httping_cf_colo)
@@ -262,7 +278,7 @@ impl Ping {
 
         // 打印开始延迟测试的信息
         common::print_speed_test_info("Httping", args);
-        
+
         // 初始化测试环境
         let base = common::create_base_ping(args, timeout_flag).await;
 
@@ -274,9 +290,7 @@ impl Ping {
         })
     }
 
-    fn make_handler_factory(
-        &self,
-    ) -> Arc<dyn HandlerFactory> {
+    fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
         Arc::new(HttpingHandlerFactory {
             base: self.base.clone(),
             colo_filters: self.colo_filters.clone(),
@@ -289,7 +303,10 @@ impl Ping {
     pub async fn run(self) -> Result<PingDelaySet, io::Error> {
         // 检查HTTPS模式下URL列表是否为空
         if self.use_https && self.urlist.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "警告：URL列表为空"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "警告：URL列表为空",
+            ));
         }
 
         let handler_factory = self.make_handler_factory();
