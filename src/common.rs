@@ -7,8 +7,8 @@ use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 // 定义浏览器标识常量
@@ -189,7 +189,10 @@ pub async fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> Bas
 }
 
 pub trait HandlerFactory: Send + Sync + 'static {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>>;
+    fn create_handler(
+        &self,
+        addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>>;
 }
 
 /// 通用的 ping 测试运行函数
@@ -243,7 +246,7 @@ pub async fn run_ping_test(
 
         // 更新测试计数
         let current_tested = base.tested_count.fetch_add(1, Ordering::Relaxed) + 1;
-        
+
         // 更新进度条
         let total_ips = base.ip_buffer.total_expected();
         update_progress_bar(

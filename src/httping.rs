@@ -27,7 +27,10 @@ pub struct HttpingHandlerFactory {
 }
 
 impl HandlerFactory for HttpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
+    fn create_handler(
+        &self,
+        addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
         let args = Arc::clone(&self.base.args);
         let colo_filters = self.colo_filters.clone();
         let urls = self.urls.clone();

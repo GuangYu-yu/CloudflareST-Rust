@@ -21,7 +21,10 @@ pub struct TcpingHandlerFactory {
 }
 
 impl HandlerFactory for TcpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
+    fn create_handler(
+        &self,
+        addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
         let args = Arc::clone(&self.base.args);
 
         Box::pin(async move {
