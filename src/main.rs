@@ -22,8 +22,8 @@ async fn main() {
     // 解析命令行参数
     let args = args::parse_args();
 
-    // 初始化全局线程池
-    pool::init_global_pool(args.max_threads);
+    // 初始化全局并发限制器
+    pool::init_global_limiter(args.max_threads);
 
     // 创建全局超时标志
     let timeout_flag = Arc::new(AtomicBool::new(false));

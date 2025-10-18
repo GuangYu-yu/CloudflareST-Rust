@@ -200,8 +200,8 @@ pub async fn run_ping_test(
     base: &BasePing,
     handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<PingDelaySet, io::Error> {
-    // 线程池最大并发数量
-    let pool_concurrency = crate::pool::GLOBAL_POOL.get().unwrap().max_threads;
+    // 并发限制器最大并发数量
+    let pool_concurrency = crate::pool::GLOBAL_LIMITER.get().unwrap().max_concurrent;
 
     // 创建异步任务管理器
     let mut tasks = FuturesUnordered::new();

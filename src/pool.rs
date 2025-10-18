@@ -2,19 +2,20 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-pub struct ThreadPool {
+/// 并发限制器，使用信号量控制同时运行的任务数量
+pub struct ConcurrencyLimiter {
     // 使用信号量控制并发
     semaphore: Arc<Semaphore>,
-    // 最大线程数
-    pub max_threads: usize,
+    // 最大并发数
+    pub max_concurrent: usize,
 }
 
-impl ThreadPool {
-    // 创建线程池
-    pub fn new(max_threads: usize) -> Self {
+impl ConcurrencyLimiter {
+    // 创建并发限制器
+    pub fn new(max_concurrent: usize) -> Self {
         Self {
-            semaphore: Arc::new(Semaphore::new(max_threads)),
-            max_threads,
+            semaphore: Arc::new(Semaphore::new(max_concurrent)),
+            max_concurrent,
         }
     }
 
@@ -24,22 +25,22 @@ impl ThreadPool {
     }
 }
 
-// 全局线程池
-pub static GLOBAL_POOL: OnceLock<ThreadPool> = OnceLock::new();
+// 全局并发限制器
+pub static GLOBAL_LIMITER: OnceLock<ConcurrencyLimiter> = OnceLock::new();
 
-// 初始化全局线程池
-pub fn init_global_pool(max_threads: usize) {
-    let _ = GLOBAL_POOL.set(ThreadPool::new(max_threads));
+// 初始化全局并发限制器
+pub fn init_global_limiter(max_concurrent: usize) {
+    let _ = GLOBAL_LIMITER.set(ConcurrencyLimiter::new(max_concurrent));
 }
 
-// 执行带线程池控制的操作
+// 执行带并发限制的操作
 pub async fn execute_with_rate_limit<F, Fut, T, E>(f: F) -> Result<T, E>
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<T, E>>,
 {
     // 获取许可
-    let _permit = GLOBAL_POOL.get().unwrap().acquire().await;
+    let _permit = GLOBAL_LIMITER.get().unwrap().acquire().await;
 
     // 执行操作
     let result = f().await;
