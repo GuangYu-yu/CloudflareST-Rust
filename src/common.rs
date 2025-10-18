@@ -214,7 +214,7 @@ pub async fn run_ping_test(
 
     // 批量初始启动任务
     for _ in 0..pool_concurrency {
-        if let Some(addr) = base.ip_buffer.pop().await {
+        if let Some(addr) = base.ip_buffer.pop() {
             tasks.push(create_task(addr));
         } else {
             break; // 没有更多IP
@@ -258,7 +258,7 @@ pub async fn run_ping_test(
         );
 
         // 继续添加新任务
-        if let Some(addr) = base.ip_buffer.pop().await {
+        if let Some(addr) = base.ip_buffer.pop() {
             tasks.push(create_task(addr));
         }
     }

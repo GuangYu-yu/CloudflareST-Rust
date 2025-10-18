@@ -191,7 +191,7 @@ impl IpBuffer {
 
     /// 获取一个IP地址
     /// 优先返回单个IP，再轮询CIDR
-    pub async fn pop(&self) -> Option<SocketAddr> {
+    pub fn pop(&self) -> Option<SocketAddr> {
         // 优先尝试从单个IP无锁链表中获取IP
         if let Some(ip_list) = &self.single_ips {
             if let Some(ip) = ip_list.pop() {
