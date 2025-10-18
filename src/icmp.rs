@@ -24,11 +24,10 @@ pub struct IcmpingHandlerFactory {
 }
 
 impl HandlerFactory for IcmpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count, tested_count, timeout_flag) = self.base.clone_shared_state();
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
+        let args = Arc::clone(&self.base.args);
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
-        let total_ips = self.base.ip_buffer.total_expected();
 
         Box::pin(async move {
             let ip = addr.ip();
@@ -44,11 +43,6 @@ impl HandlerFactory for IcmpingHandlerFactory {
             };
             
             for _ in 0..ping_times {
-                // 检查超时信号，如果超时则立即退出
-                if timeout_flag.load(Ordering::Relaxed) {
-                    break;
-                }
-                
                 if let Ok(Some(delay)) = execute_with_rate_limit(|| async {
                     Ok::<Option<f32>, io::Error>(icmp_ping(addr, &args, &client).await)
                 }).await {
@@ -60,21 +54,13 @@ impl HandlerFactory for IcmpingHandlerFactory {
             // 计算平均延迟
             let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
 
-            let success_count_override = if recv > 0 {
-                let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
+            if recv > 0 {
                 let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
-                
-                if common::should_keep_result(&data, &args) {
-                    let mut csv_guard = csv.lock().unwrap();
-                    csv_guard.push(data);
-                }
-                Some(new_success_count)
+                // 返回测试数据
+                Some(data)
             } else {
                 None
-            };
-            
-            // 更新进度条
-            common::update_progress_bar(&bar, &tested_count, &success_count, total_ips, success_count_override);
+            }
         })
     }
 }

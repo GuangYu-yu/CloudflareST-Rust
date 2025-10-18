@@ -8,7 +8,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 // 定义浏览器标识常量
@@ -98,7 +98,6 @@ pub fn print_speed_test_info(mode: &str, args: &Args) {
 #[derive(Clone)]
 pub struct BasePing {
     pub ip_buffer: Arc<IpBuffer>,
-    pub csv: Arc<Mutex<PingDelaySet>>,
     pub bar: Arc<Bar>,
     pub args: Arc<Args>,
     pub success_count: Arc<AtomicUsize>,
@@ -109,7 +108,6 @@ pub struct BasePing {
 impl BasePing {
     pub fn new(
         ip_buffer: Arc<IpBuffer>,
-        csv: Arc<Mutex<PingDelaySet>>,
         bar: Arc<Bar>,
         args: Arc<Args>,
         success_count: Arc<AtomicUsize>,
@@ -118,33 +116,12 @@ impl BasePing {
     ) -> Self {
         Self {
             ip_buffer,
-            csv,
             bar,
             args,
             success_count,
             timeout_flag,
             tested_count,
         }
-    }
-
-    pub fn clone_shared_state(
-        &self,
-    ) -> (
-        Arc<Mutex<PingDelaySet>>,
-        Arc<Bar>,
-        Arc<Args>,
-        Arc<AtomicUsize>,
-        Arc<AtomicUsize>,
-        Arc<AtomicBool>,
-    ) {
-        (
-            Arc::clone(&self.csv),
-            Arc::clone(&self.bar),
-            Arc::clone(&self.args),
-            Arc::clone(&self.success_count),
-            Arc::clone(&self.tested_count),
-            Arc::clone(&self.timeout_flag),
-        )
     }
 }
 
@@ -203,7 +180,6 @@ pub async fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> Bas
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
         Arc::new(ip_buffer),                                    // IP 缓冲区
-        Arc::new(Mutex::new(Vec::new())),                       // 空的 PingDelaySet，用于记录延迟
         Arc::new(Bar::new(total_expected as u64, "可用:", "")), // 创建进度条
         Arc::new(args.clone()),                                 // 参数包装
         Arc::new(AtomicUsize::new(0)),                          // 成功计数器
@@ -213,7 +189,7 @@ pub async fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> Bas
 }
 
 pub trait HandlerFactory: Send + Sync + 'static {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>>;
 }
 
 /// 通用的 ping 测试运行函数
@@ -229,6 +205,9 @@ pub async fn run_ping_test(
 
     // 创建并推送任务
     let create_task = |addr: SocketAddr| handler_factory.create_handler(addr);
+
+    // 用于收集结果
+    let mut results = Vec::new();
 
     // 批量初始启动任务
     for _ in 0..pool_concurrency {
@@ -252,8 +231,28 @@ pub async fn run_ping_test(
             break;
         }
 
-        // 忽略任务结果错误
-        let _ = result;
+        // 处理任务结果
+        if let Some(ping_data) = result {
+            // 应用筛选条件
+            if should_keep_result(&ping_data, &base.args) {
+                // 增加成功计数
+                base.success_count.fetch_add(1, Ordering::Relaxed);
+                results.push(ping_data);
+            }
+        }
+
+        // 更新测试计数
+        let current_tested = base.tested_count.fetch_add(1, Ordering::Relaxed) + 1;
+        
+        // 更新进度条
+        let total_ips = base.ip_buffer.total_expected();
+        update_progress_bar(
+            &base.bar,
+            current_tested,
+            &base.success_count,
+            total_ips,
+            None,
+        );
 
         // 继续添加新任务
         if let Some(addr) = base.ip_buffer.pop().await {
@@ -264,13 +263,7 @@ pub async fn run_ping_test(
     // 完成进度条但保持当前进度
     base.bar.done_at_current_pos();
 
-    // 收集和排序结果
-    let results = {
-        let mut csv_guard = base.csv.lock().unwrap();
-        std::mem::take(&mut *csv_guard)
-    };
-
-    let mut results = results;
+    // 排序结果
     sort_results(&mut results);
 
     Ok(results)
@@ -429,12 +422,11 @@ pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
 /// 统一的进度条更新函数
 pub fn update_progress_bar(
     bar: &Arc<Bar>,
-    tested_count: &Arc<AtomicUsize>,
+    current_tested: usize,
     success_count: &Arc<AtomicUsize>,
     total_ips: usize,
     success_count_override: Option<usize>,
 ) {
-    let current_tested = tested_count.fetch_add(1, Ordering::Relaxed) + 1;
     let current_success =
         success_count_override.unwrap_or_else(|| success_count.load(Ordering::Relaxed));
     bar.grow(1, format!("{}/{}", current_tested, total_ips));

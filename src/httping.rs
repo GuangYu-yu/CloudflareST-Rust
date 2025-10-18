@@ -27,27 +27,14 @@ pub struct HttpingHandlerFactory {
 }
 
 impl HandlerFactory for HttpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count, tested_count, timeout_flag) =
-            self.base.clone_shared_state();
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
+        let args = Arc::clone(&self.base.args);
         let colo_filters = self.colo_filters.clone();
         let urls = self.urls.clone();
         let url_index = Arc::clone(&self.url_index);
         let use_https = self.use_https;
-        let total_ips = self.base.ip_buffer.total_expected();
 
         Box::pin(async move {
-            // 更新进度条
-            let update_progress = |success_count_override: Option<usize>| {
-                common::update_progress_bar(
-                    &bar,
-                    &tested_count,
-                    &success_count,
-                    total_ips,
-                    success_count_override,
-                );
-            };
-
             // 根据模式选择URL
             let url = Arc::new(if use_https {
                 // HTTPS模式：从URL列表中选择（轮询）
@@ -71,26 +58,14 @@ impl HandlerFactory for HttpingHandlerFactory {
             let host = match Url::parse(&url) {
                 Ok(url_parts) => match url_parts.host_str() {
                     Some(host) => host.to_string(),
-                    None => {
-                        // 连接失败，更新进度条
-                        update_progress(None);
-                        return;
-                    }
+                    None => return None,
                 },
-                Err(_) => {
-                    // 连接失败，更新进度条
-                    update_progress(None);
-                    return;
-                }
+                Err(_) => return None,
             };
 
             let client = match common::build_reqwest_client(addr, &host, 1800).await {
                 Some(client) => Arc::new(client),
-                None => {
-                    // 连接失败，更新进度条
-                    update_progress(None);
-                    return;
-                }
+                None => return None,
             };
 
             // 解析允许的状态码列表
@@ -102,11 +77,6 @@ impl HandlerFactory for HttpingHandlerFactory {
             }));
 
             for i in 0..ping_times {
-                // 检查超时信号，如果超时则立即退出
-                if timeout_flag.load(Ordering::Relaxed) {
-                    break;
-                }
-
                 // 检查是否需要继续测试
                 if !should_continue {
                     break;
@@ -187,9 +157,7 @@ impl HandlerFactory for HttpingHandlerFactory {
 
             // 如果因为数据中心不匹配而终止测试，则不记录结果
             if !should_continue {
-                // 更新进度条但不记录结果
-                update_progress(None);
-                return;
+                return None;
             }
 
             // 计算成功次数和平均延迟
@@ -198,26 +166,17 @@ impl HandlerFactory for HttpingHandlerFactory {
                 let total_delay_ms: f32 = delays.iter().sum();
                 let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv as u16);
 
-                // 增加成功计数
-                let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
-
                 // 创建测试数据
                 let mut data = PingData::new(addr, ping_times, recv as u16, avg_delay_ms);
                 if let Some(dc) = data_center {
                     data.data_center = dc;
                 }
 
-                // 应用筛选条件
-                if common::should_keep_result(&data, &args) {
-                    let mut csv_guard = csv.lock().unwrap();
-                    csv_guard.push(data);
-                }
-
-                // 更新进度条（使用成功连接数）
-                update_progress(Some(new_success_count));
+                // 返回测试数据
+                Some(data)
             } else {
-                // 没有成功连接，但也需要更新进度条
-                update_progress(None);
+                // 没有成功连接
+                None
             }
         })
     }

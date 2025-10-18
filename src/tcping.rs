@@ -3,7 +3,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 use tokio::net::TcpStream;
 
@@ -21,10 +21,8 @@ pub struct TcpingHandlerFactory {
 }
 
 impl HandlerFactory for TcpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let (csv, bar, args, success_count, tested_count, timeout_flag) =
-            self.base.clone_shared_state();
-        let total_ips = self.base.ip_buffer.total_expected();
+    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
+        let args = Arc::clone(&self.base.args);
 
         Box::pin(async move {
             let ping_times = args.ping_times;
@@ -32,11 +30,6 @@ impl HandlerFactory for TcpingHandlerFactory {
             let mut total_delay_ms = 0.0;
 
             for _ in 0..ping_times {
-                // 检查超时信号，如果超时则立即退出
-                if timeout_flag.load(Ordering::Relaxed) {
-                    break;
-                }
-
                 if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
                     Ok::<Option<f32>, io::Error>(tcping(addr).await)
                 })
@@ -45,35 +38,21 @@ impl HandlerFactory for TcpingHandlerFactory {
                     recv += 1;
                     total_delay_ms += delay;
 
-                    // 成功时等待200ms再进行下一次ping
-                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                    // 成功时等待300ms再进行下一次ping
+                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
                 }
             }
 
             // 计算平均延迟
             let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
 
-            let success_count_override = if recv > 0 {
-                let new_success_count = success_count.fetch_add(1, Ordering::Relaxed) + 1;
+            if recv > 0 {
                 let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
-
-                if common::should_keep_result(&data, &args) {
-                    let mut csv_guard = csv.lock().unwrap();
-                    csv_guard.push(data);
-                }
-                Some(new_success_count)
+                // 返回测试数据
+                Some(data)
             } else {
                 None
-            };
-
-            // 更新进度条
-            common::update_progress_bar(
-                &bar,
-                &tested_count,
-                &success_count,
-                total_ips,
-                success_count_override,
-            );
+            }
         })
     }
 }

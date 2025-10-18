@@ -337,9 +337,9 @@ async fn download_handler(
             let current_time = Instant::now();
             let elapsed = current_time.duration_since(time_start);
 
-            // 检查是否超过总下载时间或收到超时信号
+            // 检查是否收到超时信号
             if timeout_flag.load(Ordering::SeqCst) {
-                break;
+                return (None, data_center); // 收到超时信号，直接返回None，丢弃当前未完成的下载
             }
 
             // 读取数据块
