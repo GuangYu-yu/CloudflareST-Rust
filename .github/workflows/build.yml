@@ -71,6 +71,14 @@ jobs:
         with:
           version: master
 
+      - name: 安装 MUSL 工具链（仅 Linux）
+        if: startsWith(matrix.os, 'Linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add ${{ matrix.target }}
+        shell: bash
+
       - name: 尝试 cargo-zigbuild 构建
         run: |
           cargo install --locked cargo-zigbuild
