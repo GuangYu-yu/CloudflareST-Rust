@@ -87,12 +87,9 @@ impl DownloadHandler {
     }
 }
 
-pub struct DownloadTest {
-    url: String,
+pub struct DownloadTest<'a> {
+    args: &'a Args,
     urlist: Vec<String>,
-    timeout: Option<Duration>,
-    test_count: u16,
-    min_speed: f32,
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
     colo_filter: Arc<Vec<String>>,
@@ -100,9 +97,9 @@ pub struct DownloadTest {
     timeout_flag: Arc<AtomicBool>,
 }
 
-impl DownloadTest {
+impl<'a> DownloadTest<'a> {
     pub async fn new(
-        args: &Args,
+        args: &'a Args,
         ping_results: Vec<PingData>,
         timeout_flag: Arc<AtomicBool>,
     ) -> Self {
@@ -125,11 +122,8 @@ impl DownloadTest {
         );
 
         Self {
-            url: args.url.clone(),
+            args,
             urlist: urlist_vec,
-            timeout: args.timeout_duration,
-            test_count: args.test_count,
-            min_speed: args.min_speed,
             bar: Arc::new(Bar::new(test_num as u64, "", "")),
             current_speed: Arc::new(Mutex::new(0.0)),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
@@ -162,13 +156,13 @@ impl DownloadTest {
         });
 
         let mut ping_queue = self.ping_results.drain(..).collect::<VecDeque<_>>();
-        let mut qualified_results = Vec::with_capacity(self.test_count as usize);
+        let mut qualified_results = Vec::with_capacity(self.args.test_count as usize);
         let mut tested_count = 0;
 
         while let Some(mut ping_result) = ping_queue.pop_front() {
             // 检查是否收到超时信号或已经找到足够数量的合格结果
             if common::check_timeout_signal(&self.timeout_flag)
-                || qualified_results.len() >= self.test_count as usize
+                || qualified_results.len() >= self.args.test_count as usize
             {
                 break;
             }
@@ -181,18 +175,20 @@ impl DownloadTest {
                 let url_index = tested_count % self.urlist.len();
                 &self.urlist[url_index]
             } else {
-                &self.url
+                &self.args.url
             };
 
             let (speed, maybe_colo) = download_handler(
                 ping_result.addr,
                 test_url,
-                self.timeout.unwrap(),
+                self.args.timeout_duration.unwrap(),
                 Arc::clone(&self.current_speed),
                 need_colo,
                 Arc::clone(&self.timeout_flag),
                 Arc::clone(&colo_filters),
                 Arc::clone(&self.bar),
+                self.args.interface.as_deref(),
+                self.args.interface_ips.as_ref(),
             )
             .await;
 
@@ -209,7 +205,7 @@ impl DownloadTest {
 
             // 检查速度是否符合要求
             let speed_match = match speed {
-                Some(s) => s >= self.min_speed * 1024.0 * 1024.0,
+                Some(s) => s >= self.args.min_speed * 1024.0 * 1024.0,
                 None => false,
             };
 
@@ -244,7 +240,7 @@ impl DownloadTest {
         self.bar.done_at_current_pos();
 
         // 如果没有找到足够的结果，打印提示
-        if qualified_results.len() < self.test_count as usize {
+        if qualified_results.len() < self.args.test_count as usize {
             println!("\n[信息] 下载测速符合要求的 IP 数量不足！");
         }
 
@@ -265,6 +261,8 @@ async fn download_handler(
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
     bar: Arc<Bar>,
+    interface: Option<&str>,
+    interface_ips: Option<&crate::interface::InterfaceIps>,
 ) -> (Option<f32>, Option<String>) {
     // 在每次新的下载开始前重置速度为0
     *current_speed.lock().unwrap() = 0.0;
@@ -294,6 +292,8 @@ async fn download_handler(
         addr,
         host,
         extended_duration.as_millis() as u64,
+        interface,
+        interface_ips,
     )
     .await
     {

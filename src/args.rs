@@ -41,6 +41,8 @@ pub struct Args {
     // 高级设置
     pub global_timeout_duration: Option<Duration>, // 全局超时设置
     pub max_threads: usize,                        // 最大线程数
+    pub interface: Option<String>,                 // 网络接口名或 IP 地址
+    pub interface_ips: Option<crate::interface::InterfaceIps>, // 接口的 IPv4 和 IPv6 地址
 }
 
 impl Args {
@@ -75,6 +77,8 @@ impl Args {
             show_port: false,
             global_timeout_duration: None, // 默认无全局超时
             max_threads: 256,              // 默认最大线程数256
+            interface: None,
+            interface_ips: None,
         }
     }
 
@@ -200,6 +204,22 @@ impl Args {
                     }
                 }
                 "o" => parsed.output = v_opt,
+                "intf" => {
+                    parsed.interface = v_opt;
+
+                    if let Some(ref interface) = parsed.interface {
+                        // 调用 interface.rs 中的函数处理接口参数
+                        let result = crate::interface::process_interface_param(interface);
+
+                        parsed.interface_ips = result.interface_ips;
+
+                        // 检查参数是否有效（既不是IP也不是有效的接口名）
+                        if !result.is_valid_interface {
+                            println!("{}", format!("无效的绑定: {}", interface).red().bold());
+                            std::process::exit(1);
+                        }
+                    }
+                }
 
                 // 无效参数：打印错误并退出
                 _ => {
@@ -223,7 +243,7 @@ impl Args {
                 let key = arg.trim_start_matches('-').to_string();
                 let value = if let Some(next) = iter.peek() {
                     if !next.starts_with('-') {
-                        Some(iter.next().unwrap().clone())
+                        Some(iter.next().unwrap().to_string())
                     } else {
                         None
                     }
@@ -354,6 +374,7 @@ pub fn print_help() {
     add_arg!("-p", "终端显示结果数量", "10");
     add_arg!("-sp", "结果中带端口号", "否");
     add_arg!("-o", "输出结果文件（文件名或文件路径）", "result.csv");
+    add_arg!("-intf", "绑定到指定接口名或 IP", "未指定");
 
     table.printstd();
 }

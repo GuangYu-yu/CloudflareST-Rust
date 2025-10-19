@@ -5,7 +5,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use reqwest::{Client, Response};
 use std::future::Future;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -145,16 +145,47 @@ fn client_builder() -> reqwest::ClientBuilder {
 }
 
 /// 构建 Reqwest 客户端
-pub async fn build_reqwest_client(addr: SocketAddr, host: &str, timeout_ms: u64) -> Option<Client> {
-    let client = client_builder()
+pub async fn build_reqwest_client(
+    addr: SocketAddr,
+    host: &str,
+    timeout_ms: u64,
+    interface: Option<&str>,
+    interface_ips: Option<&crate::interface::InterfaceIps>,
+) -> Option<Client> {
+    let mut builder = client_builder()
         .resolve(host, addr) // 解析域名
         .timeout(Duration::from_millis(timeout_ms)) // 整个请求超时时间
         //        .danger_accept_invalid_certs(true)         // 跳过证书验证
         //        .pool_max_idle_per_host(0)                 // 禁用连接复用
-        .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
-        .build()
-        .ok();
+        .redirect(reqwest::redirect::Policy::none()); // 禁止重定向
 
+    // 如果 interface_ips 不为空，所有平台都根据目标 IP 类型选择源 IP
+    if let Some(ips) = interface_ips {
+        // 根据 resolve 的 addr 类型选择源 IP
+        let source_ip = match addr.ip() {
+            IpAddr::V4(_) => ips.ipv4,
+            IpAddr::V6(_) => ips.ipv6,
+        };
+
+        if let Some(ip) = source_ip {
+            builder = builder.local_address(Some(ip));
+        }
+    } else if let Some(intf) = interface {
+        // 如果 interface_ips 为空，但 interface 不为空
+        #[cfg(target_os = "linux")]
+        {
+            // Linux 使用接口名
+            builder = builder.interface(intf);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // 非 Linux 系统：接口名已经在 args.rs 中处理过，这里不需要额外处理
+            // 如果接口名能被解析为 IP，它已经在 interface_ips 中；如果不能解析，非 Linux 系统不支持接口名绑定
+            let _ = intf; // 占位使用变量以避免警告
+        }
+    }
+
+    let client = builder.build().ok();
     client
 }
 

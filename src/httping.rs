@@ -19,11 +19,12 @@ pub struct Ping {
 }
 
 pub struct HttpingHandlerFactory {
-    base: common::BasePing,
-    colo_filters: Vec<String>,
-    urls: Vec<String>,
+    base: Arc<common::BasePing>,
+    colo_filters: Arc<Vec<String>>,
+    urls: Arc<Vec<String>>,
     url_index: Arc<AtomicUsize>,
     use_https: bool,
+    interface: Option<String>,
 }
 
 impl HandlerFactory for HttpingHandlerFactory {
@@ -31,15 +32,17 @@ impl HandlerFactory for HttpingHandlerFactory {
         &self,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        let args = Arc::clone(&self.base.args);
-        let colo_filters = self.colo_filters.clone();
-        let urls = self.urls.clone();
+        let base = Arc::clone(&self.base);
+        let args = Arc::clone(&base.args);
+        let colo_filters = Arc::clone(&self.colo_filters);
+        let urls = Arc::clone(&self.urls);
         let url_index = Arc::clone(&self.url_index);
         let use_https = self.use_https;
+        let interface = self.interface.clone();
 
         Box::pin(async move {
             // 根据模式选择URL
-            let url = Arc::new(if use_https {
+            let url = if use_https {
                 // HTTPS模式：从URL列表中选择（轮询）
                 let current_index = url_index.fetch_add(1, Ordering::Relaxed) % urls.len();
                 urls[current_index].clone()
@@ -50,7 +53,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                     host_str = format!("[{}]", addr.ip());
                 }
                 Ping::build_trace_url("http", &host_str)
-            });
+            };
 
             let ping_times = args.ping_times;
             let mut delays = Vec::with_capacity(ping_times as usize);
@@ -66,18 +69,28 @@ impl HandlerFactory for HttpingHandlerFactory {
                 Err(_) => return None,
             };
 
-            let client = match common::build_reqwest_client(addr, &host, 1800).await {
+            // 使用预处理过的接口参数
+            let interface_ref = interface.as_deref();
+            let client = match common::build_reqwest_client(
+                addr,
+                &host,
+                1800,
+                interface_ref,
+                args.interface_ips.as_ref(),
+            )
+            .await
+            {
                 Some(client) => Arc::new(client),
                 None => return None,
             };
 
             // 解析允许的状态码列表
-            let allowed_codes = Arc::new((!args.httping_code.is_empty()).then(|| {
+            let allowed_codes = (!args.httping_code.is_empty()).then(|| {
                 args.httping_code
                     .split(',')
                     .filter_map(|s| s.trim().parse::<u16>().ok())
                     .collect::<Vec<u16>>()
-            }));
+            });
 
             for i in 0..ping_times {
                 // 检查是否需要继续测试
@@ -87,8 +100,8 @@ impl HandlerFactory for HttpingHandlerFactory {
 
                 let client = Arc::clone(&client);
                 let colo_filters = &colo_filters;
-                let allowed_codes = &*allowed_codes;
-                let url = Arc::clone(&url);
+                let allowed_codes = &allowed_codes;
+                let url = &url;
 
                 match execute_with_rate_limit(|| async move {
                     let start_time = Instant::now();
@@ -96,7 +109,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                     // 构造请求
                     let delay_result = {
                         let result = {
-                            let builder = client.head(url.as_str());
+                            let builder = client.head(url);
                             if i == ping_times - 1 {
                                 builder.header("Connection", "close")
                             } else {
@@ -110,7 +123,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                         // 简化逻辑：只有当所有条件都满足时才计算延迟
                         result.and_then(|response| {
                             // 检查状态码
-                            let status_valid = if let Some(ref codes) = *allowed_codes {
+                            let status_valid = if let Some(codes) = allowed_codes {
                                 codes.contains(&response.status().as_u16())
                             } else {
                                 true // 没有状态码限制时视为有效
@@ -254,11 +267,12 @@ impl Ping {
 
     fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
         Arc::new(HttpingHandlerFactory {
-            base: self.base.clone(),
-            colo_filters: self.colo_filters.clone(),
-            urls: self.urlist.clone(),
+            base: Arc::new(self.base.clone()),
+            colo_filters: Arc::new(self.colo_filters.clone()),
+            urls: Arc::new(self.urlist.clone()),
             url_index: Arc::new(AtomicUsize::new(0)),
             use_https: self.use_https,
+            interface: self.base.args.interface.clone(),
         })
     }
 

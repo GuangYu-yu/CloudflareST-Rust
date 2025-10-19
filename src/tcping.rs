@@ -1,15 +1,18 @@
 use std::future::Future;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
-use tokio::net::TcpStream;
+use tokio::net::TcpSocket;
 
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, PingDelaySet};
 use crate::pool::execute_with_rate_limit;
+
+#[cfg(target_os = "linux")]
+use socket2::{Domain, Protocol, Socket, Type};
 
 // Ping 主体结构体
 pub struct Ping {
@@ -18,6 +21,8 @@ pub struct Ping {
 
 pub struct TcpingHandlerFactory {
     base: common::BasePing,
+    interface: Option<String>,
+    interface_ips: Option<crate::interface::InterfaceIps>,
 }
 
 impl HandlerFactory for TcpingHandlerFactory {
@@ -26,6 +31,8 @@ impl HandlerFactory for TcpingHandlerFactory {
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
         let args = Arc::clone(&self.base.args);
+        let interface = self.interface.clone();
+        let interface_ips = self.interface_ips.clone();
 
         Box::pin(async move {
             let ping_times = args.ping_times;
@@ -33,8 +40,12 @@ impl HandlerFactory for TcpingHandlerFactory {
             let mut total_delay_ms = 0.0;
 
             for _ in 0..ping_times {
+                let interface_ref = interface.as_deref();
+                let interface_ips_ref = interface_ips.as_ref();
                 if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
-                    Ok::<Option<f32>, io::Error>(tcping(addr).await)
+                    Ok::<Option<f32>, io::Error>(
+                        tcping(addr, interface_ref, interface_ips_ref).await,
+                    )
                 })
                 .await
                 {
@@ -74,6 +85,8 @@ impl Ping {
     fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
         Arc::new(TcpingHandlerFactory {
             base: self.base.clone(),
+            interface: self.base.args.interface.clone(),
+            interface_ips: self.base.args.interface_ips.clone(),
         })
     }
 
@@ -84,22 +97,83 @@ impl Ping {
 }
 
 // TCP连接测试函数
-async fn tcping(addr: SocketAddr) -> Option<f32> {
-    let connect_result = tokio::time::timeout(
-        std::time::Duration::from_millis(1000), // 超时时间
-        async {
-            let start_time = Instant::now();
-            match TcpStream::connect(&addr).await {
-                Ok(stream) => {
-                    let _ = stream.set_linger(None);
-                    drop(stream);
-                    Some(start_time.elapsed().as_secs_f32() * 1000.0)
-                }
-                Err(_) => None,
-            }
-        },
-    )
-    .await;
+pub async fn tcping(
+    addr: SocketAddr,
+    interface: Option<&str>,
+    interface_ips: Option<&crate::interface::InterfaceIps>,
+) -> Option<f32> {
+    let start_time = Instant::now();
 
-    connect_result.unwrap_or(None)
+    // 创建一个基础 socket
+    let create_socket = || match addr.ip() {
+        IpAddr::V4(_) => TcpSocket::new_v4().ok(),
+        IpAddr::V6(_) => TcpSocket::new_v6().ok(),
+    };
+
+    let socket: TcpSocket = if let Some(ips) = interface_ips {
+        // 优先绑定源 IP
+        let source_ip = match addr.ip() {
+            IpAddr::V4(_) => ips.ipv4,
+            IpAddr::V6(_) => ips.ipv6,
+        };
+
+        if let Some(ip) = source_ip {
+            let sock = create_socket()?;
+            sock.bind(SocketAddr::new(ip, 0)).ok()?;
+            sock
+        } else if let Some(intf) = interface {
+            // 没有可用 IP，尝试绑定接口名 (仅 Linux)
+            #[cfg(target_os = "linux")]
+            {
+                let domain = if addr.is_ipv4() {
+                    Domain::IPV4
+                } else {
+                    Domain::IPV6
+                };
+                let sock2 = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
+                sock2.bind_device(Some(intf.as_bytes())).ok()?;
+                let std_stream: std::net::TcpStream = sock2.into();
+                TcpSocket::from_std_stream(std_stream)
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = intf; // 占位
+                create_socket()?
+            }
+        } else {
+            create_socket()?
+        }
+    } else if let Some(intf) = interface {
+        // interface_ips 为空时，Linux 下用接口名
+        #[cfg(target_os = "linux")]
+        {
+            let domain = if addr.is_ipv4() {
+                Domain::IPV4
+            } else {
+                Domain::IPV6
+            };
+            let sock2 = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
+            sock2.bind_device(Some(intf.as_bytes())).ok()?;
+            let std_stream: std::net::TcpStream = sock2.into();
+            TcpSocket::from_std_stream(std_stream)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = intf; // 占位
+            create_socket()?
+        }
+    } else {
+        // 都没有，普通创建
+        create_socket()?
+    };
+
+    // 连接
+    match tokio::time::timeout(std::time::Duration::from_millis(1000), socket.connect(addr)).await {
+        Ok(Ok(stream)) => {
+            let _ = stream.set_linger(None);
+            drop(stream);
+            Some(start_time.elapsed().as_secs_f32() * 1000.0)
+        }
+        _ => None,
+    }
 }

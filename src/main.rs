@@ -5,6 +5,7 @@ mod tcping;
 mod common;
 mod csv;
 mod download;
+mod interface;
 mod ip;
 mod pool;
 mod progress;
