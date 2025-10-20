@@ -172,15 +172,15 @@ pub async fn build_reqwest_client(
         }
     } else if let Some(intf) = interface {
         // 如果 interface_ips 为空，但 interface 不为空
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            // Linux 使用接口名
+            // Linux 和 macOS 使用接口名
             builder = builder.interface(intf);
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
         {
-            // 非 Linux 系统：接口名已经在 args.rs 中处理过，这里不需要额外处理
-            // 如果接口名能被解析为 IP，它已经在 interface_ips 中；如果不能解析，非 Linux 系统不支持接口名绑定
+            // Windows 系统：接口名已经在 args.rs 中处理过，并转换为 IP 地址
+            // 这里不需要额外处理，因为 interface_ips 应该已经包含 IP 地址
             let _ = intf; // 占位使用变量以避免警告
         }
     }
