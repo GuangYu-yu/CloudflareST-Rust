@@ -3,3 +3,9 @@ rustflags = [
     "--remap-path-prefix=/home/runner/.cargo/registry=registry",
     "--remap-path-prefix=/home/runner/work/CloudflareST-Rust=."
 ]
+
+[target.x86_64-pc-windows-msvc]
+linker = "scripts/zigcc-wrapper.bat"
+
+[target.aarch64-pc-windows-msvc]
+linker = "scripts/zigcc-wrapper.bat"
