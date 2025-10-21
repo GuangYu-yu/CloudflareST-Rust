@@ -1,18 +1,14 @@
 use std::future::Future;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
-use tokio::net::TcpSocket;
 
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, PingDelaySet};
 use crate::pool::execute_with_rate_limit;
-
-#[cfg(target_os = "linux")]
-use socket2::{Domain, Protocol, Socket, Type};
 
 // Ping 主体结构体
 pub struct Ping {
@@ -104,68 +100,8 @@ pub async fn tcping(
 ) -> Option<f32> {
     let start_time = Instant::now();
 
-    // 创建一个基础 socket
-    let create_socket = || match addr.ip() {
-        IpAddr::V4(_) => TcpSocket::new_v4().ok(),
-        IpAddr::V6(_) => TcpSocket::new_v6().ok(),
-    };
-
-    let socket: TcpSocket = if let Some(ips) = interface_ips {
-        // 优先绑定源 IP
-        let source_ip = match addr.ip() {
-            IpAddr::V4(_) => ips.ipv4,
-            IpAddr::V6(_) => ips.ipv6,
-        };
-
-        if let Some(ip) = source_ip {
-            let sock = create_socket()?;
-            sock.bind(SocketAddr::new(ip, 0)).ok()?;
-            sock
-        } else if let Some(intf) = interface {
-            // 没有可用 IP，尝试绑定接口名 (仅 Linux)
-            #[cfg(target_os = "linux")]
-            {
-                let domain = if addr.is_ipv4() {
-                    Domain::IPV4
-                } else {
-                    Domain::IPV6
-                };
-                let sock2 = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
-                sock2.bind_device(Some(intf.as_bytes())).ok()?;
-                let std_stream: std::net::TcpStream = sock2.into();
-                TcpSocket::from_std_stream(std_stream)
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                let _ = intf; // 占位
-                create_socket()?
-            }
-        } else {
-            create_socket()?
-        }
-    } else if let Some(intf) = interface {
-        // interface_ips 为空时，Linux 下用接口名
-        #[cfg(target_os = "linux")]
-        {
-            let domain = if addr.is_ipv4() {
-                Domain::IPV4
-            } else {
-                Domain::IPV6
-            };
-            let sock2 = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
-            sock2.bind_device(Some(intf.as_bytes())).ok()?;
-            let std_stream: std::net::TcpStream = sock2.into();
-            TcpSocket::from_std_stream(std_stream)
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = intf; // 占位
-            create_socket()?
-        }
-    } else {
-        // 都没有，普通创建
-        create_socket()?
-    };
+    // 使用通用的接口绑定函数创建socket
+    let socket = crate::interface::bind_socket_to_interface(addr, interface, interface_ips).await?;
 
     // 连接
     match tokio::time::timeout(std::time::Duration::from_millis(1000), socket.connect(addr)).await {
