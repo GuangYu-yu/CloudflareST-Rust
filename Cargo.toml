@@ -19,6 +19,9 @@ network-interface = "2.0"
 socket2 = "0.6"
 # surge-ping = "0.8"  # 已注释掉ICMP Ping功能
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+libc = "0.2"
+
 [profile.release]
 opt-level = 3        # 最高级别的优化
 lto = "fat"          # 启用链接时优化，使用 "fat" 模式以获得最佳效果
