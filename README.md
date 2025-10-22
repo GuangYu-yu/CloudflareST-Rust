@@ -41,8 +41,8 @@
 > [!IMPORTANT]
 >- `speed.cloudflare.com` 不允许非 TLS 的 HTTP 下载测速，需[自建](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)测速地址
 >- -hu 参数指定 HTTPS 延迟测速的 URL 地址，如果不带值则与下载测速共用地址
->- 多网卡情况下，IPv6 的连接通常是受限的，-intf 参数可能受此影响
 >- 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
+>- 多网卡情况下，使用 -intf 参数会被策略路由影响效果
 >- 注意队列数量和实时下载速度，设置合理的筛选条件
 >- 可用 IP 数量是 Ping 通的，并非经历过筛选的数量
 >- 如果不想写入文件，直接使用 -o 参数并不带值即可
