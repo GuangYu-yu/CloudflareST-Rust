@@ -90,7 +90,7 @@ flowchart TD
         T10[等待300ms] --> T11
         T11[释放并发许可] --> T12{还有ping次数?}
         T12 -->|是| T6
-        H12 -->|否| T13{还有IP需要<br>测试?}
+        T12 -->|否| T13{还有IP需要<br>测试?}
         T13 -->|是| T4
         T13 -->|否| T14[收集测试结果]
         
@@ -103,7 +103,6 @@ flowchart TD
     L -->|是| M[跳过下载测速]
     L -->|否| 下载测速流程
     
-    %% 修正后的下载测速流程
     subgraph 下载测速流程
         direction TB
         classDef subflow fill:#fff8e1,stroke:#f57c00,stroke-width:1px
@@ -130,7 +129,6 @@ flowchart TD
         N17 -->|否| N16
         N17 -->|是| N13
         
-        %% 下载循环现在在正确的位置
         N13 --> N18[读取数据块]
         N18 --> N19[更新接收数据量]
         N19 --> N20[计算实时速度<br>滑动窗口采样]
