@@ -8,9 +8,8 @@ flowchart TD
     classDef subflow fill:#f3e5f5,stroke:#4a148c,stroke-width:1px
     
     %% 主流程
-    A([开始]) --> B[解析命令行参数<br>args.rs]
-    B --> B1[处理网络接口参数<br>interface.rs]
-    B1 --> C[初始化全局并发限制器<br>pool.rs]
+    A([开始]) --> B[解析命令行参数<br>args.rs<br>包含接口参数解析]
+    B --> C[初始化全局并发限制器<br>pool.rs]
     C --> D{设置全局<br>超时?}
     D -->|是| E[创建超时线程]
     D -->|否| F[初始化随机数种子]
@@ -26,7 +25,7 @@ flowchart TD
         J3[(从URL加载IP<br>ip.rs)] --> J5
         J4[(解析IP范围和CIDR<br>ip.rs)] --> J5
         J5[创建无锁IP链表<br>LockFreeIpList] --> J6
-        J6[创建CIDR状态管理<br>CidrState] --> J7{{IP缓冲区<br>IpBuffer}}
+        J6[创建CIDR状态管理<br>CidrState] --> J7[IP处理完成]
         
         class J1,J2,J3,J4,J5,J6,J7 subflow
     end
@@ -42,35 +41,34 @@ flowchart TD
         direction TB
         classDef subflow fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
         
-        H1[初始化测试环境<br>common.rs] --> H2
-        H2[创建进度条<br>progress.rs] --> H3
+        H1[初始化测试环境<br>common.rs<br>创建Ping结构体] --> H2
+        H2[创建进度条<br>progress.rs<br>原子计数器异步更新] --> H3
         H3[创建HttpingHandlerFactory] --> H4
-        H4[获取并发许可] --> H5
-        H5[绑定网络接口<br>interface.rs] --> H6
-        H6[选择URL模式] --> H7{HTTPS模式?}
-        H7 -->|是| H8[轮询URL列表]
-        H7 -->|否| H9[使用IP构建URL]
-        H8 --> H10[构建HTTP客户端]
-        H9 --> H10
-        H10 --> H11[发送HTTP HEAD请求]
-        H11 --> H12[检查状态码]
-        H12 --> H13{状态码<br>符合要求?}
-        H13 -->|否| H14[丢弃结果]
-        H13 -->|是| H15[提取数据中心信息]
-        H15 --> H16{数据中心符合<br>过滤条件?}
-        H16 -->|否| H17[终止测试<br>跳过后续ping]
-        H16 -->|是| H18[计算延迟]
-        H18 --> H19[更新测试结果<br>PingData]
-        H19 --> H20[更新进度条]
-        H20 --> H21[等待200ms]
-        H21 --> H22[释放并发许可]
-        H22 --> H23{还有ping次数?}
-        H23 -->|是| H11
-        H23 -->|否| H24{还有IP需要<br>测试?}
-        H24 -->|是| H4
-        H24 -->|否| H25[收集测试结果]
+        H4[通过execute_with_rate_limit<br>控制并发] --> H5
+        H5[选择URL模式] --> H6{HTTPS模式?}
+        H6 -->|是| H7[轮询URL列表]
+        H6 -->|否| H8[使用IP构建URL]
+        H7 --> H9[构建HTTP客户端<br>绑定网络接口]
+        H8 --> H9
+        H9 --> H10[发送HTTP HEAD请求]
+        H10 --> H11[检查状态码]
+        H11 --> H12{状态码<br>符合要求?}
+        H12 -->|否| H13[丢弃结果]
+        H12 -->|是| H14[提取数据中心信息]
+        H14 --> H15{数据中心符合<br>过滤条件?}
+        H15 -->|否| H16[终止测试<br>跳过后续ping]
+        H15 -->|是| H17[计算延迟]
+        H17 --> H18[更新测试结果<br>PingData]
+        H18 --> H19[更新进度条]
+        H19 --> H20[等待200ms]
+        H20 --> H21[释放并发许可]
+        H21 --> H22{还有ping次数?}
+        H22 -->|是| H10
+        H22 -->|否| H23{还有IP需要<br>测试?}
+        H23 -->|是| H4
+        H23 -->|否| H24[收集测试结果]
         
-        class H1,H2,H3,H4,H5,H6,H7,H8,H9,H10,H11,H12,H13,H14,H15,H16,H17,H18,H19,H20,H21,H22,H23,H24,H25 subflow
+        class H1,H2,H3,H4,H5,H6,H7,H8,H9,H10,H11,H12,H13,H14,H15,H16,H17,H18,H19,H20,H21,H22,H23,H24 subflow
     end
     
     %% TCP测速子图
@@ -78,23 +76,22 @@ flowchart TD
         direction TB
         classDef subflow fill:#fff3e0,stroke:#e65100,stroke-width:1px
         
-        T1[初始化测试环境<br>common.rs] --> T2
-        T2[创建进度条<br>progress.rs] --> T3
+        T1[初始化测试环境<br>common.rs<br>创建Ping结构体] --> T2
+        T2[创建进度条<br>progress.rs<br>原子计数器异步更新] --> T3
         T3[创建TcpingHandlerFactory] --> T4
-        T4[获取并发许可] --> T5
-        T5[绑定网络接口<br>interface.rs] --> T6
-        T6[创建TCP连接] --> T7
-        T7[计算延迟] --> T8
-        T8[更新测试结果<br>PingData] --> T9
-        T9[更新进度条] --> T10
-        T10[等待300ms] --> T11
-        T11[释放并发许可] --> T12{还有ping次数?}
-        T12 -->|是| T6
-        T12 -->|否| T13{还有IP需要<br>测试?}
-        T13 -->|是| T4
-        T13 -->|否| T14[收集测试结果]
+        T4[通过execute_with_rate_limit<br>控制并发] --> T5
+        T5[创建TCP连接<br>绑定网络接口] --> T6
+        T6[计算延迟] --> T7
+        T7[更新测试结果<br>PingData] --> T8
+        T8[更新进度条] --> T9
+        T9[等待300ms] --> T10
+        T10[释放并发许可] --> T11{还有ping次数?}
+        T11 -->|是| T5
+        T11 -->|否| T12{还有IP需要<br>测试?}
+        T12 -->|是| T4
+        T12 -->|否| T13[收集测试结果]
         
-        class T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12,T13,T14 subflow
+        class T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12,T13 subflow
     end
     
     HTTP测速流程 --> L{是否禁用<br>下载测速?}
@@ -115,35 +112,34 @@ flowchart TD
         N3 -->|否| N5[需要获取数据中心信息]
         N4 --> N6[选择测试URL<br>轮询URL列表]
         N5 --> N6
-        N6 --> N7[绑定网络接口<br>interface.rs]
-        N7 --> N8[创建下载处理器<br>DownloadHandler]
-        N8 --> N9[构建HTTP客户端]
-        N9 --> N10[发送HTTP GET请求]
-        N10 --> N11[获取HTTP响应]
-        N11 --> N12{需要获取<br>数据中心信息?}
-        N12 -->|否| N13[直接进入下载流程]
-        N12 -->|是| N14[从响应头提取<br>数据中心信息]
-        N14 --> N15{成功提取<br>数据中心信息?}
-        N15 -->|否| N16[返回不合格结果]
-        N15 -->|是| N17{数据中心符合<br>过滤条件?}
-        N17 -->|否| N16
-        N17 -->|是| N13
+        N6 --> N7[创建下载处理器<br>DownloadHandler<br>绑定网络接口]
+        N7 --> N8[构建HTTP客户端]
+        N8 --> N9[发送HTTP GET请求]
+        N9 --> N10[获取HTTP响应]
+        N10 --> N11{需要获取<br>数据中心信息?}
+        N11 -->|否| N12[直接进入下载流程]
+        N11 -->|是| N13[从响应头提取<br>数据中心信息]
+        N13 --> N14{成功提取<br>数据中心信息?}
+        N14 -->|否| N15[返回不合格结果]
+        N14 -->|是| N16{数据中心符合<br>过滤条件?}
+        N16 -->|否| N15
+        N16 -->|是| N12
         
-        N13 --> N18[读取数据块]
-        N18 --> N19[更新接收数据量]
-        N19 --> N20[计算实时速度<br>滑动窗口采样]
-        N20 --> N21[更新速度样本队列]
-        N21 --> N22[更新进度显示]
-        N22 --> N23{下载完成?}
-        N23 -->|否| N18
-        N23 -->|是| N24[计算平均速度<br>预热后]
+        N12 --> N17[读取数据块]
+        N17 --> N18[更新接收数据量]
+        N18 --> N19[计算实时速度<br>滑动窗口采样]
+        N19 --> N20[更新速度样本队列]
+        N20 --> N21[更新进度显示]
+        N21 --> N22{下载完成?}
+        N22 -->|否| N17
+        N22 -->|是| N23[计算平均速度<br>预热后]
         
-        N24 --> N25[更新下载速度]
-        N25 --> N26{速度符合<br>阈值要求?}
-        N26 -->|否| N27[返回不合格结果]
-        N26 -->|是| N28[继续下一个IP测试]
+        N23 --> N24[更新下载速度]
+        N24 --> N25{速度符合<br>阈值要求?}
+        N25 -->|否| N26[返回不合格结果]
+        N25 -->|是| N27[继续下一个IP测试]
+        N26 --> N0
         N27 --> N0
-        N28 --> N0
         N29 --> N30[排序结果<br>综合评分算法]
         
         class N0,N1,N2,N3,N4,N5,N6,N7,N8,N9,N10,N11,N12,N13,N14,N15,N16,N17,N18,N19,N20,N21,N22,N23,N24,N25,N26,N27,N28,N29,N30 subflow
