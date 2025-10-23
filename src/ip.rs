@@ -8,6 +8,7 @@ use std::str::FromStr;
 use std::sync::{
     Arc,
     atomic::{AtomicPtr, AtomicUsize, Ordering},
+    RwLock,
 };
 
 use crate::args::Args;
@@ -97,11 +98,11 @@ impl Drop for LockFreeIpList {
 /// IP地址获取结构体
 /// 用于管理和分发需要测试的IP地址
 pub struct IpBuffer {
-    total_expected: usize,                   // 预期总IP数量
-    cidr_states: Vec<Arc<CidrState>>,        // 每个CIDR状态
-    single_ips: Option<Arc<LockFreeIpList>>, // 单个IP地址无锁链表
-    current_cidr: AtomicUsize,               // 轮询索引
-    tcp_port: u16,                           // TCP端口
+    total_expected: usize,                           // 预期总IP数量
+    cidr_states: Arc<RwLock<Vec<Arc<CidrState>>>>,   // 每个CIDR状态
+    single_ips: Option<Arc<LockFreeIpList>>,        // 单个IP地址无锁链表
+    current_cidr: AtomicUsize,                      // 轮询索引
+    tcp_port: u16,                                  // TCP端口
 }
 
 /// CIDR网络状态结构体
@@ -182,7 +183,7 @@ impl IpBuffer {
 
         Self {
             total_expected,
-            cidr_states,
+            cidr_states: Arc::new(RwLock::new(cidr_states)),
             single_ips: single_ip_list,
             current_cidr: AtomicUsize::new(0),
             tcp_port,
@@ -192,30 +193,36 @@ impl IpBuffer {
     /// 获取一个IP地址
     /// 优先返回单个IP，再轮询CIDR
     pub fn pop(&self) -> Option<SocketAddr> {
-        // 优先尝试从单个IP无锁链表中获取IP
+        // 1. 尝试单 IP 链表
         if let Some(ip_list) = &self.single_ips {
             if let Some(ip) = ip_list.pop() {
                 return Some(ip);
             }
         }
 
-        // 如果没有CIDR状态，直接返回None
-        if self.cidr_states.is_empty() {
-            return None;
-        }
+        // 2. 尝试 CIDR 轮询
+        loop {
+            let states = self.cidr_states.read().unwrap();
+            let cidr_len = states.len();
+            if cidr_len == 0 {
+                return None;
+            }
 
-        // 轮询所有CIDR分片
-        let cidr_count = self.cidr_states.len();
-        for _ in 0..cidr_count {
-            let idx = self.current_cidr.fetch_add(1, Ordering::Relaxed) % cidr_count;
+            let idx = self.current_cidr.fetch_add(1, Ordering::Relaxed) % cidr_len;
+            let cidr = states[idx].clone();
+            drop(states); // 提前释放读锁
 
-            if let Some(ip) = self.cidr_states[idx].next_ip(self.tcp_port) {
+            if let Some(ip) = cidr.next_ip(self.tcp_port) {
                 return Some(ip);
             }
-            // 这个CIDR用完了，继续尝试下一个
-        }
 
-        None // 所有CIDR都用完了
+            // 3. CIDR 耗尽时删除
+            let mut states = self.cidr_states.write().unwrap();
+            if let Some(pos) = states.iter().position(|x| Arc::ptr_eq(x, &cidr)) {
+                states.remove(pos);
+            }
+            // loop 重试下一个 CIDR
+        }
     }
 
     /// 获取预期总IP数量
