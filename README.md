@@ -150,3 +150,7 @@ bash -c 'ARCH=$(uname -m); FILENAME="CloudflareST-Rust_linux_$([ "$ARCH" = "x86_
 ```bash
 curl -ksSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/cfopw.sh | bash
 ```
+
+```bash
+bash -c 'download() { local project=$1 exec=$2; ARCH=$(uname -m); FILENAME="${exec}_linux_$([ "$ARCH" = "x86_64" ] && echo "amd64" || echo "arm64").tar.gz"; curl -ksSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/setup.sh | bash -s -- GuangYu-yu "$project" main-latest "$FILENAME" "$exec"; }; download CloudflareST-Rust CloudflareST-Rust; download CloudFlare-DDNS CFRS'
+```
