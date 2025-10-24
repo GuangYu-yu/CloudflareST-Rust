@@ -140,7 +140,7 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 如果仅获取 `CloudflareST-Rust`，可使用：
 
 ```bash
-curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/CloudFlare-DDNS/refs/heads/main/setup/setup_cloudflarest.sh | bash
+bash -c 'ARCH=$(uname -m); FILENAME="CloudflareST-Rust_linux_$([ "$ARCH" = "x86_64" ] && echo "amd64" || echo "arm64").tar.gz"; curl -ksSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/setup.sh | bash -s -- GuangYu-yu CloudflareST-Rust main-latest "$FILENAME" CloudflareST-Rust'
 ```
 
 > - 安卓下载 [Termux](https://github.com/termux/termux-app/releases)
@@ -148,5 +148,5 @@ curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/CloudFlare-DDNS/refs/hea
 或者可使用 [工具](https://github.com/GuangYu-yu/CloudFlare-DDNS)，能测速并解析到 Cloudflare 或提交到 Github：
 
 ```bash
-curl -ksSL https://raw.githubusercontent.com/GuangYu-yu/CloudFlare-DDNS/refs/heads/main/setup/cfopw.sh | bash
+curl -ksSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/cfopw.sh | bash
 ```
