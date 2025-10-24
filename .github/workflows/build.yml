@@ -161,6 +161,7 @@ jobs:
         with:
           commit_message: "自动构建: 添加所有平台二进制文件"
           file_pattern: 'binaries/*'
+          push_options: '--force'
 
   create_release:
     name: 创建发布版本
