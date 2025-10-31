@@ -33,6 +33,9 @@ mod progress;
 
 #[tokio::main]
 async fn main() {
+    // 打印全局标题
+    println!("{}", "# CloudflareST-Rust".bold().blue());
+
     // 解析命令行参数
     let args = args::parse_args();
 
@@ -58,8 +61,6 @@ async fn main() {
 
     // 初始化随机数种子
     let _ = fastrand::u32(..);
-
-    println!("# CloudflareST-Rust\n");
 
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingData> = if args.httping {

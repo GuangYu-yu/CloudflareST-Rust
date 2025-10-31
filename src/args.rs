@@ -302,9 +302,6 @@ pub fn parse_args() -> Args {
 
 /// 打印帮助信息
 pub fn print_help() {
-    // 打印标题
-    println!("{}", "# CloudflareST-Rust".bold().blue());
-
     // 创建表格
     let mut table = Table::new();
 
