@@ -3,6 +3,7 @@ use crate::common::{PingData, PingDataRef};
 use prettytable::{Cell, Row, Table, format};
 use std::fs::File;
 use std::io::{self, BufWriter};
+use crate::info_println;
 
 const TABLE_HEADERS: [&str; 7] = [
     "IP 地址",
@@ -47,7 +48,7 @@ impl PrintResult for Vec<PingData> {
     fn print(&self, args: &Args) {
         // 如果没有结果，不创建文件
         if self.is_empty() {
-            crate::info_println(format_args!("测速结果 IP 数量为 0，跳过输出结果"));
+            info_println(format_args!("测速结果 IP 数量为 0，跳过输出结果"));
             return;
         }
 
@@ -91,7 +92,7 @@ impl PrintResult for Vec<PingData> {
 
         // 如果有输出文件，打印提示
         if let Some(ref output) = args.output {
-            crate::info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output));
+            info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output));
         }
     }
 }

@@ -10,6 +10,7 @@ use url;
 use crate::args::Args;
 use crate::common::{self, PingData};
 use crate::progress::Bar;
+use crate::warning_println;
 
 // 定义下载处理器来处理下载数据
 struct DownloadHandler {
@@ -111,7 +112,7 @@ impl<'a> DownloadTest<'a> {
 
         // 先检查队列数量是否足够
         if args.test_count as usize > ping_results.len() {
-            crate::warning_println(format_args!("队列的 IP 数量不足，可能需要降低延迟测速筛选条件！"));
+            warning_println(format_args!("队列的 IP 数量不足，可能需要降低延迟测速筛选条件！"));
         }
 
         println!(
@@ -241,7 +242,7 @@ impl<'a> DownloadTest<'a> {
 
         // 如果没有找到足够的结果，打印提示
         if qualified_results.len() < self.args.test_count as usize {
-            crate::warning_println(format_args!("下载测速符合要求的 IP 数量不足！"));
+            warning_println(format_args!("下载测速符合要求的 IP 数量不足！"));
         }
 
         // 对结果进行业务排序

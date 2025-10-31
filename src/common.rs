@@ -10,6 +10,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
+use crate::warning_println;
 
 // 定义浏览器标识常量
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -337,10 +338,10 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
 
         // 只有在不是最后一次尝试时才打印重试信息和等待
         if i < max_retries {
-            crate::warning_println(format_args!("列表请求失败，正在第{}次重试..", i));
+            warning_println(format_args!("列表请求失败，正在第{}次重试..", i));
             tokio::time::sleep(Duration::from_secs(1)).await;
         } else {
-            crate::warning_println(format_args!("获取列表已达到最大重试次数"));
+            warning_println(format_args!("获取列表已达到最大重试次数"));
         }
     }
 

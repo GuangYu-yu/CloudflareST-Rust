@@ -2,6 +2,7 @@ use colored::Colorize;
 use prettytable::{Cell, Row, Table, format};
 use std::env;
 use std::time::Duration;
+use crate::{error_println, warning_println};
 
 /// 命令行参数配置结构体
 #[derive(Clone)]
@@ -47,7 +48,7 @@ pub struct Args {
 
 // 错误处理
 pub fn error_and_exit(args: std::fmt::Arguments<'_>) -> ! {
-    crate::error_println(args);
+    error_println(args);
     std::process::exit(1);
 }
 
@@ -293,7 +294,7 @@ pub fn parse_args() -> Args {
         && (!args.url.is_empty() || !args.urlist.is_empty())
         && !(args.httping_urls_flag && args.httping_urls.is_empty())
     {
-        crate::warning_println(format_args!("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
+        warning_println(format_args!("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
     }
 
     args
