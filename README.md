@@ -140,7 +140,7 @@ IP 地址           已发送  已接收  丢包率    平均延迟    下载速
 如果仅获取 `CloudflareST-Rust`，可使用：
 
 ```bash
-bash -c 'ARCH=$(uname -m); FILENAME="CloudflareST-Rust_linux_$([ "$ARCH" = "x86_64" ] && echo "amd64" || echo "arm64").tar.gz"; curl -ksSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/setup.sh | bash -s -- GuangYu-yu CloudflareST-Rust main-latest "$FILENAME" CloudflareST-Rust'
+bash -c 'ARCH=$( [ "$(uname -m)" = x86_64 ] && echo amd64 || echo arm64 ); curl -fsSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/setup.sh | bash -s -- GuangYu-yu CloudflareST-Rust main-latest CloudflareST-Rust_linux_$ARCH.tar.gz CloudflareST-Rust'
 ```
 
 > - 安卓下载 [Termux](https://github.com/termux/termux-app/releases)
@@ -152,5 +152,5 @@ curl -ksSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup
 ```
 
 ```bash
-bash -c 'download() { local project=$1 exec=$2; ARCH=$(uname -m); FILENAME="${exec}_linux_$([ "$ARCH" = "x86_64" ] && echo "amd64" || echo "arm64").tar.gz"; curl -ksSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/setup.sh | bash -s -- GuangYu-yu "$project" main-latest "$FILENAME" "$exec"; }; download CloudflareST-Rust CloudflareST-Rust; download CloudFlare-DDNS CFRS'
+bash -c 'ARCH=$( [ "$(uname -m)" = x86_64 ] && echo amd64 || echo arm64 ); curl -fsSL https://github.com/GuangYu-yu/CloudFlare-DDNS/releases/download/setup/setup.sh | bash -s -- GuangYu-yu CloudflareST-Rust main-latest CloudflareST-Rust_linux_$ARCH.tar.gz CloudflareST-Rust GuangYu-yu CloudFlare-DDNS main-latest CFRS_linux_$ARCH.tar.gz CFRS'
 ```
