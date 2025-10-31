@@ -1,3 +1,24 @@
+use crate::common::PingData;
+use crate::csv::PrintResult;
+use fastrand;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use colored::Colorize;
+
+// 定义统一的错误、信息和警告输出函数
+pub fn error_println(args: std::fmt::Arguments<'_>) {
+    eprintln!("{} {}", "[错误]".red().bold(), args);
+}
+
+pub fn info_println(args: std::fmt::Arguments<'_>) {
+    println!("{} {}", "[信息]".cyan().bold(), args);
+}
+
+pub fn warning_println(args: std::fmt::Arguments<'_>) {
+    println!("{} {}", "[警告]".yellow().bold(), args);
+}
+
 mod args;
 mod httping;
 mod tcping;
@@ -9,13 +30,6 @@ mod interface;
 mod ip;
 mod pool;
 mod progress;
-
-use crate::common::PingData;
-use crate::csv::PrintResult;
-use fastrand;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 
 #[tokio::main]
 async fn main() {
@@ -30,10 +44,11 @@ async fn main() {
 
     // 设置全局超时
     if let Some(timeout) = args.global_timeout_duration {
-        println!(
-            "\n[信息] 程序执行时间超过 {:?} 后，将提前结算结果并退出",
+        println!(); // 添加空行
+        info_println(format_args!(
+            "程序执行时间超过 {:?} 后，将提前结算结果并退出",
             timeout
-        );
+        ));
         let timeout_flag_clone = Arc::clone(&timeout_flag);
         thread::spawn(move || {
             thread::sleep(timeout);
@@ -74,8 +89,9 @@ async fn main() {
 
     // 开始下载测速
     let ping_data = if args.disable_download || ping_result.is_empty() || ping_interrupted {
-        println!(
-            "\n[信息] {}",
+        println!(); // 添加空行
+        info_println(format_args!(
+            "{}",
             if args.disable_download {
                 "已禁用下载测速"
             } else if ping_interrupted {
@@ -83,7 +99,7 @@ async fn main() {
             } else {
                 "延迟测速结果为空，跳过下载测速"
             }
-        );
+        ));
         ping_result
     } else {
         // 创建可变下载测速实例
@@ -96,11 +112,12 @@ async fn main() {
 
     // 输出文件
     if let Err(e) = csv::export_csv(&ping_data, &args) {
-        println!("\n[信息] 导出CSV失败: {:?}", e);
+        println!(); // 添加空行
+        info_println(format_args!("导出CSV失败: {:?}", e));
     }
 
     // 打印结果
     ping_data.print(&args);
 
-    println!("程序执行完毕");
+    info_println(format_args!("CloudflareST-Rust 执行完毕"));
 }

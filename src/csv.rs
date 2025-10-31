@@ -45,8 +45,9 @@ pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
 impl PrintResult for Vec<PingData> {
     /// 实现结果打印功能
     fn print(&self, args: &Args) {
+        // 如果没有结果，不创建文件
         if self.is_empty() {
-            println!("\n[信息] 测速结果 IP 数量为 0，跳过输出结果");
+            crate::info_println(format_args!("测速结果 IP 数量为 0，跳过输出结果"));
             return;
         }
 
@@ -90,10 +91,7 @@ impl PrintResult for Vec<PingData> {
 
         // 如果有输出文件，打印提示
         if let Some(ref output) = args.output {
-            println!(
-                "\n[信息] 测速结果已写入 {} 文件，可使用记事本/表格软件查看",
-                output
-            );
+            crate::info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output));
         }
     }
 }

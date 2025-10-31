@@ -1,4 +1,4 @@
-use colored::*; // 用于终端彩色输出
+use colored::Colorize;
 use prettytable::{Cell, Row, Table, format};
 use std::env;
 use std::time::Duration;
@@ -43,6 +43,12 @@ pub struct Args {
     pub max_threads: usize,                        // 最大线程数
     pub interface: Option<String>,                 // 网络接口名或 IP 地址
     pub interface_ips: Option<crate::interface::InterfaceIps>, // 接口的 IPv4 和 IPv6 地址
+}
+
+// 错误处理
+pub fn error_and_exit(args: std::fmt::Arguments<'_>) -> ! {
+    crate::error_println(args);
+    std::process::exit(1);
 }
 
 impl Args {
@@ -213,8 +219,7 @@ impl Args {
 
                         // 检查参数是否有效（既不是IP也不是有效的接口名）
                         if !result.is_valid_interface {
-                            println!("{}", format!("无效的绑定: {}", interface).red().bold());
-                            std::process::exit(1);
+                            error_and_exit(format_args!("无效的绑定: {}", interface));
                         }
                     }
                 }
@@ -222,8 +227,7 @@ impl Args {
                 // 无效参数：打印错误并退出
                 _ => {
                     print_help();
-                    println!("{}", format!("无效的参数: {k}").red().bold());
-                    std::process::exit(1);
+                    error_and_exit(format_args!("无效的参数: {k}"));
                 }
             }
         }
@@ -258,8 +262,6 @@ impl Args {
 /// 解析并验证参数
 pub fn parse_args() -> Args {
     let args = Args::parse();
-    let mut errors = Vec::new(); // 错误类提示
-    let mut warnings = Vec::new(); // 注意类提示
 
     if args.help {
         print_help();
@@ -267,11 +269,11 @@ pub fn parse_args() -> Args {
     }
 
     if !args.ip_file.is_empty() && !std::path::Path::new(&args.ip_file).exists() {
-        errors.push("错误: 指定的文件不存在".to_string());
+        error_and_exit(format_args!("错误: 指定的文件不存在"));
     }
 
     if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
-        errors.push("错误: 必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)".to_string());
+        error_and_exit(format_args!("错误: 必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)"));
     }
 
     // 先检查 -hu 参数的特殊情况
@@ -280,35 +282,18 @@ pub fn parse_args() -> Args {
         && args.url.is_empty()
         && args.urlist.is_empty()
     {
-        errors.push(
-            "错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址"
-                .to_string(),
-        );
+        error_and_exit(format_args!("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址"));
     }
     // 然后检查一般的下载测试情况，但排除已经被 -hu 检查过的情况
     else if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
-        errors.push("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址".to_string());
+        error_and_exit(format_args!("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址"));
     }
 
     if args.disable_download
         && (!args.url.is_empty() || !args.urlist.is_empty())
         && !(args.httping_urls_flag && args.httping_urls.is_empty())
     {
-        warnings
-            .push("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu".to_string());
-    }
-
-    // 打印警告（黄色）但不中断程序
-    for warn in &warnings {
-        println!("{}", warn.yellow().bold());
-    }
-
-    // 打印错误并退出
-    if !errors.is_empty() {
-        for err in &errors {
-            eprintln!("{}", err.red().bold());
-        }
-        std::process::exit(1);
+        crate::warning_println(format_args!("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
     }
 
     args

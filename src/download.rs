@@ -111,7 +111,7 @@ impl<'a> DownloadTest<'a> {
 
         // 先检查队列数量是否足够
         if args.test_count as usize > ping_results.len() {
-            println!("[信息] 队列的 IP 数量不足，可能需要降低延迟测速筛选条件！");
+            crate::warning_println(format_args!("队列的 IP 数量不足，可能需要降低延迟测速筛选条件！"));
         }
 
         println!(
@@ -241,7 +241,7 @@ impl<'a> DownloadTest<'a> {
 
         // 如果没有找到足够的结果，打印提示
         if qualified_results.len() < self.args.test_count as usize {
-            println!("\n[信息] 下载测速符合要求的 IP 数量不足！");
+            crate::warning_println(format_args!("下载测速符合要求的 IP 数量不足！"));
         }
 
         // 对结果进行业务排序

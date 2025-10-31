@@ -337,10 +337,10 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
 
         // 只有在不是最后一次尝试时才打印重试信息和等待
         if i < max_retries {
-            println!("列表请求失败，正在第{}次重试..", i);
+            crate::warning_println(format_args!("列表请求失败，正在第{}次重试..", i));
             tokio::time::sleep(Duration::from_secs(1)).await;
         } else {
-            println!("获取列表已达到最大重试次数");
+            crate::warning_println(format_args!("获取列表已达到最大重试次数"));
         }
     }
 
