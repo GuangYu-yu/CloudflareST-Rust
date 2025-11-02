@@ -125,9 +125,9 @@ impl Bar {
                     print!(" \x1b[32m{}\x1b[0m", end_str);
                 }
 
-                // 完成时显示光标并换行
+                // 完成时显示光标并移动到行末
                 if is_done {
-                    print!("\x1b[?25h\n");
+                    print!("\x1b[?25h\x1b[999C");
                     stdout().flush().ok();
                 } else {
                     stdout().flush().ok();
