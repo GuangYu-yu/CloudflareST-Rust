@@ -127,7 +127,7 @@ impl Bar {
 
                 // 完成时显示光标并移动到行末
                 if is_done {
-                    print!("\x1b[?25h\x1b[999C");
+                    print!("\x1b[?25h\x1b[9999C");
                     stdout().flush().ok();
                 } else {
                     stdout().flush().ok();
