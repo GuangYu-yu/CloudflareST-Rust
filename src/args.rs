@@ -1,7 +1,6 @@
 use colored::Colorize;
 use prettytable::{Cell, Row, Table, format};
 use std::env;
-use std::fs::OpenOptions;
 use std::path::Path;
 use std::time::Duration;
 use crate::{error_println, warning_println};
@@ -281,7 +280,7 @@ pub fn parse_args() -> Args {
     if let Some(ref output_file) = args.output {
         let output_path = Path::new(output_file);
         if output_path.exists() {
-            match OpenOptions::new().write(true).open(output_path) {
+            match std::fs::OpenOptions::new().write(true).open(output_path) {
                 Ok(_) => {}, // 文件可写，继续执行
                 Err(e) if e.raw_os_error() == Some(32) => { // ERROR_SHARING_VIOLATION
                     error_and_exit(format_args!("输出文件 '{}' 正被其他程序占用", output_path.display()));

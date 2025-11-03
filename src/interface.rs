@@ -112,13 +112,13 @@ fn bind_to_interface_name(sock: &Socket, iface_name: &str, is_ipv6: bool) -> boo
     #[cfg(target_os = "linux")]
     {
         unsafe {
-            setsockopt(
+            return setsockopt(
                 sock.as_raw_fd(),
                 SOL_SOCKET,
                 SO_BINDTODEVICE,
                 c_name.as_ptr() as *const c_void,
                 c_name.as_bytes_with_nul().len() as socklen_t,
-            ) == 0
+            ) == 0;
         }
     }
 
@@ -129,13 +129,13 @@ fn bind_to_interface_name(sock: &Socket, iface_name: &str, is_ipv6: bool) -> boo
             return false;
         }
         unsafe {
-            setsockopt(
+            return setsockopt(
                 sock.as_raw_fd(),
                 if is_ipv6 { IPPROTO_IPV6 } else { IPPROTO_IP },
                 if is_ipv6 { IPV6_BOUND_IF } else { IP_BOUND_IF },
                 &index as *const _ as *const c_void,
                 std::mem::size_of_val(&index) as socklen_t,
-            ) == 0
+            ) == 0;
         }
     }
 }
@@ -193,8 +193,12 @@ pub async fn bind_socket_to_interface(
             if !bind_to_interface_name(&sock, name, addr.is_ipv6()) {
                 return None;
             }
+            // 设置为非阻塞模式，以便在异步环境中使用
+            if let Err(_) = sock.set_nonblocking(true) {
+                return None;
+            }
             let std_stream: std::net::TcpStream = sock.into();
-            return Some(TcpSocket::from_std_stream(std_stream));
+            return Some(TcpSocket::from_std(std_stream));
         }
 
         #[cfg(target_os = "windows")]
