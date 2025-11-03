@@ -270,11 +270,11 @@ pub fn parse_args() -> Args {
     }
 
     if !args.ip_file.is_empty() && !std::path::Path::new(&args.ip_file).exists() {
-        error_and_exit(format_args!("错误: 指定的文件不存在"));
+        error_and_exit(format_args!("指定的文件不存在"));
     }
 
     if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
-        error_and_exit(format_args!("错误: 必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)"));
+        error_and_exit(format_args!("必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)"));
     }
 
     // 先检查 -hu 参数的特殊情况
@@ -283,18 +283,18 @@ pub fn parse_args() -> Args {
         && args.url.is_empty()
         && args.urlist.is_empty()
     {
-        error_and_exit(format_args!("错误: 使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址"));
+        error_and_exit(format_args!("使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址"));
     }
     // 然后检查一般的下载测试情况，但排除已经被 -hu 检查过的情况
     else if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
-        error_and_exit(format_args!("错误: 未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址"));
+        error_and_exit(format_args!("未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址"));
     }
 
     if args.disable_download
         && (!args.url.is_empty() || !args.urlist.is_empty())
         && !(args.httping_urls_flag && args.httping_urls.is_empty())
     {
-        warning_println(format_args!("注意：使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
+        warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
     }
 
     args
