@@ -1,9 +1,9 @@
 use crate::args::Args;
 use crate::common::{PingData, PingDataRef};
+use crate::info_println;
 use prettytable::{Cell, Row, Table, format};
 use std::fs::File;
-use std::io::{self, BufWriter};
-use crate::info_println;
+use std::io::BufWriter;
 
 const TABLE_HEADERS: [&str; 7] = [
     "IP 地址",
@@ -21,12 +21,14 @@ pub trait PrintResult {
 }
 
 /// 从 PingResult 导出 CSV 文件
-pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
+pub fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+    // 如果没有结果或未指定输出文件，直接返回
     if results.is_empty() || args.output.is_none() {
         return Ok(());
     }
 
-    let file = File::create(args.output.as_ref().unwrap())?;
+    let file_path = args.output.as_ref().unwrap();
+    let file = File::create(file_path)?;
     let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(32 * 1024, file));
 
     // 写入表头
@@ -39,7 +41,9 @@ pub fn export_csv(results: &[PingData], args: &Args) -> io::Result<()> {
         writer.write_record(&record)?;
     }
 
+    // flush
     writer.flush()?;
+
     Ok(())
 }
 
@@ -89,11 +93,6 @@ impl PrintResult for Vec<PingData> {
 
         // 打印表格
         table.printstd();
-
-        // 如果有输出文件，打印提示
-        if let Some(ref output) = args.output {
-            info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output));
-        }
     }
 }
 

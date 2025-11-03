@@ -9,6 +9,7 @@ use std::time::Instant;
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, PingDelaySet};
 use crate::pool::execute_with_rate_limit;
+use crate::interface::{InterfaceIps, bind_socket_to_interface};
 
 // Ping 主体结构体
 pub struct Ping {
@@ -18,7 +19,7 @@ pub struct Ping {
 pub struct TcpingHandlerFactory {
     base: common::BasePing,
     interface: Option<String>,
-    interface_ips: Option<crate::interface::InterfaceIps>,
+    interface_ips: Option<InterfaceIps>,
 }
 
 impl HandlerFactory for TcpingHandlerFactory {
@@ -96,12 +97,12 @@ impl Ping {
 pub async fn tcping(
     addr: SocketAddr,
     interface: Option<&str>,
-    interface_ips: Option<&crate::interface::InterfaceIps>,
+    interface_ips: Option<&InterfaceIps>,
 ) -> Option<f32> {
     let start_time = Instant::now();
 
     // 使用通用的接口绑定函数创建socket
-    let socket = crate::interface::bind_socket_to_interface(addr, interface, interface_ips).await?;
+    let socket = bind_socket_to_interface(addr, interface, interface_ips).await?;
 
     // 连接
     match tokio::time::timeout(std::time::Duration::from_millis(1000), socket.connect(addr)).await {

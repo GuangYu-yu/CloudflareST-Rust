@@ -3,7 +3,7 @@ use std::{
     io::{stdout, Write},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicPtr, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
@@ -60,7 +60,7 @@ pub struct Bar {
     msg: Arc<LockFreeString>,   // 进度条消息
     prefix: Arc<LockFreeString>,// 进度条后缀
     is_done: Arc<AtomicBool>,   // 是否完成标志
-    thread_handle: Option<thread::JoinHandle<()>>, // 渲染线程句柄
+    thread_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>, // 渲染线程句柄
 }
 
 impl Bar {
@@ -81,7 +81,7 @@ impl Bar {
         let end_str = end_str.to_string();
 
         // 启动渲染线程
-        let thread_handle = Some(thread::spawn(move || {
+        let handle = thread::spawn(move || {
             // 进度条动画符号
             let symbols = ["↖", "↗", "↘", "↙"];
 
@@ -127,7 +127,7 @@ impl Bar {
 
                 // 完成时显示光标并移动到行末
                 if is_done {
-                    print!("\x1b[?25h\x1b[9999C");
+                    print!("\x1b[?25h\n");
                     stdout().flush().ok();
                 } else {
                     stdout().flush().ok();
@@ -135,12 +135,16 @@ impl Bar {
             };
 
             // 循环绘制直到完成
-            while !is_done_clone.load(Ordering::Relaxed) {
+            loop {
                 draw();
+                if is_done_clone.load(Ordering::Acquire) {
+                    break;
+                }
                 thread::sleep(Duration::from_millis(120));
             }
-            draw();
-        }));
+        });
+        
+        let thread_handle = Arc::new(Mutex::new(Some(handle)));
 
         Self {
             pos,
@@ -176,20 +180,22 @@ impl Bar {
         self.msg.set(message.into().as_ref());
     }
 
-    // 标记进度条完成
-    pub fn done_at_current_pos(&self) {
-        self.is_done.store(true, Ordering::Relaxed);
+    // 完成进度条并等待渲染线程结束
+    pub fn done(&self) {
+        self.is_done.store(true, Ordering::Release);
+        if let Ok(mut handle_guard) = self.thread_handle.lock() {
+            if let Some(handle) = handle_guard.take() {
+                handle.join().ok();
+            }
+        }
+        // 恢复光标显示
+        print!("\x1b[?25h");
+        let _ = stdout().flush();
     }
 }
 
 impl Drop for Bar {
     fn drop(&mut self) {
-        // 确保进度条完成并清理线程
-        self.done_at_current_pos();
-        if let Some(handle) = self.thread_handle.take() {
-            handle.join().ok();
-        }
-        // 恢复光标显示
-        print!("\x1b[?25h");
+        self.done();
     }
 }

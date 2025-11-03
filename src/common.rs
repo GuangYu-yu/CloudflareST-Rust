@@ -1,19 +1,20 @@
 use crate::args::Args;
 use crate::ip::{IpBuffer, load_ip_to_buffer};
 use crate::progress::Bar;
+use crate::hyper::client_builder;
+use crate::pool::GLOBAL_LIMITER;
 use futures::stream::{FuturesUnordered, StreamExt};
-use reqwest::{Client, Response};
 use std::future::Future;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use crate::warning_println;
-
-// 定义浏览器标识常量
-pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+use hyper::Uri;
+use crate::hyper::send_get_request_simple;
+use hyper::Response as HyperResponse;
 
 // 定义通用的 PingData 结构体
 pub struct PingData {
@@ -138,6 +139,7 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     (avg_ms * 100.0).round() / 100.0
 }
 
+/*
 /// 创建基础客户端构建器
 fn client_builder() -> reqwest::ClientBuilder {
     Client::builder()
@@ -151,7 +153,7 @@ pub async fn build_reqwest_client(
     host: &str,
     timeout_ms: u64,
     interface: Option<&str>,
-    interface_ips: Option<&crate::interface::InterfaceIps>,
+    interface_ips: Option<&InterfaceIps>,
 ) -> Option<Client> {
     let mut builder = client_builder()
         .resolve(host, addr) // 解析域名
@@ -189,9 +191,10 @@ pub async fn build_reqwest_client(
     let client = builder.build().ok();
     client
 }
+ */
 
 /// 从响应中提取数据中心信息
-pub fn extract_data_center(resp: &Response) -> Option<String> {
+pub fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -> Option<String> {
     resp.headers()
         .get("cf-ray")?
         .to_str()
@@ -233,7 +236,7 @@ pub async fn run_ping_test(
     handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<PingDelaySet, io::Error> {
     // 并发限制器最大并发数量
-    let pool_concurrency = crate::pool::GLOBAL_LIMITER.get().unwrap().max_concurrent;
+    let pool_concurrency = GLOBAL_LIMITER.get().unwrap().max_concurrent;
 
     // 创建异步任务管理器
     let mut tasks = FuturesUnordered::new();
@@ -296,7 +299,7 @@ pub async fn run_ping_test(
     }
 
     // 完成进度条但保持当前进度
-    base.bar.done_at_current_pos();
+    base.bar.done();
 
     // 排序结果
     sort_results(&mut results);
@@ -312,31 +315,30 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
 
     // 最多尝试指定次数
     for i in 1..=max_retries {
-        // 创建带User-Agent的客户端
-        let client = client_builder().build().ok();
+        // 创建客户端
+        let mut client = match client_builder() {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
 
-        if let Some(client) = client {
-            let content = {
-                if let Some(response) = client.get(url).send().await.ok() {
-                    response.text().await.ok()
-                } else {
-                    None
-                }
-            };
+        // 构造 URI
+        let uri: Uri = match url.parse() {
+            Ok(u) => u,
+            Err(_) => continue,
+        };
 
-            if let Some(content) = content {
-                return content
-                    .lines()
-                    .map(|line| line.trim())
-                    .filter(|line| {
-                        !line.is_empty() && !line.starts_with("//") && !line.starts_with('#')
-                    })
-                    .map(|line| line.to_string())
-                    .collect();
-            }
+        // 发送 GET 请求
+        if let Ok(body_bytes) = send_get_request_simple(&mut client, uri.clone(), 5000).await {
+            let content = String::from_utf8_lossy(&body_bytes);
+            return content
+                .lines()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                .map(|line| line.to_string())
+                .collect();
         }
 
-        // 只有在不是最后一次尝试时才打印重试信息和等待
+        // 重试提示
         if i < max_retries {
             warning_println(format_args!("列表请求失败，正在第{}次重试..", i));
             tokio::time::sleep(Duration::from_secs(1)).await;

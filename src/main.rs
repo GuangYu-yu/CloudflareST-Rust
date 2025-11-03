@@ -26,6 +26,7 @@ mod tcping;
 mod common;
 mod csv;
 mod download;
+mod hyper;
 mod interface;
 mod ip;
 mod pool;
@@ -47,7 +48,6 @@ async fn main() {
 
     // 设置全局超时
     if let Some(timeout) = args.global_timeout_duration {
-        println!(); // 添加空行
         info_println(format_args!(
             "程序执行时间超过 {:?} 后，将提前结算结果并退出",
             timeout
@@ -90,7 +90,6 @@ async fn main() {
 
     // 开始下载测速
     let ping_data = if args.disable_download || ping_result.is_empty() || ping_interrupted {
-        println!(); // 添加空行
         info_println(format_args!(
             "{}",
             if args.disable_download {
@@ -111,14 +110,18 @@ async fn main() {
         download_test.test_download_speed().await
     };
 
-    // 输出文件
-    if let Err(e) = csv::export_csv(&ping_data, &args) {
-        println!(); // 添加空行
-        info_println(format_args!("导出CSV失败: {:?}", e));
-    }
-
     // 打印结果
     ping_data.print(&args);
+
+    // 输出文件
+    if let Some(output_file) = &args.output {
+        if !ping_data.is_empty() {
+            match csv::export_csv(&ping_data, &args) {
+                Ok(_) => info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output_file)),
+                Err(e) => info_println(format_args!("导出 CSV 失败: {:?}", e)),
+            }
+        }
+    }
 
     info_println(format_args!("CloudflareST-Rust 执行完毕"));
 }

@@ -1,8 +1,11 @@
 use colored::Colorize;
 use prettytable::{Cell, Row, Table, format};
 use std::env;
+use std::fs::OpenOptions;
+use std::path::Path;
 use std::time::Duration;
 use crate::{error_println, warning_println};
+use crate::interface::{InterfaceIps, process_interface_param};
 
 /// 命令行参数配置结构体
 #[derive(Clone)]
@@ -43,7 +46,7 @@ pub struct Args {
     pub global_timeout_duration: Option<Duration>, // 全局超时设置
     pub max_threads: usize,                        // 最大线程数
     pub interface: Option<String>,                 // 网络接口名或 IP 地址
-    pub interface_ips: Option<crate::interface::InterfaceIps>, // 接口的 IPv4 和 IPv6 地址
+    pub interface_ips: Option<InterfaceIps>, // 接口的 IPv4 和 IPv6 地址
 }
 
 // 错误处理
@@ -214,7 +217,7 @@ impl Args {
 
                     if let Some(ref interface) = parsed.interface {
                         // 调用 interface.rs 中的函数处理接口参数
-                        let result = crate::interface::process_interface_param(interface);
+                        let result = process_interface_param(interface);
 
                         parsed.interface_ips = result.interface_ips;
 
@@ -269,8 +272,26 @@ pub fn parse_args() -> Args {
         std::process::exit(0);
     }
 
-    if !args.ip_file.is_empty() && !std::path::Path::new(&args.ip_file).exists() {
+    if !args.ip_file.is_empty() && !Path::new(&args.ip_file).exists() {
         error_and_exit(format_args!("指定的文件不存在"));
+    }
+
+    // 检查输出文件是否被占用（仅Windows）
+    #[cfg(target_os = "windows")]
+    if let Some(ref output_file) = args.output {
+        let output_path = Path::new(output_file);
+        if output_path.exists() {
+            match OpenOptions::new().write(true).open(output_path) {
+                Ok(_) => {}, // 文件可写，继续执行
+                Err(e) if e.raw_os_error() == Some(32) => { // ERROR_SHARING_VIOLATION
+                    error_and_exit(format_args!("输出文件 '{}' 正被其他程序占用", output_path.display()));
+                }
+                Err(e) => {
+                    // 其他错误（如权限问题）只显示警告，不视为致命错误
+                    warning_println(format_args!("无法写入输出文件 '{}': {}", output_path.display(), e));
+                }
+            }
+        }
     }
 
     if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {

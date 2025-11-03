@@ -4,13 +4,14 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
-use url;
+use http::HeaderMap;
+use http_body_util::BodyExt;
 
 use crate::args::Args;
 use crate::common::{self, PingData};
 use crate::progress::Bar;
 use crate::warning_println;
+use crate::hyper::{self, parse_url_to_uri};
 
 // 定义下载处理器来处理下载数据
 struct DownloadHandler {
@@ -78,7 +79,7 @@ impl DownloadHandler {
         }
     }
 
-    fn update_headers(&mut self, headers: &reqwest::header::HeaderMap) {
+    fn update_headers(&mut self, headers: &HeaderMap) {
         for (name, value) in headers.iter() {
             if let Ok(value_str) = value.to_str() {
                 self.headers
@@ -237,7 +238,7 @@ impl<'a> DownloadTest<'a> {
         speed_update_handle.abort();
 
         // 完成进度条但保持当前进度
-        self.bar.done_at_current_pos();
+        self.bar.done();
 
         // 如果没有找到足够的结果，打印提示
         if qualified_results.len() < self.args.test_count as usize {
@@ -267,13 +268,8 @@ async fn download_handler(
     *current_speed.lock().unwrap() = 0.0;
 
     // 解析原始URL以获取主机名和路径
-    let url_parts = match url::Url::parse(url) {
-        Ok(parts) => parts,
-        Err(_) => return (None, None),
-    };
-
-    let host = match url_parts.host_str() {
-        Some(host) => host,
+    let (uri, host) = match parse_url_to_uri(url) {
+        Some(result) => result,
         None => return (None, None),
     };
 
@@ -284,15 +280,12 @@ async fn download_handler(
     let extended_duration = download_duration + warm_up_duration;
 
     // 创建客户端进行下载测速
-    let client = match common::build_reqwest_client(
+    let client = match hyper::build_hyper_client(
         addr,
-        host,
-        extended_duration.as_millis() as u64,
         interface,
         interface_ips,
-    )
-    .await
-    {
+        extended_duration.as_millis() as u64,
+    ) {
         Some(client) => client,
         None => return (None, None),
     };
@@ -300,8 +293,13 @@ async fn download_handler(
     // 创建下载处理器
     let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
 
-    // 发送请求
-    let response = client.get(url).send().await.ok();
+    // 发送GET请求
+    let response = hyper::send_get_response(
+        &client, 
+        &host, 
+        uri, 
+        extended_duration.as_millis() as u64
+    ).await.ok();
 
     // 如果获取到响应，开始下载
     let avg_speed = if let Some(mut resp) = response {
@@ -333,6 +331,11 @@ async fn download_handler(
             let current_time = Instant::now();
             let elapsed = current_time.duration_since(time_start);
 
+            // 总时长检查 - 确保下载不会超过指定的时间
+            if elapsed >= extended_duration {
+                break;
+            }
+
             // 检查是否收到超时信号
             if timeout_flag.load(Ordering::SeqCst) {
                 return (None, data_center); // 收到超时信号，直接返回None，丢弃当前未完成的下载
@@ -340,23 +343,26 @@ async fn download_handler(
 
             // 读取数据块
             {
-                match resp.chunk().await.ok() {
-                    Some(Some(chunk)) => {
-                        let size = chunk.len() as u64;
-                        handler.update_data_received(size);
+                match resp.frame().await {
+                    Some(Ok(frame)) => {
+                        if let Some(data) = frame.data_ref() {
+                            let size = data.len() as u64;
+                            handler.update_data_received(size);
 
-                        // 如果已经过了预热时间，开始记录实际下载数据
-                        if elapsed >= warm_up_duration {
-                            if actual_start_time.is_none() {
-                                actual_start_time = Some(current_time);
+                            // 如果已经过了预热时间，开始记录实际下载数据
+                            if elapsed >= warm_up_duration {
+                                if actual_start_time.is_none() {
+                                    actual_start_time = Some(current_time);
+                                }
+                                actual_content_read += size;
+                                last_data_time = Some(current_time); // 更新最后数据时间
                             }
-                            actual_content_read += size;
-                            last_data_time = Some(current_time); // 更新最后数据时间
                         }
                     }
-                    _ => break,
+                    Some(Err(_)) => return (None, data_center), // 网络错误直接返回None
+                    None => break,
                 }
-                // chunk在作用域结束时自动释放
+                // frame在作用域结束时自动释放
             }
         }
 
@@ -375,5 +381,4 @@ async fn download_handler(
     };
 
     (avg_speed, data_center)
-
 }

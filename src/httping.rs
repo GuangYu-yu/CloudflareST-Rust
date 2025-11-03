@@ -5,8 +5,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
-use url::Url;
 
+use crate::hyper::{parse_url_to_uri, build_hyper_client, send_head_request};
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, PingDelaySet};
 use crate::pool::execute_with_rate_limit;
@@ -61,25 +61,19 @@ impl HandlerFactory for HttpingHandlerFactory {
             let mut should_continue = true;
 
             // 创建客户端
-            let host = match Url::parse(&url) {
-                Ok(url_parts) => match url_parts.host_str() {
-                    Some(host) => host.to_string(),
-                    None => return None,
-                },
-                Err(_) => return None,
+            let host = match parse_url_to_uri(&url) {
+                Some((_, host)) => host,
+                None => return None,
             };
 
             // 使用预处理过的接口参数
             let interface_ref = interface.as_deref();
-            let client = match common::build_reqwest_client(
+            let client = match build_hyper_client(
                 addr,
-                &host,
-                1800,
                 interface_ref,
                 args.interface_ips.as_ref(),
-            )
-            .await
-            {
+                1800,
+            ) {
                 Some(client) => Arc::new(client),
                 None => return None,
             };
@@ -102,23 +96,38 @@ impl HandlerFactory for HttpingHandlerFactory {
                 let colo_filters = &colo_filters;
                 let allowed_codes = &allowed_codes;
                 let url = &url;
+                let host = &host;
 
                 match execute_with_rate_limit(|| async move {
                     let start_time = Instant::now();
 
-                    // 构造请求
+                    // 构造HEAD请求
                     let delay_result = {
                         let result = {
-                            let builder = client.head(url);
-                            if i == ping_times - 1 {
-                                builder.header("Connection", "close")
+                            // 解析URL获取URI
+                            let (uri, _) = match parse_url_to_uri(url) {
+                                Some(result) => result,
+                                None => return Ok(None),
+                            };
+
+                            // 使用已有的客户端发送HEAD请求
+                            let connection_header = if i == ping_times - 1 {
+                                Some("close")
                             } else {
-                                builder
-                            }
-                        }
-                        .send()
-                        .await
-                        .ok();
+                                None
+                            };
+
+                            send_head_request(&client, host, uri, 1800)
+                                .await
+                                .ok()
+                                .map(|mut response| {
+                                    // 如果需要，添加Connection头
+                                    if let Some(header_value) = connection_header {
+                                        response.headers_mut().insert("Connection", header_value.parse().unwrap());
+                                    }
+                                    response
+                                })
+                        };
 
                         // 简化逻辑：只有当所有条件都满足时才计算延迟
                         result.and_then(|response| {
@@ -209,10 +218,8 @@ impl Ping {
 
         let urlist = if use_https {
             let url_to_trace = |url: &str| -> String {
-                if let Ok(parsed) = Url::parse(url) {
-                    if let Some(host) = parsed.host_str() {
-                        return Self::build_trace_url("https", host);
-                    }
+                if let Some((_, host)) = parse_url_to_uri(url) {
+                    return Self::build_trace_url("https", &host);
                 }
                 Self::build_trace_url("https", url)
             };
