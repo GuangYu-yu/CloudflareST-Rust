@@ -125,10 +125,11 @@ where
 // 简单 GET 请求
 pub async fn send_get_request_simple(
     client: &mut Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>,
+    host: &str,
     uri: Uri,
     timeout_ms: u64,
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
-    send_request_common(client, "", uri, timeout_ms, Method::GET, None).await
+    send_request_common(client, host, uri, timeout_ms, Method::GET, None).await
 }
 
 /// 发送 GET 请求并返回流式响应

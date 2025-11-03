@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::ip::{IpBuffer, load_ip_to_buffer};
 use crate::progress::Bar;
-use crate::hyper::client_builder;
+use crate::hyper::{client_builder, parse_url_to_uri};
 use crate::pool::GLOBAL_LIMITER;
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::future::Future;
@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use crate::warning_println;
-use hyper::Uri;
 use crate::hyper::send_get_request_simple;
 use hyper::Response as HyperResponse;
 
@@ -313,6 +312,12 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
         return Vec::new();
     }
 
+    // 解析URL获取URI和主机名
+    let (uri, host) = match parse_url_to_uri(url) {
+        Some((u, h)) => (u, h),
+        None => return Vec::new(),
+    };
+
     // 最多尝试指定次数
     for i in 1..=max_retries {
         // 创建客户端
@@ -321,14 +326,8 @@ pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
             Err(_) => continue,
         };
 
-        // 构造 URI
-        let uri: Uri = match url.parse() {
-            Ok(u) => u,
-            Err(_) => continue,
-        };
-
         // 发送 GET 请求
-        if let Ok(body_bytes) = send_get_request_simple(&mut client, uri.clone(), 5000).await {
+        if let Ok(body_bytes) = send_get_request_simple(&mut client, &host, uri.clone(), 5000).await {
             let content = String::from_utf8_lossy(&body_bytes);
             return content
                 .lines()
