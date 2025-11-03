@@ -125,7 +125,7 @@ impl<'a> DownloadTest<'a> {
         Self {
             args,
             urlist: urlist_vec,
-            bar: Arc::new(Bar::new(test_num as u64, "速度:", "")),
+            bar: Arc::new(Bar::new(test_num as u64, "", "MB/s   ")),
             current_speed: Arc::new(Mutex::new(0.0)),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
@@ -151,7 +151,7 @@ impl<'a> DownloadTest<'a> {
                 let speed = *current_speed.lock().unwrap();
                 if speed >= 0.0 {
                     bar.as_ref()
-                        .set_suffix(format!("{:.2} MB/s", speed / 1024.0 / 1024.0));
+                        .set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
                 }
             }
         });
@@ -187,7 +187,6 @@ impl<'a> DownloadTest<'a> {
                 need_colo,
                 Arc::clone(&self.timeout_flag),
                 Arc::clone(&colo_filters),
-                Arc::clone(&self.bar),
                 self.args.interface.as_deref(),
                 self.args.interface_ips.as_ref(),
             )
@@ -261,15 +260,11 @@ async fn download_handler(
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
-    bar: Arc<Bar>,
     interface: Option<&str>,
     interface_ips: Option<&crate::interface::InterfaceIps>,
 ) -> (Option<f32>, Option<String>) {
     // 在每次新的下载开始前重置速度为0
     *current_speed.lock().unwrap() = 0.0;
-
-    // 在发起请求前清空速度显示
-    bar.as_ref().set_suffix("");
 
     // 解析原始URL以获取主机名和路径
     let url_parts = match url::Url::parse(url) {
@@ -380,4 +375,5 @@ async fn download_handler(
     };
 
     (avg_speed, data_center)
+
 }
