@@ -198,7 +198,7 @@ pub async fn bind_socket_to_interface(
                 return None;
             }
             let std_stream: std::net::TcpStream = sock.into();
-            return Some(TcpSocket::from(std_stream));
+            return Some(TcpSocket::from_std_stream(std_stream));
         }
         
         #[cfg(target_os = "macos")]
@@ -213,7 +213,7 @@ pub async fn bind_socket_to_interface(
                 return None;
             }
             let std_stream: std::net::TcpStream = sock.into();
-            return Some(TcpSocket::from(std_stream));
+            return Some(TcpSocket::from_std_stream(std_stream));
         }
 
         #[cfg(target_os = "windows")]
