@@ -64,25 +64,22 @@ pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
     }
 
     // 否则当作接口名
-    #[cfg(target_os = "windows")]
-    {
-        let is_valid = get_interface_index(interface).is_some();
-        InterfaceParamResult {
-            interface_ips: None,
-            is_valid_interface: is_valid,
+    let is_valid = {
+        #[cfg(target_os = "windows")]
+        {
+            get_interface_index(interface).is_some()
         }
-    }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        let is_valid = {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
             let c_name = std::ffi::CString::new(interface).ok();
             c_name.map_or(false, |c| unsafe { libc::if_nametoindex(c.as_ptr()) != 0 })
-        };
-        InterfaceParamResult {
-            interface_ips: None,
-            is_valid_interface: is_valid,
         }
+    };
+
+    InterfaceParamResult {
+        interface_ips: None,
+        is_valid_interface: is_valid,
     }
 }
 
@@ -101,42 +98,45 @@ fn create_and_bind_tcp_socket(addr: &SocketAddr, ips: Option<&InterfaceIps>) -> 
     Some(sock)
 }
 
-/// Linux/macOS: 按接口名绑定
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+/// Linux: 按接口名绑定
+#[cfg(target_os = "linux")]
+fn bind_to_interface_name(sock: &Socket, iface_name: &str) -> bool {
+    let c_name = match std::ffi::CString::new(iface_name) {
+        Ok(name) => name,
+        Err(_) => return false,
+    };
+
+    unsafe {
+        return setsockopt(
+            sock.as_raw_fd(),
+            SOL_SOCKET,
+            SO_BINDTODEVICE,
+            c_name.as_ptr() as *const c_void,
+            c_name.as_bytes_with_nul().len() as socklen_t,
+        ) == 0;
+    }
+}
+
+/// macOS: 按接口名绑定
+#[cfg(target_os = "macos")]
 fn bind_to_interface_name(sock: &Socket, iface_name: &str, is_ipv6: bool) -> bool {
     let c_name = match std::ffi::CString::new(iface_name) {
         Ok(name) => name,
         Err(_) => return false,
     };
 
-    #[cfg(target_os = "linux")]
-    {
-        unsafe {
-            return setsockopt(
-                sock.as_raw_fd(),
-                SOL_SOCKET,
-                SO_BINDTODEVICE,
-                c_name.as_ptr() as *const c_void,
-                c_name.as_bytes_with_nul().len() as socklen_t,
-            ) == 0;
-        }
+    let index = unsafe { if_nametoindex(c_name.as_ptr()) };
+    if index == 0 {
+        return false;
     }
-
-    #[cfg(target_os = "macos")]
-    {
-        let index = unsafe { if_nametoindex(c_name.as_ptr()) };
-        if index == 0 {
-            return false;
-        }
-        unsafe {
-            return setsockopt(
-                sock.as_raw_fd(),
-                if is_ipv6 { IPPROTO_IPV6 } else { IPPROTO_IP },
-                if is_ipv6 { IPV6_BOUND_IF } else { IP_BOUND_IF },
-                &index as *const _ as *const c_void,
-                std::mem::size_of_val(&index) as socklen_t,
-            ) == 0;
-        }
+    unsafe {
+        return setsockopt(
+            sock.as_raw_fd(),
+            if is_ipv6 { IPPROTO_IPV6 } else { IPPROTO_IP },
+            if is_ipv6 { IPV6_BOUND_IF } else { IP_BOUND_IF },
+            &index as *const _ as *const c_void,
+            std::mem::size_of_val(&index) as socklen_t,
+        ) == 0;
     }
 }
 
@@ -186,7 +186,22 @@ pub async fn bind_socket_to_interface(
 
     // 接口名绑定
     if let Some(name) = interface {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+            let sock = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
+            if !bind_to_interface_name(&sock, name) {
+                return None;
+            }
+            // 设置为非阻塞模式，以便在异步环境中使用
+            if let Err(_) = sock.set_nonblocking(true) {
+                return None;
+            }
+            let std_stream: std::net::TcpStream = sock.into();
+            return Some(TcpSocket::from(std_stream));
+        }
+        
+        #[cfg(target_os = "macos")]
         {
             let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
             let sock = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
@@ -198,7 +213,7 @@ pub async fn bind_socket_to_interface(
                 return None;
             }
             let std_stream: std::net::TcpStream = sock.into();
-            return Some(TcpSocket::from_std(std_stream));
+            return Some(TcpSocket::from(std_stream));
         }
 
         #[cfg(target_os = "windows")]

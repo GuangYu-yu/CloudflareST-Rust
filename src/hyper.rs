@@ -96,32 +96,6 @@ pub fn build_hyper_client(
     Some(Client::builder(hyper_util::rt::TokioExecutor::new()).build(https_connector))
 }
 
-/// 发送 GET 请求
-pub async fn send_request_common<C>(
-    client: &mut C,
-    host: &str,
-    uri: Uri,
-    timeout_ms: u64,
-    method: Method,
-    body: Option<Vec<u8>>,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
-where
-    C: tower::Service<Request<Full<Bytes>>, Response = Response<hyper::body::Incoming>> + Send + Sync + Unpin,
-    C::Error: std::error::Error + Send + Sync + 'static,
-    C::Future: Send,
-{
-    let req = Request::builder()
-        .uri(uri)
-        .method(method)
-        .header("User-Agent", USER_AGENT)
-        .header("Host", host)
-        .body(Full::new(Bytes::from(body.unwrap_or_default())))?;
-
-    let resp = timeout(Duration::from_millis(timeout_ms), client.call(req)).await??;
-    let body_bytes = resp.into_body().collect().await?.to_bytes();
-    Ok(body_bytes)
-}
-
 // 简单 GET 请求
 pub async fn send_get_request_simple(
     client: &mut Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>,
@@ -129,7 +103,26 @@ pub async fn send_get_request_simple(
     uri: Uri,
     timeout_ms: u64,
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
-    send_request_common(client, host, uri, timeout_ms, Method::GET, None).await
+    let req = Request::builder()
+        .uri(uri)
+        .method(Method::GET)
+        .header("User-Agent", USER_AGENT)
+        .header("Host", host)
+        .body(Full::new(Bytes::default()))?;
+
+    let resp = timeout(Duration::from_millis(timeout_ms), client.call(req)).await??;
+    
+    let mut body_bytes = Vec::new();
+    let mut body = resp.into_body();
+    
+    while let Some(result) = body.frame().await {
+        let frame = result?;
+        if let Some(chunk) = frame.data_ref() {
+            body_bytes.extend_from_slice(chunk); 
+        }
+    }
+    
+    Ok(Bytes::from(body_bytes))
 }
 
 /// 发送 GET 请求并返回流式响应
