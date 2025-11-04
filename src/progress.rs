@@ -114,15 +114,15 @@ impl Bar {
 
                 let mut bar_str = String::with_capacity(bar_length * 10);
                 for i in 0..bar_length {
-                    let mut c = ' ';
-                    if i < filled { c = '▇'; }
+                    let mut c = '░';
+                    if i < filled { c = '█'; }
                     if i >= start_index && i < start_index + percent_chars.len() {
                         c = percent_chars[i - start_index];
                     }
-                    if i < filled && c == '▇' {
+                    if i < filled && c == '█' {
                         let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
                         let (r, g, b) = hsv_to_rgb(hue, 0.4, 0.5);
-                        bar_str.push_str(&format!("\x1b[38;2;{};{};{}m▇\x1b[0m", r, g, b));
+                        bar_str.push_str(&format!("\x1b[38;2;{};{};{}m█\x1b[0m", r, g, b));
                     } else {
                         bar_str.push(c);
                     }
