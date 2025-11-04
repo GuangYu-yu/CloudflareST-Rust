@@ -4,9 +4,6 @@ use tokio::net::TcpSocket;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::fd::AsRawFd;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use libc::setsockopt;
-
 #[cfg(target_os = "windows")]
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 #[cfg(target_os = "windows")]
@@ -76,7 +73,7 @@ pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
                 { get_interface_index(&name).is_some() }
                 #[cfg(any(target_os = "linux", target_os = "macos"))]
                 {
-                    let c_name = std::ffi::CString::new(&name).ok();
+                    let c_name = std::ffi::CString::new(name.as_str()).ok();
                     c_name.map_or(false, |c| unsafe { libc::if_nametoindex(c.as_ptr()) != 0 })
                 }
             };
