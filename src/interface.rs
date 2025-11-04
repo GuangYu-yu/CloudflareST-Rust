@@ -2,17 +2,15 @@ use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpSocket;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use socket2::{Domain, Protocol, Socket, Type};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::fd::AsRawFd;
 
 #[cfg(target_os = "linux")]
-use libc::{SO_BINDTODEVICE, SOL_SOCKET, c_void, setsockopt, socklen_t};
+use libc::{c_void, setsockopt, socklen_t, SOL_SOCKET, SO_BINDTODEVICE};
 
 #[cfg(target_os = "macos")]
 use libc::{
-    IP_BOUND_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_BOUND_IF, c_void, if_nametoindex, setsockopt,
-    socklen_t,
+    c_void, if_nametoindex, setsockopt, socklen_t,
+    IP_BOUND_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_BOUND_IF,
 };
 
 #[cfg(target_os = "windows")]
@@ -100,44 +98,51 @@ fn create_and_bind_tcp_socket(addr: &SocketAddr, ips: Option<&InterfaceIps>) -> 
 
 /// Linux: 按接口名绑定
 #[cfg(target_os = "linux")]
-fn bind_to_interface_name(sock: &Socket, iface_name: &str) -> bool {
-    let c_name = match std::ffi::CString::new(iface_name) {
-        Ok(name) => name,
+fn bind_to_interface_name_linux(sock: &TcpSocket, name: &str) -> bool {
+    let raw_fd = sock.as_raw_fd();
+    let c_name = match std::ffi::CString::new(name) {
+        Ok(c_name) => c_name,
         Err(_) => return false,
     };
-
-    unsafe {
-        return setsockopt(
-            sock.as_raw_fd(),
-            SOL_SOCKET,
-            SO_BINDTODEVICE,
-            c_name.as_ptr() as *const c_void,
-            c_name.as_bytes_with_nul().len() as socklen_t,
-        ) == 0;
-    }
+    let result = unsafe {
+        libc::setsockopt(
+            raw_fd,
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            c_name.as_ptr() as *const libc::c_void,
+            name.len() as libc::socklen_t,
+        )
+    };
+    result == 0
 }
 
 /// macOS: 按接口名绑定
 #[cfg(target_os = "macos")]
-fn bind_to_interface_name(sock: &Socket, iface_name: &str, is_ipv6: bool) -> bool {
-    let c_name = match std::ffi::CString::new(iface_name) {
-        Ok(name) => name,
+fn bind_to_interface_name_macos(sock: &TcpSocket, name: &str) -> bool {
+    let raw_fd = sock.as_raw_fd();
+    let interface_name_cstr = match std::ffi::CString::new(name) {
+        Ok(c_name) => c_name,
         Err(_) => return false,
     };
-
-    let index = unsafe { if_nametoindex(c_name.as_ptr()) };
-    if index == 0 {
+    let interface_index =
+        unsafe { libc::if_nametoindex(interface_name_cstr.as_ptr() as *const libc::c_char) };
+    if interface_index == 0 {
         return false;
     }
-    unsafe {
-        return setsockopt(
-            sock.as_raw_fd(),
-            if is_ipv6 { IPPROTO_IPV6 } else { IPPROTO_IP },
-            if is_ipv6 { IPV6_BOUND_IF } else { IP_BOUND_IF },
-            &index as *const _ as *const c_void,
-            std::mem::size_of_val(&index) as socklen_t,
-        ) == 0;
-    }
+    
+    let apply = |level, opt| unsafe {
+        libc::setsockopt(
+            raw_fd,
+            level,
+            opt,
+            &interface_index as *const _ as *const libc::c_void,
+            std::mem::size_of_val(&interface_index) as libc::socklen_t,
+        )
+    };
+    
+    // 尝试绑定IPv4和IPv6，只要有一个成功即可
+    apply(libc::IPPROTO_IP, libc::IP_BOUND_IF) == 0 || 
+    apply(libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF) == 0
 }
 
 /// Windows: 按接口索引绑定
@@ -173,60 +178,49 @@ pub fn get_interface_index(name: &str) -> Option<u32> {
     None
 }
 
+/// 平台特定的接口绑定
+fn bind_socket_to_interface_platform(sock: &TcpSocket, name: &str, is_ipv6: bool) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        bind_to_interface_name_linux(sock, name)
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        bind_to_interface_name_macos(sock, name)
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(idx) = get_interface_index(name) {
+            bind_to_interface_index(sock, idx, is_ipv6)
+        } else {
+            false
+        }
+    }
+}
+
 /// 核心函数：绑定 TCP Socket
 pub async fn bind_socket_to_interface(
     addr: SocketAddr,
     interface: Option<&str>,
     interface_ips: Option<&InterfaceIps>,
 ) -> Option<TcpSocket> {
-    // 优先 IP
+    // 1. 优先尝试 IP 绑定
     if let Some(sock) = create_and_bind_tcp_socket(&addr, interface_ips) {
         return Some(sock);
     }
-
-    // 接口名绑定
+    
+    // 2. 尝试接口名绑定
     if let Some(name) = interface {
-        #[cfg(target_os = "linux")]
-        {
-            let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
-            let sock = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
-            if !bind_to_interface_name(&sock, name) {
-                return None;
-            }
-            // 设置为非阻塞模式，以便在异步环境中使用
-            if let Err(_) = sock.set_nonblocking(true) {
-                return None;
-            }
-            let std_stream: std::net::TcpStream = sock.into();
-            return Some(TcpSocket::from_std_stream(std_stream));
-        }
-        
-        #[cfg(target_os = "macos")]
-        {
-            let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
-            let sock = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).ok()?;
-            if !bind_to_interface_name(&sock, name, addr.is_ipv6()) {
-                return None;
-            }
-            // 设置为非阻塞模式，以便在异步环境中使用
-            if let Err(_) = sock.set_nonblocking(true) {
-                return None;
-            }
-            let std_stream: std::net::TcpStream = sock.into();
-            return Some(TcpSocket::from_std_stream(std_stream));
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            let sock = create_and_bind_tcp_socket(&addr, None)?;
-            let idx = get_interface_index(name)?;
-            if !bind_to_interface_index(&sock, idx, addr.is_ipv6()) {
-                return None;
-            }
+        let sock = create_and_bind_tcp_socket(&addr, None)?;
+        if bind_socket_to_interface_platform(&sock, name, addr.is_ipv6()) {
             return Some(sock);
         }
+        // 接口绑定失败
+        return None;
     }
-
-    // 默认普通 socket
+    
+    // 3. 只有在没有指定接口时才返回默认普通 socket
     create_and_bind_tcp_socket(&addr, None)
 }
