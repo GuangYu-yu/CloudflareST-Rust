@@ -114,7 +114,7 @@ impl Bar {
 
                 let mut bar_str = String::with_capacity(bar_length * 10);
                 for i in 0..bar_length {
-                    let mut c = '⣿';
+                    let mut c = ' ';
                     if i < filled { c = '▇'; }
                     if i >= start_index && i < start_index + percent_chars.len() {
                         c = percent_chars[i - start_index];
@@ -138,7 +138,7 @@ impl Bar {
                 }
 
                 print!(
-                    "\r\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
+                    "\r\x1b[33m{}\x1b[0m [{}] {} \x1b[32m{}\x1b[0m {}",
                     msg_str, bar_str, start_str, prefix_str, end_str
                 );
 
