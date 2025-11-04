@@ -107,7 +107,7 @@ impl Bar {
                 let filled = (progress * bar_length as f64) as usize;
                 let phase = (start_instant.elapsed().as_secs_f64() * 0.3) % 1.0;
 
-                let percent_str = format!("[{:5.2}%]", progress * 100.0);
+                let percent_str = format!("[{:>4.2}%]", progress * 100.0);
                 let percent_chars: Vec<char> = percent_str.chars().collect();
                 let start_index = (bar_length / 2).saturating_sub(percent_chars.len() / 2)
                     .min(bar_length.saturating_sub(percent_chars.len()));
