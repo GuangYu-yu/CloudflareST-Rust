@@ -27,6 +27,7 @@ const IPV6_UNICAST_IF: i32 = 31;
 pub struct InterfaceIps {
     pub ipv4: Option<IpAddr>,
     pub ipv6: Option<IpAddr>,
+    pub port: Option<u16>,
 }
 
 /// Interface 参数处理结果
@@ -35,43 +36,52 @@ pub struct InterfaceParamResult {
     pub is_valid_interface: bool,
 }
 
+/// 解析后的接口参数
+#[derive(Clone)]
+pub enum ParsedInterface {
+    SocketAddr(SocketAddr),
+    Ip(IpAddr),
+    Name(String),
+}
+
 /// 解析接口参数
 pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
-    // 尝试解析为 IP
-    if let Ok(ip) = interface.parse::<IpAddr>() {
-        let ips = match ip {
-            IpAddr::V4(ipv4) => InterfaceIps {
-                ipv4: Some(IpAddr::V4(ipv4)),
-                ipv6: None,
-            },
-            IpAddr::V6(ipv6) => InterfaceIps {
-                ipv4: None,
-                ipv6: Some(IpAddr::V6(ipv6)),
-            },
-        };
-        return InterfaceParamResult {
-            interface_ips: Some(ips),
-            is_valid_interface: true,
-        };
-    }
-
-    // 否则当作接口名
-    let is_valid = {
-        #[cfg(target_os = "windows")]
-        {
-            get_interface_index(interface).is_some()
-        }
-
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        {
-            let c_name = std::ffi::CString::new(interface).ok();
-            c_name.map_or(false, |c| unsafe { libc::if_nametoindex(c.as_ptr()) != 0 })
-        }
+    // 统一解析函数
+    let parsed = if let Ok(socket_addr) = interface.parse::<SocketAddr>() {
+        ParsedInterface::SocketAddr(socket_addr)
+    } else if let Ok(ip) = interface.parse::<IpAddr>() {
+        ParsedInterface::Ip(ip)
+    } else {
+        ParsedInterface::Name(interface.to_string())
     };
 
-    InterfaceParamResult {
-        interface_ips: None,
-        is_valid_interface: is_valid,
+    match parsed {
+        ParsedInterface::SocketAddr(addr) => {
+            let ips = match addr.ip() {
+                IpAddr::V4(ipv4) => InterfaceIps { ipv4: Some(ipv4.into()), ipv6: None, port: Some(addr.port()) },
+                IpAddr::V6(ipv6) => InterfaceIps { ipv4: None, ipv6: Some(ipv6.into()), port: Some(addr.port()) },
+            };
+            InterfaceParamResult { interface_ips: Some(ips), is_valid_interface: true }
+        }
+        ParsedInterface::Ip(ip) => {
+            let ips = match ip {
+                IpAddr::V4(ipv4) => InterfaceIps { ipv4: Some(ipv4.into()), ipv6: None, port: None },
+                IpAddr::V6(ipv6) => InterfaceIps { ipv4: None, ipv6: Some(ipv6.into()), port: None },
+            };
+            InterfaceParamResult { interface_ips: Some(ips), is_valid_interface: true }
+        }
+        ParsedInterface::Name(name) => {
+            let is_valid = {
+                #[cfg(target_os = "windows")]
+                { get_interface_index(&name).is_some() }
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                {
+                    let c_name = std::ffi::CString::new(&name).ok();
+                    c_name.map_or(false, |c| unsafe { libc::if_nametoindex(c.as_ptr()) != 0 })
+                }
+            };
+            InterfaceParamResult { interface_ips: None, is_valid_interface: is_valid }
+        }
     }
 }
 
@@ -81,12 +91,22 @@ fn create_and_bind_tcp_socket(addr: &SocketAddr, ips: Option<&InterfaceIps>) -> 
         IpAddr::V4(_) => TcpSocket::new_v4().ok()?,
         IpAddr::V6(_) => TcpSocket::new_v6().ok()?,
     };
+
     if let Some(ips) = ips {
-        let source_ip = if addr.is_ipv4() { ips.ipv4 } else { ips.ipv6 };
+        let source_ip = match addr.ip() {
+            IpAddr::V4(_) => ips.ipv4,
+            IpAddr::V6(_) => ips.ipv6,
+        };
+
+        // 只有源 IP 与目标 IP 协议族匹配才绑定，否则失败
         if let Some(ip) = source_ip {
-            sock.bind(SocketAddr::new(ip, 0)).ok()?;
+            sock.bind(SocketAddr::new(ip, ips.port.unwrap_or(0))).ok()?;
+        } else {
+            // 明确拒绝不匹配的组合
+            return None;
         }
     }
+
     Some(sock)
 }
 

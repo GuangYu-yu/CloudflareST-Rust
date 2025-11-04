@@ -9,7 +9,7 @@ use hyper::body::{Bytes, Incoming};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper_util::rt::{TokioIo};
 use hyper_rustls::HttpsConnectorBuilder;
-use tokio::net::{TcpSocket, TcpStream};
+use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tower::Service;
 use url::Url;
@@ -46,18 +46,13 @@ impl Service<Uri> for InterfaceConnector {
 
         Box::pin(async move {
             // 尝试绑定到指定网卡
-            let socket = if let Some(socket) =
-                bind_socket_to_interface(addr, interface.as_deref(), interface_ips.as_ref()).await
-            {
-                socket
-            } else if addr.is_ipv4() {
-                TcpSocket::new_v4()?
-            } else {
-                TcpSocket::new_v6()?
-            };
-
-            let stream = timeout(timeout_duration, socket.connect(addr)).await??;
-            Ok(TokioIo::new(stream))
+            if let Some(socket) = bind_socket_to_interface(addr, interface.as_deref(), interface_ips.as_ref()).await {
+                let stream = timeout(timeout_duration, socket.connect(addr)).await??;
+                return Ok(TokioIo::new(stream));
+            }
+            
+            // 绑定失败，直接返回错误
+            Err("".into())
         })
     }
 }
