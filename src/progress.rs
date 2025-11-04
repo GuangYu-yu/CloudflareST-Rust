@@ -99,7 +99,6 @@ impl Bar {
         let reserved_space = 20 + start_str.len() + end_str.len() + 10;
 
         let handle = thread::spawn(move || {
-            let mut first_draw = true;
             loop {
                 let bar_length = term_width.saturating_sub(reserved_space);
                 let current_pos = pos_clone.load(Ordering::Relaxed);
@@ -132,18 +131,13 @@ impl Bar {
                 let prefix_str = prefix_clone.get();
                 let is_done_val = is_done_clone.load(Ordering::Relaxed);
 
-                if first_draw {
-                    print!("\x1b[?25l");
-                    first_draw = false;
-                }
-
                 print!(
                     "\r\x1b[33m{}\x1b[0m [{}] {} \x1b[32m{}\x1b[0m {}",
                     msg_str, bar_str, start_str, prefix_str, end_str
                 );
 
                 if is_done_val {
-                    print!("\x1b[?25h\n");
+                    print!("\n");
                 }
 
                 stdout().flush().ok();
@@ -180,7 +174,6 @@ impl Bar {
                 handle.join().ok();
             }
         }
-        print!("\x1b[?25h");
         let _ = stdout().flush();
     }
 }
