@@ -4,14 +4,8 @@ use tokio::net::TcpSocket;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::fd::AsRawFd;
 
-#[cfg(target_os = "linux")]
-use libc::{c_void, setsockopt, socklen_t, SOL_SOCKET, SO_BINDTODEVICE};
-
-#[cfg(target_os = "macos")]
-use libc::{
-    c_void, if_nametoindex, setsockopt, socklen_t,
-    IP_BOUND_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_BOUND_IF,
-};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use libc::setsockopt;
 
 #[cfg(target_os = "windows")]
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
@@ -179,19 +173,39 @@ pub fn get_interface_index(name: &str) -> Option<u32> {
 }
 
 /// 平台特定的接口绑定
-fn bind_socket_to_interface_platform(sock: &TcpSocket, name: &str, is_ipv6: bool) -> bool {
+struct InterfaceBinder;
+
+impl InterfaceBinder {
+    /// 绑定 socket 到指定接口
+    fn bind_to_interface(sock: &TcpSocket, name: &str, addr: &SocketAddr) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            Self::bind_to_interface_linux(sock, name)
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            Self::bind_to_interface_macos(sock, name)
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            Self::bind_to_interface_windows(sock, name, addr.is_ipv6())
+        }
+    }
+    
     #[cfg(target_os = "linux")]
-    {
+    fn bind_to_interface_linux(sock: &TcpSocket, name: &str) -> bool {
         bind_to_interface_name_linux(sock, name)
     }
     
     #[cfg(target_os = "macos")]
-    {
+    fn bind_to_interface_macos(sock: &TcpSocket, name: &str) -> bool {
         bind_to_interface_name_macos(sock, name)
     }
     
     #[cfg(target_os = "windows")]
-    {
+    fn bind_to_interface_windows(sock: &TcpSocket, name: &str, is_ipv6: bool) -> bool {
         if let Some(idx) = get_interface_index(name) {
             bind_to_interface_index(sock, idx, is_ipv6)
         } else {
@@ -214,7 +228,7 @@ pub async fn bind_socket_to_interface(
     // 2. 尝试接口名绑定
     if let Some(name) = interface {
         let sock = create_and_bind_tcp_socket(&addr, None)?;
-        if bind_socket_to_interface_platform(&sock, name, addr.is_ipv6()) {
+        if InterfaceBinder::bind_to_interface(&sock, name, &addr) {
             return Some(sock);
         }
         // 接口绑定失败
