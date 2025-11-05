@@ -168,20 +168,26 @@ jobs:
       - name: 打包发布文件
         run: |
           mkdir -p release
-          for dir in artifacts/${{ github.event.inputs.project_name }}-*/; do
-            platform=$(basename "$dir" | sed 's/${{ github.event.inputs.project_name }}-//')
-            os=$(echo "$platform" | cut -d'_' -f1 | tr '[:upper:]' '[:lower:]')
-            arch=$(echo "$platform" | cut -d'_' -f2 | tr '[:upper:]' '[:lower:]')
-            mkdir -p tmp_$platform
-            cp "$dir"/* tmp_$platform/
-            cd tmp_$platform
-            if [[ "$os" == "windows" ]]; then
-              zip -r "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.zip" .
-            else
-              tar -czf "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.tar.gz" .
+          for dir in artifacts/*/; do
+            if [ -d "$dir" ]; then
+              platform=$(basename "$dir")
+              os=$(echo "$platform" | cut -d'_' -f1 | tr '[:upper:]' '[:lower:]')
+              arch=$(echo "$platform" | cut -d'_' -f2 | tr '[:upper:]' '[:lower:]')
+              mkdir -p tmp_$platform
+              cp "$dir"/* tmp_$platform/ 2>/dev/null || echo "警告: $dir 中没有文件"
+              cd tmp_$platform
+              if [ -n "$(ls -A .)" ]; then
+                if [[ "$os" == "windows" ]]; then
+                  zip -r "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.zip" .
+                else
+                  tar -czf "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.tar.gz" .
+                fi
+              else
+                echo "跳过空目录: $dir"
+              fi
+              cd ..
+              rm -rf tmp_$platform
             fi
-            cd ..
-            rm -rf tmp_$platform
           done
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v1
