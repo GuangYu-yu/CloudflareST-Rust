@@ -42,7 +42,7 @@ on:
         default: true
 
 jobs:
-  # 动态生成矩阵配置
+  # 动态生成矩阵配置，只包含用户勾选的平台
   matrix:
     name: 矩阵配置
     runs-on: ubuntu-latest
@@ -51,6 +51,7 @@ jobs:
     steps:
       - id: set
         run: |
+          # 根据用户输入动态构建矩阵
           arr=()
           [[ "${{ inputs.build_windows_amd64 }}" == true ]] && arr+=('{"os":"Windows","arch":"AMD64","target":"x86_64-pc-windows-msvc","runner":"windows-latest","bin":"${{ inputs.project_name }}.exe"}')
           [[ "${{ inputs.build_windows_arm64 }}" == true ]] && arr+=('{"os":"Windows","arch":"ARM64","target":"aarch64-pc-windows-msvc","runner":"windows-latest","bin":"${{ inputs.project_name }}.exe"}')
@@ -63,6 +64,7 @@ jobs:
   build:
     name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
     needs: matrix
+    # 只有当矩阵不为空时才执行构建
     if: ${{ needs.matrix.outputs.include != '[]' }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -94,7 +96,7 @@ jobs:
         run: |
           cargo install --locked cargo-zigbuild
           cargo update
-          CARGO_TARGET_${{ matrix.target/='-'/'' }}_RUSTFLAGS="-C strip=symbols" cargo zigbuild --release --target ${{ matrix.target }} || cargo build --release --target ${{ matrix.target }}
+          cargo zigbuild --release --target ${{ matrix.target }} || cargo build --release --target ${{ matrix.target }}
 
       - name: 保存构建产物
         run: |
@@ -109,23 +111,23 @@ jobs:
           path: binaries/${{ matrix.os }}_${{ matrix.arch }}/
 
   strip_binaries:
-    name: 剥离 (Strip) 二进制文件
+    name: Strip 二进制
     needs: [matrix, build]
+    # 只有当矩阵不为空且构建成功时才执行
     if: ${{ needs.matrix.outputs.include != '[]' && needs.build.result == 'success' }}
     runs-on: windows-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: stripped_artifacts/
-      - name: 剥离符号
+      - name: Strip
         run: |
           Get-ChildItem -Recurse -File stripped_artifacts -Include *.exe, ${{ github.event.inputs.project_name }} | ForEach-Object {
             Write-Host "Stripping $($_.FullName)"
             & "llvm-strip" $_.FullName
           }
         shell: pwsh
-      - name: 上传剥离后的产物
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: stripped_artifacts
           path: stripped_artifacts/
@@ -133,6 +135,7 @@ jobs:
   upload_to_repo:
     name: 上传二进制到仓库
     needs: [matrix, strip_binaries]
+    # 只有当矩阵不为空且用户选择上传时才执行
     if: ${{ needs.matrix.outputs.include != '[]' && github.event.inputs.upload_to_repo == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -141,7 +144,7 @@ jobs:
         with:
           name: stripped_artifacts
           path: binaries
-      - name: 上传并提交到仓库
+      - name: 上传到仓库
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "自动构建: 添加二进制文件"
