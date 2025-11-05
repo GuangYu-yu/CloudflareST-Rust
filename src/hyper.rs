@@ -3,9 +3,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use hyper::{Method, Request, Response, Uri};
 use http_body_util::{Full, BodyExt};
-use hyper::body::{Bytes, Incoming};
+use hyper::{body::Bytes, Method, Request, Response, Uri, body::Incoming};
+use hyper::header::{HeaderValue, CONNECTION};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper_util::rt::{TokioIo};
 use hyper_rustls::HttpsConnectorBuilder;
@@ -136,12 +136,20 @@ pub async fn send_head_request(
     host: &str,
     uri: Uri,
     timeout_ms: u64,
+    close_connection: bool,
 ) -> Result<Response<Incoming>, Box<dyn std::error::Error + Send + Sync>> {
-    let req = Request::builder()
+    let mut req_builder = Request::builder()
         .uri(uri)
         .method(Method::HEAD)
         .header("User-Agent", USER_AGENT)
-        .header("Host", host)
+        .header("Host", host);
+
+    if close_connection {
+        // 告诉服务器和客户端：这次请求后关闭连接 
+        req_builder = req_builder.header(CONNECTION, HeaderValue::from_static("close"));
+    }
+
+    let req = req_builder
         .body(Full::new(Bytes::from(vec![])))?;
 
     let resp = timeout(Duration::from_millis(timeout_ms), client.request(req)).await??;
