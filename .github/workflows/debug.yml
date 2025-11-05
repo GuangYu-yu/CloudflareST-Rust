@@ -1,145 +1,120 @@
 name: Debug
 
+# 触发条件：手动工作流调度
 on:
   workflow_dispatch:
     inputs:
       project_name:
-        description: '项目名称'
         type: string
         default: 'CloudflareST-Rust'
         required: true
+      # 各平台构建选项
       build_windows_amd64:
-        description: '编译 Windows AMD64 版本'
         type: boolean
         default: true
       build_windows_arm64:
-        description: '编译 Windows ARM64 版本'
         type: boolean
         default: true
       build_linux_amd64:
-        description: '编译 Linux AMD64 版本'
         type: boolean
         default: true
       build_linux_arm64:
-        description: '编译 Linux ARM64 版本'
         type: boolean
         default: true
       build_macos_amd64:
-        description: '编译 MacOS AMD64 版本'
         type: boolean
         default: true
       build_macos_arm64:
-        description: '编译 MacOS ARM64 版本'
         type: boolean
         default: true
 
 jobs:
+  # 动态生成矩阵配置，只包含用户勾选的平台
+  matrix:
+    name: 矩阵配置
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+    steps:
+      - id: set
+        run: |
+          # 根据用户输入动态构建矩阵
+          arr=()
+          [[ "${{ inputs.build_windows_amd64 }}" == true ]] && arr+=('{"os":"Windows","arch":"AMD64","target":"x86_64-pc-windows-msvc","runner":"windows-latest","bin":"${{ inputs.project_name }}.exe"}')
+          [[ "${{ inputs.build_windows_arm64 }}" == true ]] && arr+=('{"os":"Windows","arch":"ARM64","target":"aarch64-pc-windows-msvc","runner":"windows-latest","bin":"${{ inputs.project_name }}.exe"}')
+          [[ "${{ inputs.build_linux_amd64 }}"   == true ]] && arr+=('{"os":"Linux","arch":"AMD64","target":"x86_64-unknown-linux-musl","runner":"ubuntu-latest","bin":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_linux_arm64 }}"   == true ]] && arr+=('{"os":"Linux","arch":"ARM64","target":"aarch64-unknown-linux-musl","runner":"ubuntu-latest","bin":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_macos_amd64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"AMD64","target":"x86_64-apple-darwin","runner":"macos-latest","bin":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_macos_arm64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"ARM64","target":"aarch64-apple-darwin","runner":"macos-latest","bin":"${{ inputs.project_name }}"}')
+          echo "include=[${arr[*]}]" >> $GITHUB_OUTPUT
+
+  # 构建作业：根据动态矩阵为每个平台构建debug版本
   build:
-    name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
+    needs: matrix
+    # 只有当矩阵不为空时才执行构建
+    if: ${{ needs.matrix.outputs.include != '[]' }}
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - os: Windows
-            runner: windows-latest
-            arch: AMD64
-            target: x86_64-pc-windows-msvc
-            binary_name: ${{ github.event.inputs.project_name }}.exe
-            build_option: build_windows_amd64
-          - os: Windows
-            runner: windows-latest
-            arch: ARM64
-            target: aarch64-pc-windows-msvc
-            binary_name: ${{ github.event.inputs.project_name }}.exe
-            build_option: build_windows_arm64
-          - os: Linux
-            runner: ubuntu-latest
-            arch: AMD64
-            target: x86_64-unknown-linux-musl
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_option: build_linux_amd64
-          - os: Linux
-            runner: ubuntu-latest
-            arch: ARM64
-            target: aarch64-unknown-linux-musl
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_option: build_linux_arm64
-          - os: MacOS
-            runner: macos-latest
-            arch: AMD64
-            target: x86_64-apple-darwin
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_option: build_macos_amd64
-          - os: MacOS
-            runner: macos-latest
-            arch: ARM64
-            target: aarch64-apple-darwin
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_option: build_macos_arm64
-
+        include: ${{ fromJson(needs.matrix.outputs.include) }}
+    name: ${{ matrix.os }}_${{ matrix.arch }}
     steps:
+      # 检出代码
       - uses: actions/checkout@v4
 
-      - name: 判断是否需要构建
-        if: ${{ github.event.inputs[matrix.build_option] == false }}
-        run: echo "跳过 ${{ matrix.os }}_${{ matrix.arch }} 构建" && exit 0
-
-      - name: 安装 Rust 工具链
-        uses: dtolnay/rust-toolchain@stable
+      # 安装Rust工具链和目标平台
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: 安装 MUSL (仅 Linux)
-        if: startsWith(matrix.os, 'Linux')
+      # Linux平台需要安装MUSL工具链
+      - if: startsWith(matrix.os, 'Linux')
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y musl-tools
           rustup target add ${{ matrix.target }}
 
-      - name: 构建项目
-        run: cargo build --target ${{ matrix.target }}
+      # 执行debug模式构建
+      - run: cargo build --target ${{ matrix.target }}
 
-      - name: 保存 Debug 二进制
-        run: |
+      # 准备构建产物
+      - run: |
           mkdir -p debug/${{ matrix.os }}_${{ matrix.arch }}
-          cp target/${{ matrix.target }}/debug/${{ matrix.binary_name }} debug/${{ matrix.os }}_${{ matrix.arch }}/
+          cp target/${{ matrix.target }}/debug/${{ matrix.bin }} debug/${{ matrix.os }}_${{ matrix.arch }}/
 
-      - name: 上传 Debug artifact
-        uses: actions/upload-artifact@v4
+      # 上传构建产物作为工件
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.inputs.project_name }}-${{ matrix.os }}_${{ matrix.arch }}
+          name: ${{ inputs.project_name }}-${{ matrix.os }}_${{ matrix.arch }}
           path: debug/${{ matrix.os }}_${{ matrix.arch }}/
 
-  upload_to_repo:
-    name: 上传 Debug 二进制到仓库
+  # 上传作业：将构建产物上传到仓库的debug目录
+  upload:
+    name: 上传
     needs: build
     runs-on: ubuntu-latest
+    # 只有当构建成功时才执行上传
     if: needs.build.result == 'success'
     steps:
+      # 检出代码
       - uses: actions/checkout@v4
 
-      - name: 设置 Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      # 配置Git用户信息
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: 下载所有构建产物
-        uses: actions/download-artifact@v4
+      # 下载所有构建产物
+      - uses: actions/download-artifact@v4
         with:
           path: debug
 
-      - name: 整理 debug 目录
-        run: |
-          echo "最终目录结构:"
-          find debug -type f | sort
+      # 显示下载的文件列表
+      - run: find debug -type f | sort
 
-      - name: 提交并推送
-        run: |
+      # 提交并推送二进制文件到仓库
+      - run: |
           git add debug/
-          if git diff --staged --quiet; then
-            echo "没有文件需要提交"
-          else
-            git commit -m "添加调试版本二进制文件 [skip ci]"
-            git push
-          fi
+          git diff --staged --quiet || (
+            git commit -m "Debug: ${{ inputs.project_name }} binaries [skip ci]" && git push
+          )
