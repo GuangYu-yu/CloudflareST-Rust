@@ -125,8 +125,10 @@ jobs:
 
       # 提交并推送二进制文件到仓库
       - name: 提交并推送二进制文件到仓库
-        run: |
-          git add debug/
-          git diff --staged --quiet || (
-            git commit -m "Debug: ${{ inputs.project_name }} binaries [skip ci]" && git push
-          )
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Debug: ${{ inputs.project_name }} binaries [skip ci]"
+          file_pattern: 'debug/*'
+          skip_fetch: true
+          skip_dirty_check: false
+          push_options: '--force'
