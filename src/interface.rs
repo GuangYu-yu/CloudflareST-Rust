@@ -277,8 +277,8 @@ pub async fn bind_socket_to_interface(
             IpAddr::V6(_) => ips.ipv6,
         });
         
-        let interface_name = source_ip.and_then(|ip| find_interface_by_ip(&ip))
-            .or_else(|| interface.map(|s| s.to_string()));
+        let interface_name = interface.map(|s| s.to_string())
+            .or_else(|| source_ip.and_then(|ip| find_interface_by_ip(&ip)));
         
         // 接口绑定
         if let Some(name) = &interface_name {
