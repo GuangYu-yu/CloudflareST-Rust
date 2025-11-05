@@ -208,7 +208,7 @@ impl Ping {
 
     pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
         // 判断是否使用-hu参数（无论是否传值）
-        let use_https = !args.httping_urls.is_empty() || args.httping_urls_flag;
+        let use_https = args.httping_urls.is_some();
 
         let urlist = if use_https {
             let url_to_trace = |url: &str| -> String {
@@ -218,18 +218,21 @@ impl Ping {
                 Self::build_trace_url("https", url)
             };
 
-            if !args.httping_urls.is_empty() {
-                // -hu参数有值，使用指定的URL列表
-                args.httping_urls
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .map(|url| url_to_trace(&url))
-                    .collect()
+            if let Some(ref urls) = args.httping_urls {
+                if !urls.is_empty() {
+                    // -hu参数有值，使用指定的URL列表
+                    urls.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .map(|url| url_to_trace(&url))
+                        .collect()
+                } else {
+                    // -hu 未指定 URL，从 -url 或 -urlist 获取域名列表
+                    let url_list = common::get_url_list(&args.url, &args.urlist).await;
+                    url_list.iter().map(|url| url_to_trace(url)).collect()
+                }
             } else {
-                // -hu 未指定 URL，从 -url 或 -urlist 获取域名列表
-                let url_list = common::get_url_list(&args.url, &args.urlist).await;
-                url_list.iter().map(|url| url_to_trace(url)).collect()
+                Vec::new()
             }
         } else {
             Vec::new()
