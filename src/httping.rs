@@ -32,11 +32,12 @@ impl HandlerFactory for HttpingHandlerFactory {
         &self,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        let base = Arc::clone(&self.base);
-        let args = Arc::clone(&base.args);
-        let colo_filters = Arc::clone(&self.colo_filters);
-        let urls = Arc::clone(&self.urls);
-        let url_index = Arc::clone(&self.url_index);
+        // 克隆所需的 Arc 引用
+        let base = self.base.clone();
+        let args = base.args.clone();
+        let colo_filters = self.colo_filters.clone();
+        let urls = self.urls.clone();
+        let url_index = self.url_index.clone();
         let use_https = self.use_https;
         let interface = self.interface.clone();
 
@@ -66,7 +67,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                 None => return None,
             };
 
-            // 使用预处理过的接口参数
+            // 获取并使用绑定的网络接口信息
             let interface_ref = interface.as_deref();
             let client = match build_hyper_client(
                 addr,
@@ -78,13 +79,17 @@ impl HandlerFactory for HttpingHandlerFactory {
                 None => return None,
             };
 
-            // 解析允许的状态码列表
-            let allowed_codes = (!args.httping_code.is_empty()).then(|| {
-                args.httping_code
-                    .split(',')
-                    .filter_map(|s| s.trim().parse::<u16>().ok())
-                    .collect::<Vec<u16>>()
-            });
+            // 预解析一次允许的 HTTP 状态码列表
+            let allowed_codes = if !args.httping_code.is_empty() {
+                Some(
+                    args.httping_code
+                        .split(',')
+                        .filter_map(|s| s.trim().parse::<u16>().ok())
+                        .collect::<Vec<u16>>()
+                )
+            } else {
+                None
+            };
 
             for i in 0..ping_times {
                 // 检查是否需要继续测试
@@ -92,54 +97,44 @@ impl HandlerFactory for HttpingHandlerFactory {
                     break;
                 }
 
-                let client = Arc::clone(&client);
-                let colo_filters = &colo_filters;
-                let allowed_codes = &allowed_codes;
-                let url = &url;
-                let host = &host;
+                let client = client.clone();
+                let colo_filters = colo_filters.clone();
+                let allowed_codes = allowed_codes.clone();
+                let url = url.clone();
+                let host = host.clone();
 
                 match execute_with_rate_limit(|| async move {
                     let start_time = Instant::now();
 
-                    // 构造HEAD请求
+                    // 发起 HEAD 请求
                     let delay_result = {
                         let result = {
-                            // 解析URL获取URI
-                            let (uri, _) = match parse_url_to_uri(url) {
+                            // 解析 URL 字符串为 hyper::Uri
+                            let (uri, _) = match parse_url_to_uri(&url) {
                                 Some(result) => result,
                                 None => return Ok(None),
                             };
 
-                            // 使用已有的客户端发送HEAD请求
-                            let connection_header = if i == ping_times - 1 {
-                                Some("close")
-                            } else {
-                                None
-                            };
+                            // 判断是否为最后一次 ping，决定是否发送 Connection: close
+                            let close_connection = i == ping_times - 1;
 
-                            send_head_request(&client, host, uri, 1800)
+                            // 发送 HEAD 请求，并传递连接关闭标志
+                            send_head_request(&client, &host, uri, 1800, close_connection)
                                 .await
                                 .ok()
-                                .map(|mut response| {
-                                    // 如果需要，添加Connection头
-                                    if let Some(header_value) = connection_header {
-                                        response.headers_mut().insert("Connection", header_value.parse().unwrap());
-                                    }
-                                    response
-                                })
                         };
 
-                        // 简化逻辑：只有当所有条件都满足时才计算延迟
+                        // 只有当所有条件都满足时才计算延迟
                         result.and_then(|response| {
                             // 检查状态码
-                            let status_valid = if let Some(codes) = allowed_codes {
+                            let status_valid = if let Some(ref codes) = allowed_codes {
                                 codes.contains(&response.status().as_u16())
                             } else {
                                 true // 没有状态码限制时视为有效
                             };
 
                             if status_valid {
-                                // 提取数据中心信息并计算延迟
+                                // 提取数据中心信息（Colo）并计算请求延迟
                                 common::extract_data_center(&response).map(|dc| {
                                     let delay = start_time.elapsed().as_secs_f32() * 1000.0;
                                     (delay, dc)
@@ -148,7 +143,6 @@ impl HandlerFactory for HttpingHandlerFactory {
                                 None
                             }
                         })
-                        // response在作用域结束时自动释放
                     };
 
                     Ok::<Option<(f32, String)>, io::Error>(delay_result)
@@ -156,17 +150,17 @@ impl HandlerFactory for HttpingHandlerFactory {
                 .await
                 {
                     Ok(Some((delay, dc))) => {
-                        // 成功时等待200ms
+                        // 成功后等待 200ms 间隔
                         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-                        // 如果是第一次成功响应
+                        // 首次成功响应时进行数据中心检查
                         if data_center.is_none() {
-                            // 检查数据中心过滤条件
+                            // 检查数据中心（Colo）是否符合过滤要求
                             if !args.httping_cf_colo.is_empty()
                                 && !common::is_colo_matched(&dc, &colo_filters)
                             {
                                 should_continue = false;
-                                continue; // 跳过后续处理
+                                continue; // 不符合过滤要求，跳过后续 ping
                             }
 
                             data_center = Some(dc);
@@ -175,12 +169,12 @@ impl HandlerFactory for HttpingHandlerFactory {
                         delays.push(delay);
                     }
                     _ => {
-                        // 失败或错误情况，不做特殊处理
+                        // 失败或错误，不做特殊处理
                     }
                 }
             }
 
-            // 如果因为数据中心不匹配而终止测试，则不记录结果
+            // 如果因 Colo 不匹配而终止，则不返回结果
             if !should_continue {
                 return None;
             }
@@ -191,16 +185,16 @@ impl HandlerFactory for HttpingHandlerFactory {
                 let total_delay_ms: f32 = delays.iter().sum();
                 let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv as u16);
 
-                // 创建测试数据
+                // 构造 PingData 结构体
                 let mut data = PingData::new(addr, ping_times, recv as u16, avg_delay_ms);
                 if let Some(dc) = data_center {
                     data.data_center = dc;
                 }
 
-                // 返回测试数据
+                // 返回 Ping 结果
                 Some(data)
             } else {
-                // 没有成功连接
+                // 没有成功连接或响应，返回 None
                 None
             }
         })
@@ -233,13 +227,11 @@ impl Ping {
                     .map(|url| url_to_trace(&url))
                     .collect()
             } else {
-                // -hu参数无值，从-url或-urlist获取域名列表
+                // -hu 未指定 URL，从 -url 或 -urlist 获取域名列表
                 let url_list = common::get_url_list(&args.url, &args.urlist).await;
-                // 只提取域名部分
                 url_list.iter().map(|url| url_to_trace(url)).collect()
             }
         } else {
-            // 不使用HTTPS模式，无需获取URL列表
             Vec::new()
         };
 
@@ -251,7 +243,7 @@ impl Ping {
             ));
         }
 
-        // 解析 colo 过滤条件
+        // 解析 Colo 过滤条件
         let colo_filters = if !args.httping_cf_colo.is_empty() {
             common::parse_colo_filters(&args.httping_cf_colo)
         } else {
