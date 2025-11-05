@@ -92,7 +92,7 @@ jobs:
       - name: 上传构建产物作为工件
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.project_name }}-${{ matrix.os }}_${{ matrix.arch }}
+          name: ${{ matrix.os }}_${{ matrix.arch }}
           path: debug/${{ matrix.os }}_${{ matrix.arch }}/
 
   # 上传作业：将构建产物上传到仓库的debug目录
