@@ -37,6 +37,7 @@ jobs:
       include: ${{ steps.set.outputs.include }}
     steps:
       - id: set
+        name: 生成矩阵配置
         run: |
           # 根据用户输入动态构建矩阵
           arr=()
@@ -60,30 +61,36 @@ jobs:
     name: ${{ matrix.os }}_${{ matrix.arch }}
     steps:
       # 检出代码
-      - uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v4
 
       # 安装Rust工具链和目标平台
-      - uses: dtolnay/rust-toolchain@stable
+      - name: 安装Rust工具链和目标平台
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
       # Linux平台需要安装MUSL工具链
       - if: startsWith(matrix.os, 'Linux')
+        name: 安装MUSL工具链
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y musl-tools
           rustup target add ${{ matrix.target }}
 
       # 执行debug模式构建
-      - run: cargo build --target ${{ matrix.target }}
+      - name: 执行debug模式构建
+        run: cargo build --target ${{ matrix.target }}
 
       # 准备构建产物
-      - run: |
+      - name: 准备构建产物
+        run: |
           mkdir -p debug/${{ matrix.os }}_${{ matrix.arch }}
           cp target/${{ matrix.target }}/debug/${{ matrix.bin }} debug/${{ matrix.os }}_${{ matrix.arch }}/
 
       # 上传构建产物作为工件
-      - uses: actions/upload-artifact@v4
+      - name: 上传构建产物作为工件
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.project_name }}-${{ matrix.os }}_${{ matrix.arch }}
           path: debug/${{ matrix.os }}_${{ matrix.arch }}/
@@ -97,23 +104,28 @@ jobs:
     if: needs.build.result == 'success'
     steps:
       # 检出代码
-      - uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v4
 
       # 配置Git用户信息
-      - run: |
+      - name: 配置Git用户信息
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       # 下载所有构建产物
-      - uses: actions/download-artifact@v4
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
         with:
           path: debug
 
       # 显示下载的文件列表
-      - run: find debug -type f | sort
+      - name: 显示下载的文件列表
+        run: find debug -type f | sort
 
       # 提交并推送二进制文件到仓库
-      - run: |
+      - name: 提交并推送二进制文件到仓库
+        run: |
           git add debug/
           git diff --staged --quiet || (
             git commit -m "Debug: ${{ inputs.project_name }} binaries [skip ci]" && git push
