@@ -149,6 +149,8 @@ jobs:
         with:
           commit_message: "自动构建: 添加二进制文件"
           file_pattern: 'binaries/*'
+          skip_fetch: true
+          skip_dirty_check: false
           push_options: '--force'
 
   create_release:
