@@ -107,17 +107,9 @@ pub async fn send_get_request_simple(
 
     let resp = timeout(Duration::from_millis(timeout_ms), client.call(req)).await??;
     
-    let mut body_bytes = Vec::new();
-    let mut body = resp.into_body();
+    let body_bytes = resp.into_body().collect().await?.to_bytes();
     
-    while let Some(result) = body.frame().await {
-        let frame = result?;
-        if let Some(chunk) = frame.data_ref() {
-            body_bytes.extend_from_slice(chunk); 
-        }
-    }
-    
-    Ok(Bytes::from(body_bytes))
+    Ok(body_bytes)
 }
 
 /// 发送 GET 请求并返回流式响应
