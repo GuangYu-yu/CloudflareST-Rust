@@ -16,12 +16,37 @@ on:
         type: string
         default: 'CloudflareST-Rust'
         required: true
+      # 平台选择选项
+      build_windows_amd64:
+        description: '编译 Windows AMD64 版本'
+        type: boolean
+        default: true
+      build_windows_arm64:
+        description: '编译 Windows ARM64 版本'
+        type: boolean
+        default: true
+      build_linux_amd64:
+        description: '编译 Linux AMD64 版本'
+        type: boolean
+        default: true
+      build_linux_arm64:
+        description: '编译 Linux ARM64 版本'
+        type: boolean
+        default: true
+      build_macos_amd64:
+        description: '编译 MacOS AMD64 版本'
+        type: boolean
+        default: true
+      build_macos_arm64:
+        description: '编译 MacOS ARM64 版本'
+        type: boolean
+        default: true
 
 jobs:
   build:
     name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: ${{ always() }}
+    if: ${{ always() && github.event.inputs[matrix.build_option] == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -31,31 +56,37 @@ jobs:
             arch: AMD64
             target: x86_64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
+            build_option: build_windows_amd64
           - os: Windows
             runner: windows-latest
             arch: ARM64
             target: aarch64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
+            build_option: build_windows_arm64
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
             target: x86_64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
+            build_option: build_linux_amd64
           - os: Linux
             runner: ubuntu-latest
             arch: ARM64
             target: aarch64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
+            build_option: build_linux_arm64
           - os: MacOS
             runner: macos-latest
             arch: AMD64
             target: x86_64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
+            build_option: build_macos_amd64
           - os: MacOS
             runner: macos-latest
             arch: ARM64
             target: aarch64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
+            build_option: build_macos_arm64
 
     steps:
       - name: 检出代码
@@ -109,6 +140,7 @@ jobs:
     name: Strip 二进制文件
     needs: [build]
     runs-on: windows-latest
+    if: ${{ needs.build.result == 'success' }}
     steps:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
@@ -133,7 +165,7 @@ jobs:
     name: 上传二进制文件到仓库
     needs: [strip_binaries]
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.upload_to_repo == 'true' }}
+    if: ${{ github.event.inputs.upload_to_repo == 'true' && needs.strip_binaries.result == 'success' }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -167,7 +199,7 @@ jobs:
     name: 创建发布版本
     needs: [strip_binaries]
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.create_release == 'true' }}
+    if: ${{ github.event.inputs.create_release == 'true' && needs.strip_binaries.result == 'success' && needs.build.result == 'success' }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
