@@ -107,7 +107,7 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.inputs.project_name }}-${{ matrix.os }}_${{ matrix.arch }}
+          name: ${{ matrix.os }}_${{ matrix.arch }}
           path: binaries/${{ matrix.os }}_${{ matrix.arch }}/
 
   strip_binaries:
