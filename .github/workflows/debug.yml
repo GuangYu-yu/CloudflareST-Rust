@@ -8,7 +8,6 @@ on:
         type: string
         default: 'CloudflareST-Rust'
         required: true
-      # 平台选择选项
       build_windows_amd64:
         description: '编译 Windows AMD64 版本'
         type: boolean
@@ -48,89 +47,77 @@ jobs:
             target: x86_64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
             build_option: build_windows_amd64
-            condition: ${{ github.event.inputs.build_windows_amd64 == 'true' }}
           - os: Windows
             runner: windows-latest
             arch: ARM64
             target: aarch64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
             build_option: build_windows_arm64
-            condition: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
             target: x86_64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_linux_amd64
-            condition: ${{ github.event.inputs.build_linux_amd64 == 'true' }}
           - os: Linux
             runner: ubuntu-latest
             arch: ARM64
             target: aarch64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_linux_arm64
-            condition: ${{ github.event.inputs.build_linux_arm64 == 'true' }}
           - os: MacOS
             runner: macos-latest
             arch: AMD64
             target: x86_64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_macos_amd64
-            condition: ${{ github.event.inputs.build_macos_amd64 == 'true' }}
           - os: MacOS
             runner: macos-latest
             arch: ARM64
             target: aarch64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_macos_arm64
-            condition: ${{ github.event.inputs.build_macos_arm64 == 'true' }}
-    if: matrix.condition
 
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 安装最新 Rust 工具链
+      - name: 判断是否需要构建
+        if: ${{ github.event.inputs[matrix.build_option] == false }}
+        run: echo "跳过 ${{ matrix.os }}_${{ matrix.arch }} 构建" && exit 0
+
+      - name: 安装 Rust 工具链
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: 安装 MUSL 工具链（仅 Linux）
+      - name: 安装 MUSL (仅 Linux)
         if: startsWith(matrix.os, 'Linux')
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
           rustup target add ${{ matrix.target }}
-        shell: bash
 
       - name: 构建项目
-        run: |
-          cargo build --target ${{ matrix.target }}
-        shell: bash
+        run: cargo build --target ${{ matrix.target }}
 
-      - name: 创建二进制目录
-        run: mkdir -p debug/${{ matrix.os }}_${{ matrix.arch }}
-        shell: bash
-
-      - name: 复制二进制文件
+      - name: 保存 Debug 二进制
         run: |
+          mkdir -p debug/${{ matrix.os }}_${{ matrix.arch }}
           cp target/${{ matrix.target }}/debug/${{ matrix.binary_name }} debug/${{ matrix.os }}_${{ matrix.arch }}/
-        shell: bash
 
-      - name: 上传构建产物
+      - name: 上传 Debug artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.inputs.project_name }}-${{ matrix.os }}_${{ matrix.arch }}
           path: debug/${{ matrix.os }}_${{ matrix.arch }}/
 
   upload_to_repo:
-    name: 上传二进制文件到仓库
-    needs: [build]
+    name: 上传 Debug 二进制到仓库
+    needs: build
     runs-on: ubuntu-latest
     if: needs.build.result == 'success'
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: 设置 Git
         run: |
@@ -140,17 +127,10 @@ jobs:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
         with:
-          path: downloaded_artifacts/
+          path: debug
 
-      - name: 创建debug目录
+      - name: 整理 debug 目录
         run: |
-          rm -rf debug
-          mkdir -p debug
-          for dir in downloaded_artifacts/${{ github.event.inputs.project_name }}-*/; do
-            platform_name=$(basename "$dir" | sed 's/${{ github.event.inputs.project_name }}-//')
-            mkdir -p "debug/$platform_name"
-            cp -r "$dir"/* "debug/$platform_name/"
-          done
           echo "最终目录结构:"
           find debug -type f | sort
 
@@ -163,4 +143,3 @@ jobs:
             git commit -m "添加调试版本二进制文件 [skip ci]"
             git push
           fi
-        shell: bash
