@@ -1,106 +1,26 @@
 use fastrand;
 use ipnet::IpNet;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::ptr;
 use std::str::FromStr;
 use std::sync::{
     Arc,
-    atomic::{AtomicPtr, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
     RwLock,
 };
 
 use crate::args::Args;
 use crate::common::get_list;
 
-/// 单个IP原子链表节点
-struct IpNode {
-    ip: SocketAddr,
-    next: AtomicPtr<IpNode>,
-}
-
-/// 单个IP无锁链表
-struct LockFreeIpList {
-    head: AtomicPtr<IpNode>,
-}
-
-impl LockFreeIpList {
-    fn new(ips: Vec<SocketAddr>) -> Self {
-        let mut head_ptr: *mut IpNode = ptr::null_mut();
-
-        // 反向构建链表，保持原始顺序
-        for ip in ips.into_iter().rev() {
-            let new_node = Box::new(IpNode {
-                ip,
-                next: AtomicPtr::new(head_ptr),
-            });
-            head_ptr = Box::into_raw(new_node);
-        }
-
-        Self {
-            head: AtomicPtr::new(head_ptr),
-        }
-    }
-
-    /// 从链表头部弹出一个IP地址
-    fn pop(&self) -> Option<SocketAddr> {
-        loop {
-            // 获取当前头节点
-            let current_head = self.head.load(Ordering::Acquire);
-
-            // 如果链表为空
-            if current_head.is_null() {
-                return None;
-            }
-
-            // 获取下一个节点指针
-            let next_node = unsafe { (*current_head).next.load(Ordering::Acquire) };
-
-            // 进行原子更新
-            match self.head.compare_exchange_weak(
-                current_head,
-                next_node,
-                Ordering::AcqRel,  // 成功时使用AcqRel，确保原子性和内存顺序
-                Ordering::Acquire, // 失败时使用Acquire，保证读取一致性
-            ) {
-                Ok(_) => {
-                    // CAS成功，安全地提取IP地址并释放节点内存
-                    let ip = unsafe { (*current_head).ip };
-                    unsafe {
-                        drop(Box::from_raw(current_head));
-                    }
-                    return Some(ip);
-                }
-                Err(_) => {
-                    // CAS失败，让出CPU时间片，避免忙等待
-                    std::thread::yield_now();
-                }
-            }
-        }
-    }
-}
-
-/// 实现Drop以确保所有节点都被正确释放
-impl Drop for LockFreeIpList {
-    fn drop(&mut self) {
-        let mut current = self.head.load(Ordering::Relaxed);
-        while !current.is_null() {
-            let next = unsafe { (*current).next.load(Ordering::Relaxed) };
-            unsafe {
-                drop(Box::from_raw(current));
-            }
-            current = next;
-        }
-    }
-}
-
 /// IP地址获取结构体
 /// 用于管理和分发需要测试的IP地址
 pub struct IpBuffer {
     total_expected: usize,                           // 预期总IP数量
     cidr_states: Arc<RwLock<Vec<Arc<CidrState>>>>,   // 每个CIDR状态
-    single_ips: Option<Arc<LockFreeIpList>>,        // 单个IP地址无锁链表
+    single_ips: Option<Arc<Mutex<VecDeque<SocketAddr>>>>, // 单个IP地址列表
     current_cidr: AtomicUsize,                      // 轮询索引
     tcp_port: u16,                                  // TCP端口
 }
@@ -174,11 +94,11 @@ impl IpBuffer {
             .map(|state| Arc::new(state))
             .collect();
 
-        // 创建无锁链表或None
+        // 创建IP列表或None
         let single_ip_list = if single_ips.is_empty() {
             None
         } else {
-            Some(Arc::new(LockFreeIpList::new(single_ips)))
+            Some(Arc::new(Mutex::new(VecDeque::from(single_ips))))
         };
 
         Self {
@@ -193,10 +113,12 @@ impl IpBuffer {
     /// 获取一个IP地址
     /// 优先返回单个IP，再轮询CIDR
     pub fn pop(&self) -> Option<SocketAddr> {
-        // 1. 尝试单 IP 链表
+        // 1. 尝试单 IP 列表
         if let Some(ip_list) = &self.single_ips {
-            if let Some(ip) = ip_list.pop() {
-                return Some(ip);
+            if let Ok(mut ips) = ip_list.lock() {
+                if let Some(ip) = ips.pop_front() {
+                    return Some(ip);
+                }
             }
         }
 
