@@ -151,26 +151,18 @@ jobs:
           push_options: '--force'
 
   create_release:
-    name: 创建或更新发布版本
+    name: 创建发布
     needs: [matrix, strip_binaries]
     if: ${{ needs.matrix.outputs.include != '[]' && github.event.inputs.create_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: 检查 Git 仓库 (用于获取 ref)
-        uses: actions/checkout@v4
-        
-      - name: 删除旧版
-        uses: dev-drprasad/delete-tag-and-release@v1.1
-        with:
-          tag_name: ${{ github.ref_name }}-latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
         with:
           name: stripped_artifacts
           path: artifacts/
-          
+
       - name: 打包发布文件
         run: |
           mkdir -p release
@@ -183,11 +175,10 @@ jobs:
               cp "$dir"/* tmp_$platform/ 2>/dev/null || echo "警告: $dir 中没有文件"
               cd tmp_$platform
               if [ -n "$(ls -A .)" ]; then
-                RELEASE_NAME="${{ github.event.inputs.project_name }}_${os}_${arch}"
                 if [[ "$os" == "windows" ]]; then
-                  zip -r "../release/${RELEASE_NAME}.zip" .
+                  zip -r "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.zip" .
                 else
-                  tar -czf "../release/${RELEASE_NAME}.tar.gz" .
+                  tar -czf "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.tar.gz" .
                 fi
               else
                 echo "跳过空目录: $dir"
@@ -196,12 +187,23 @@ jobs:
               rm -rf tmp_$platform
             fi
           done
+
+      # 删除旧版 tag 和 release
+      - name: 删除旧版 Release 和 Tag
+        run: |
+          tag="${{ github.ref_name }}-latest"
+          gh release delete "$tag" -y || true
+          git push origin ":refs/tags/$tag" || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          name: "${{ github.event.inputs.project_name }} 最新版本 (${{ github.ref_name }})"
+          name: "${{ github.event.inputs.project_name }} 最新版本"
           tag_name: "${{ github.ref_name }}-latest"
           files: release/*
-          # prerelease: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
