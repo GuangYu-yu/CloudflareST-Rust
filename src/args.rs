@@ -18,8 +18,7 @@ pub struct Args {
     pub httping: bool,                      // 是否启用HTTPing测试
     pub httping_code: String,               // HTTPing使用的HTTP状态码
     pub httping_cf_colo: String,            // 指定Cloudflare地区代码
-    pub httping_urls: String,               // HTTPing使用的URL列表
-    pub httping_urls_flag: bool,            // 是否使用自定义HTTPing URL标志
+    pub httping_urls: Option<String>,       // HTTPing使用的URL列表
     pub max_delay: Duration,                // 最大可接受延迟
     pub min_delay: Duration,                // 最小可接受延迟
     pub max_loss_rate: f32,                 // 最大丢包率阈值
@@ -66,8 +65,7 @@ impl Args {
             httping: false,
             httping_code: String::new(),
             httping_cf_colo: String::new(),
-            httping_urls: String::new(),
-            httping_urls_flag: false,
+            httping_urls: None,
             max_delay: Duration::from_millis(2000), // 默认最大延迟2000ms
             min_delay: Duration::from_millis(0),    // 默认最小延迟0ms
             max_loss_rate: 1.0,                     // 默认最大丢包率100%
@@ -91,6 +89,31 @@ impl Args {
         }
     }
 
+    // 私有解析助手函数
+    fn parse_u16(value_opt: Option<String>, default: u16) -> u16 {
+        value_opt
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(default)
+    }
+
+    fn parse_f32(value_opt: Option<String>, default: f32) -> f32 {
+        value_opt
+            .and_then(|s| s.parse::<f32>().ok())
+            .unwrap_or(default)
+    }
+
+    fn parse_u64(value_opt: Option<String>, default: u64) -> u64 {
+        value_opt
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(default)
+    }
+
+    fn parse_usize(value_opt: Option<String>, default: usize) -> usize {
+        value_opt
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(default)
+    }
+
     /// 解析命令行参数
     pub fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
@@ -109,70 +132,49 @@ impl Args {
 
                 // hu 可以有值也可以没有值
                 "hu" => {
-                    parsed.httping_urls_flag = true;
                     parsed.httping = true;
-                    parsed.httping_urls = v_opt.unwrap_or_default();
+                    parsed.httping_urls = Some(v_opt.unwrap_or_default());
                 }
 
                 // 数值参数
                 "t" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
-                        parsed.ping_times = v.clamp(1, u16::MAX);
-                    }
+                    parsed.ping_times = Self::parse_u16(v_opt, parsed.ping_times).clamp(1, u16::MAX);
                 }
                 "dn" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
-                        parsed.test_count = v.clamp(1, u16::MAX);
-                    }
+                    parsed.test_count = Self::parse_u16(v_opt, parsed.test_count).clamp(1, u16::MAX);
                 }
                 "tp" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
-                        parsed.tcp_port = v.clamp(1, u16::MAX);
-                    }
+                    parsed.tcp_port = Self::parse_u16(v_opt, parsed.tcp_port).clamp(1, u16::MAX);
                 }
                 "p" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u16>().ok()) {
-                        parsed.print_num = v.clamp(1, u16::MAX);
-                    }
+                    parsed.print_num = Self::parse_u16(v_opt, parsed.print_num).clamp(1, u16::MAX);
                 }
                 "tlr" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) {
-                        parsed.max_loss_rate = v.clamp(0.0, 1.0);
-                    }
+                    parsed.max_loss_rate = Self::parse_f32(v_opt, parsed.max_loss_rate).clamp(0.0, 1.0);
                 }
                 "sl" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<f32>().ok()) {
-                        parsed.min_speed = v.clamp(0.0, f32::MAX);
-                    }
+                    parsed.min_speed = Self::parse_f32(v_opt, parsed.min_speed).clamp(0.0, f32::MAX);
                 }
                 "tn" => parsed.target_num = v_opt.and_then(|s| s.parse().ok()),
                 "n" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<usize>().ok()) {
-                        parsed.max_threads = v.clamp(1, 1024);
-                    }
+                    parsed.max_threads = Self::parse_usize(v_opt, parsed.max_threads).clamp(1, 1024);
                 }
                 // 时间参数
                 "dt" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
-                        parsed.timeout_duration = Some(Duration::from_secs(v.clamp(1, 120)));
-                    }
+                    let seconds = Self::parse_u64(v_opt, parsed.timeout_duration.map(|d| d.as_secs()).unwrap_or(10));
+                    parsed.timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 120)));
                 }
                 "timeout" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
-                        parsed.global_timeout_duration =
-                            Some(Duration::from_secs(v.clamp(1, 36000)));
-                    }
+                    let seconds = Self::parse_u64(v_opt, parsed.global_timeout_duration.map(|d| d.as_secs()).unwrap_or(0));
+                    parsed.global_timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 36000)));
                 }
                 "tl" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
-                        parsed.max_delay = Duration::from_millis(v.clamp(0, 2000));
-                    }
+                    let ms = Self::parse_u64(v_opt, parsed.max_delay.as_millis() as u64);
+                    parsed.max_delay = Duration::from_millis(ms.clamp(0, 2000));
                 }
                 "tll" => {
-                    if let Some(v) = v_opt.and_then(|s| s.parse::<u64>().ok()) {
-                        parsed.min_delay =
-                            Duration::from_millis(v.clamp(0, parsed.max_delay.as_millis() as u64));
-                    }
+                    let ms = Self::parse_u64(v_opt, parsed.min_delay.as_millis() as u64);
+                    parsed.min_delay = Duration::from_millis(ms.clamp(0, parsed.max_delay.as_millis() as u64));
                 }
                 // 字符串参数
                 "url" => {
@@ -298,8 +300,8 @@ pub fn parse_args() -> Args {
     }
 
     // 先检查 -hu 参数的特殊情况
-    if args.httping_urls_flag
-        && args.httping_urls.is_empty()
+    if args.httping_urls.is_some()
+        && args.httping_urls.as_ref().unwrap().is_empty()
         && args.url.is_empty()
         && args.urlist.is_empty()
     {
@@ -312,7 +314,7 @@ pub fn parse_args() -> Args {
 
     if args.disable_download
         && (!args.url.is_empty() || !args.urlist.is_empty())
-        && !(args.httping_urls_flag && args.httping_urls.is_empty())
+        && !(args.httping_urls.is_some() && args.httping_urls.as_ref().unwrap().is_empty())
     {
         warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
     }
