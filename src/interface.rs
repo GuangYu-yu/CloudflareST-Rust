@@ -266,7 +266,7 @@ pub async fn bind_socket_to_interface(
         create_and_bind_tcp_socket(&addr, None)
     }
     
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let sock = create_tcp_socket_for_ip(&addr.ip())?;
 
