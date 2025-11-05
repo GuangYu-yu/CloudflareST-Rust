@@ -42,56 +42,38 @@ on:
         default: true
 
 jobs:
+  # 动态生成矩阵配置，只包含用户勾选的平台
+  matrix:
+    name: 矩阵配置
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+    steps:
+      - id: set
+        run: |
+          # 根据用户输入动态构建矩阵
+          arr=()
+          [[ "${{ inputs.build_windows_amd64 }}" == true ]] && arr+=('{"os":"Windows","arch":"AMD64","target":"x86_64-pc-windows-msvc","runner":"windows-latest","binary_name":"${{ inputs.project_name }}.exe"}')
+          [[ "${{ inputs.build_windows_arm64 }}" == true ]] && arr+=('{"os":"Windows","arch":"ARM64","target":"aarch64-pc-windows-msvc","runner":"windows-latest","binary_name":"${{ inputs.project_name }}.exe"}')
+          [[ "${{ inputs.build_linux_amd64 }}"   == true ]] && arr+=('{"os":"Linux","arch":"AMD64","target":"x86_64-unknown-linux-musl","runner":"ubuntu-latest","binary_name":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_linux_arm64 }}"   == true ]] && arr+=('{"os":"Linux","arch":"ARM64","target":"aarch64-unknown-linux-musl","runner":"ubuntu-latest","binary_name":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_macos_amd64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"AMD64","target":"x86_64-apple-darwin","runner":"macos-latest","binary_name":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_macos_arm64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"ARM64","target":"aarch64-apple-darwin","runner":"macos-latest","binary_name":"${{ inputs.project_name }}"}')
+          echo "include=[${arr[*]}]" >> $GITHUB_OUTPUT
+
   build:
     name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
+    needs: matrix
+    # 只有当矩阵不为空时才执行构建
+    if: ${{ needs.matrix.outputs.include != '[]' }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: Windows
-            runner: windows-latest
-            arch: AMD64
-            target: x86_64-pc-windows-msvc
-            binary_name: ${{ github.event.inputs.project_name }}.exe
-            build_flag: build_windows_amd64
-          - os: Windows
-            runner: windows-latest
-            arch: ARM64
-            target: aarch64-pc-windows-msvc
-            binary_name: ${{ github.event.inputs.project_name }}.exe
-            build_flag: build_windows_arm64
-          - os: Linux
-            runner: ubuntu-latest
-            arch: AMD64
-            target: x86_64-unknown-linux-musl
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_flag: build_linux_amd64
-          - os: Linux
-            runner: ubuntu-latest
-            arch: ARM64
-            target: aarch64-unknown-linux-musl
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_flag: build_linux_arm64
-          - os: MacOS
-            runner: macos-latest
-            arch: AMD64
-            target: x86_64-apple-darwin
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_flag: build_macos_amd64
-          - os: MacOS
-            runner: macos-latest
-            arch: ARM64
-            target: aarch64-apple-darwin
-            binary_name: ${{ github.event.inputs.project_name }}
-            build_flag: build_macos_arm64
+        include: ${{ fromJson(needs.matrix.outputs.include) }}
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: 判断是否需要构建
-        if: ${{ github.event.inputs[matrix.build_flag] == false }}
-        run: echo "跳过 ${{ matrix.os }}_${{ matrix.arch }} 构建" && exit 0
 
       - name: 安装 Rust 工具链
         uses: dtolnay/rust-toolchain@stable
@@ -130,7 +112,9 @@ jobs:
 
   strip_binaries:
     name: Strip 二进制
-    needs: build
+    needs: [matrix, build]
+    # 只有当矩阵不为空且构建成功时才执行
+    if: ${{ needs.matrix.outputs.include != '[]' && needs.build.result == 'success' }}
     runs-on: windows-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -150,8 +134,9 @@ jobs:
 
   upload_to_repo:
     name: 上传二进制到仓库
-    needs: strip_binaries
-    if: ${{ github.event.inputs.upload_to_repo == 'true' }}
+    needs: [matrix, strip_binaries]
+    # 只有当矩阵不为空且用户选择上传时才执行
+    if: ${{ needs.matrix.outputs.include != '[]' && github.event.inputs.upload_to_repo == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -168,8 +153,9 @@ jobs:
 
   create_release:
     name: 创建发布
-    needs: strip_binaries
-    if: ${{ github.event.inputs.create_release == 'true' }}
+    needs: [matrix, strip_binaries]
+    # 只有当矩阵不为空且用户选择创建发布时才执行
+    if: ${{ needs.matrix.outputs.include != '[]' && github.event.inputs.create_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
