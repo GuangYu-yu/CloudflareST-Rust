@@ -59,7 +59,7 @@ jobs:
           [[ "${{ inputs.build_linux_arm64 }}"   == true ]] && arr+=('{"os":"Linux","arch":"ARM64","target":"aarch64-unknown-linux-musl","runner":"ubuntu-latest","bin":"${{ inputs.project_name }}"}')
           [[ "${{ inputs.build_macos_amd64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"AMD64","target":"x86_64-apple-darwin","runner":"macos-latest","bin":"${{ inputs.project_name }}"}')
           [[ "${{ inputs.build_macos_arm64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"ARM64","target":"aarch64-apple-darwin","runner":"macos-latest","bin":"${{ inputs.project_name }}"}')
-          echo "include=[${arr[*]}]" >> $GITHUB_OUTPUT
+          echo "include=[$(IFS=,; echo "${arr[*]}")]" >> $GITHUB_OUTPUT
 
   build:
     name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
