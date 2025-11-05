@@ -56,47 +56,82 @@ jobs:
             target: x86_64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
             build_option: build_windows_amd64
-            condition: ${{ github.event.inputs.build_windows_amd64 == 'true' }}
           - os: Windows
             runner: windows-latest
             arch: ARM64
             target: aarch64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
             build_option: build_windows_arm64
-            condition: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
             target: x86_64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_linux_amd64
-            condition: ${{ github.event.inputs.build_linux_amd64 == 'true' }}
           - os: Linux
             runner: ubuntu-latest
             arch: ARM64
             target: aarch64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_linux_arm64
-            condition: ${{ github.event.inputs.build_linux_arm64 == 'true' }}
           - os: MacOS
             runner: macos-latest
             arch: AMD64
             target: x86_64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_macos_amd64
-            condition: ${{ github.event.inputs.build_macos_amd64 == 'true' }}
           - os: MacOS
             runner: macos-latest
             arch: ARM64
             target: aarch64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_macos_arm64
-            condition: ${{ github.event.inputs.build_macos_arm64 == 'true' }}
-    if: matrix.condition
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+
+      - name: 检查是否需要构建 Windows AMD64
+        if: matrix.build_option == 'build_windows_amd64' && github.event.inputs.build_windows_amd64 == 'false'
+        run: |
+          echo "跳过 Windows AMD64 构建"
+          exit 0
+        shell: bash
+
+      - name: 检查是否需要构建 Windows ARM64
+        if: matrix.build_option == 'build_windows_arm64' && github.event.inputs.build_windows_arm64 == 'false'
+        run: |
+          echo "跳过 Windows ARM64 构建"
+          exit 0
+        shell: bash
+
+      - name: 检查是否需要构建 Linux AMD64
+        if: matrix.build_option == 'build_linux_amd64' && github.event.inputs.build_linux_amd64 == 'false'
+        run: |
+          echo "跳过 Linux AMD64 构建"
+          exit 0
+        shell: bash
+
+      - name: 检查是否需要构建 Linux ARM64
+        if: matrix.build_option == 'build_linux_arm64' && github.event.inputs.build_linux_arm64 == 'false'
+        run: |
+          echo "跳过 Linux ARM64 构建"
+          exit 0
+        shell: bash
+
+      - name: 检查是否需要构建 MacOS AMD64
+        if: matrix.build_option == 'build_macos_amd64' && github.event.inputs.build_macos_amd64 == 'false'
+        run: |
+          echo "跳过 MacOS AMD64 构建"
+          exit 0
+        shell: bash
+
+      - name: 检查是否需要构建 MacOS ARM64
+        if: matrix.build_option == 'build_macos_arm64' && github.event.inputs.build_macos_arm64 == 'false'
+        run: |
+          echo "跳过 MacOS ARM64 构建"
+          exit 0
+        shell: bash
 
       - name: 安装最新 Rust 工具链
         uses: dtolnay/rust-toolchain@stable
