@@ -46,7 +46,6 @@ jobs:
   build:
     name: 构建 ${{ matrix.os }}_${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: ${{ always() && github.event.inputs[matrix.build_option] == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -57,36 +56,43 @@ jobs:
             target: x86_64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
             build_option: build_windows_amd64
+            condition: ${{ github.event.inputs.build_windows_amd64 == 'true' }}
           - os: Windows
             runner: windows-latest
             arch: ARM64
             target: aarch64-pc-windows-msvc
             binary_name: ${{ github.event.inputs.project_name }}.exe
             build_option: build_windows_arm64
+            condition: ${{ github.event.inputs.build_windows_arm64 == 'true' }}
           - os: Linux
             runner: ubuntu-latest
             arch: AMD64
             target: x86_64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_linux_amd64
+            condition: ${{ github.event.inputs.build_linux_amd64 == 'true' }}
           - os: Linux
             runner: ubuntu-latest
             arch: ARM64
             target: aarch64-unknown-linux-musl
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_linux_arm64
+            condition: ${{ github.event.inputs.build_linux_arm64 == 'true' }}
           - os: MacOS
             runner: macos-latest
             arch: AMD64
             target: x86_64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_macos_amd64
+            condition: ${{ github.event.inputs.build_macos_amd64 == 'true' }}
           - os: MacOS
             runner: macos-latest
             arch: ARM64
             target: aarch64-apple-darwin
             binary_name: ${{ github.event.inputs.project_name }}
             build_option: build_macos_arm64
+            condition: ${{ github.event.inputs.build_macos_arm64 == 'true' }}
+    if: matrix.condition
 
     steps:
       - name: 检出代码
