@@ -11,13 +11,12 @@ use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 
 // Windows 常量
 #[cfg(target_os = "windows")]
-const IPPROTO_IP: i32 = 0;
-#[cfg(target_os = "windows")]
-const IPPROTO_IPV6: i32 = 41;
-#[cfg(target_os = "windows")]
-const IP_UNICAST_IF: i32 = 31;
-#[cfg(target_os = "windows")]
-const IPV6_UNICAST_IF: i32 = 31;
+mod win_consts {
+    pub const IPPROTO_IP: i32      = 0;
+    pub const IPPROTO_IPV6: i32    = 41;
+    pub const IP_UNICAST_IF: i32   = 31;
+    pub const IPV6_UNICAST_IF: i32 = 31;
+}
 
 /// 接口 IP 信息
 #[derive(Clone)]
