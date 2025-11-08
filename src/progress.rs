@@ -145,8 +145,11 @@ impl Bar {
                     let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
                     
                     // 计算周期性变化的饱和度和亮度
-                    let time_factor = start_instant.elapsed().as_secs_f64();
-                    let brightness = PROGRESS_BAR_BRIGHTNESS[0] + PROGRESS_BAR_BRIGHTNESS[1] * (time_factor * 2.0).sin();
+                    let mut x = (start_instant.elapsed().as_secs_f64() * 2.0) % (std::f64::consts::PI * 2.0);
+                    if x > std::f64::consts::PI { x -= std::f64::consts::PI * 2.0; }
+                    let x2 = x * x;
+                    let brightness = PROGRESS_BAR_BRIGHTNESS[0] + PROGRESS_BAR_BRIGHTNESS[1]
+                        * x * (1.0 + x2 * (-1.0/6.0 + x2 * (1.0/120.0 + x2 * (-1.0/5040.0 + x2 * (1.0/362880.0)))));
                     
                     let (r, g, b) = hsv_to_rgb(hue, 0.4, brightness);
 
