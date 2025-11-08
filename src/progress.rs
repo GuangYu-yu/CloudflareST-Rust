@@ -11,6 +11,15 @@ use std::{
 };
 use terminal_size::{terminal_size, Width};
 
+// 进度条颜色配置
+const PROGRESS_BAR_BRIGHTNESS: [f64; 2] = [
+    0.7, // 亮度基准值
+    0.15  // 亮度变化幅度
+];
+
+// 进度条动画配置常量
+const PROGRESS_BAR_SPEED: f64 = 0.3; // 进度条色彩流动速度
+
 // HSV 到 RGB 颜色转换
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
     let i = (h * 6.0).floor() as i32;
@@ -113,7 +122,7 @@ impl Bar {
                 let current_pos = pos_clone.load(Ordering::Relaxed);
                 let progress = (current_pos.min(count) as f64) / count.max(1) as f64;
                 let filled = (progress * bar_length as f64) as usize;
-                let phase = (start_instant.elapsed().as_secs_f64() * 0.3) % 1.0;
+                let phase = (start_instant.elapsed().as_secs_f64() * PROGRESS_BAR_SPEED) % 1.0;
 
                 // 新的百分比内容
                 let percent_content = format!(" {:>4.1}% ", progress * 100.0);
@@ -134,7 +143,12 @@ impl Bar {
 
                     // 1. 计算已完成部分的颜色 (进度条颜色)
                     let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
-                    let (r, g, b) = hsv_to_rgb(hue, 0.4, 0.5);
+                    
+                    // 计算周期性变化的饱和度和亮度
+                    let time_factor = start_instant.elapsed().as_secs_f64();
+                    let brightness = PROGRESS_BAR_BRIGHTNESS[0] + PROGRESS_BAR_BRIGHTNESS[1] * (time_factor * 2.0).sin();
+                    
+                    let (r, g, b) = hsv_to_rgb(hue, 0.4, brightness);
 
                     // 2. 确定当前单元格应该使用的背景色
                     let (bg_r, bg_g, bg_b) = if is_filled {
