@@ -59,6 +59,7 @@ impl PrintResult for Vec<PingData> {
         }
 
         const COLUMN_PADDING: usize = 3; // 每列额外间距
+        const LEADING_SPACES: usize = 1; // 前导空格数量
 
         let print_num = self.len().min(args.print_num.into());
         let header_display_widths: [usize; 7] = [7, 6, 6, 6, 8, 14, 8]; 
@@ -85,27 +86,27 @@ impl PrintResult for Vec<PingData> {
             .collect();
 
         // 打印表头
-        let header_row: String = TABLE_HEADERS
+        let header_row: String = " ".repeat(LEADING_SPACES) + &TABLE_HEADERS
             .iter()
             .enumerate()
             .map(|(i, header)| {
                 let pad = column_widths[i].saturating_sub(header_display_widths[i]) + COLUMN_PADDING;
                 format!("{}{}", header, " ".repeat(pad))
             })
-            .collect();
-        // 打印青色表头
-        println!("\x1b[36m{}\x1b[0m", header_row);
+            .collect::<String>();
+        // 打印表头 (使用亮白色+粗体)
+        println!("\x1b[1;97m{}\x1b[0m", header_row);
 
         // 打印数据行
         for row in rows {
-            let row_str: String = row
+            let row_str: String = " ".repeat(LEADING_SPACES) + &row
                 .iter()
                 .enumerate()
                 .map(|(i, field)| {
                     let pad = column_widths[i].saturating_sub(field.chars().count()) + COLUMN_PADDING;
                     format!("{}{}", field, " ".repeat(pad))
                 })
-                .collect();
+                .collect::<String>();
             println!("{}", row_str);
         }
     }
