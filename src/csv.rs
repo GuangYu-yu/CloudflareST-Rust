@@ -93,7 +93,7 @@ impl PrintResult for Vec<PingData> {
             base_width.saturating_sub((-LINE_LENGTH_ADJUSTMENT) as usize)
         };
 
-        let leading = " ".repeat(LEADING_SPACES);
+        let leading = " ".to_string();
         let line = "─".repeat(adjusted_width - LEADING_SPACES);
 
         // 输出分割线
