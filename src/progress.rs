@@ -23,7 +23,7 @@ fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
         2 => (p, v, t),
         3 => (p, q, v),
         4 => (t, p, v),
-        5 | _ => (v, p, q),
+        _ => (v, p, q),
     };
     ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
@@ -137,7 +137,7 @@ impl Bar {
                 );
 
                 if is_done_val {
-                    print!("\n");
+                    println!();
                 }
 
                 stdout().flush().ok();
@@ -169,10 +169,8 @@ impl Bar {
 
     pub fn done(&self) {
         self.is_done.store(true, Ordering::Release);
-        if let Ok(mut guard) = self.thread_handle.lock() {
-            if let Some(handle) = guard.take() {
-                handle.join().ok();
-            }
+        if let Ok(mut guard) = self.thread_handle.lock() && let Some(handle) = guard.take() {
+            handle.join().ok();
         }
         let _ = stdout().flush();
     }

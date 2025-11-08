@@ -180,26 +180,26 @@ impl<'a> DownloadTest<'a> {
                 &self.args.url
             };
 
-            let (speed, maybe_colo) = download_handler(
-                ping_result.addr,
-                test_url,
-                self.args.timeout_duration.unwrap(),
-                Arc::clone(&self.current_speed),
+            let params = DownloadHandlerParams {
+                addr: ping_result.addr,
+                url: test_url,
+                download_duration: self.args.timeout_duration.unwrap(),
+                current_speed: Arc::clone(&self.current_speed),
                 need_colo,
-                Arc::clone(&self.timeout_flag),
-                Arc::clone(&colo_filters),
-                self.args.interface.as_deref(),
-                self.args.interface_ips.as_ref(),
-            )
-            .await;
+                timeout_flag: Arc::clone(&self.timeout_flag),
+                colo_filters: Arc::clone(&colo_filters),
+                interface: self.args.interface.as_deref(),
+                interface_ips: self.args.interface_ips.as_ref(),
+            };
+            
+            let (speed, maybe_colo) = download_handler(params).await;
 
             // 更新下载速度和可能的数据中心信息
             ping_result.download_speed = speed;
 
-            if ping_result.data_center.is_empty() {
-                if let Some(colo) = maybe_colo {
-                    ping_result.data_center = colo;
-                }
+            if ping_result.data_center.is_empty()
+                && let Some(colo) = maybe_colo {
+                ping_result.data_center = colo;
             }
 
             let ping_result_ref = ping_result.as_ref();
@@ -212,7 +212,7 @@ impl<'a> DownloadTest<'a> {
 
             // 检查数据中心是否符合要求
             let colo_match = if !colo_filters.is_empty() {
-                common::is_colo_matched(&ping_result_ref.data_center, &colo_filters)
+                common::is_colo_matched(ping_result_ref.data_center, &colo_filters)
             } else {
                 true // 没有过滤条件时视为匹配
             };
@@ -252,23 +252,26 @@ impl<'a> DownloadTest<'a> {
     }
 }
 
-// 下载测速处理函数
-async fn download_handler(
+// 下载测速参数结构体
+struct DownloadHandlerParams<'a> {
     addr: SocketAddr,
-    url: &str,
+    url: &'a str,
     download_duration: Duration,
     current_speed: Arc<Mutex<f32>>,
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
-    interface: Option<&str>,
-    interface_ips: Option<&crate::interface::InterfaceIps>,
-) -> (Option<f32>, Option<String>) {
+    interface: Option<&'a str>,
+    interface_ips: Option<&'a crate::interface::InterfaceIps>,
+}
+
+// 下载测速处理函数
+async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Option<String>) {
     // 在每次新的下载开始前重置速度为0
-    *current_speed.lock().unwrap() = 0.0;
+    *params.current_speed.lock().unwrap() = 0.0;
 
     // 解析原始URL以获取主机名和路径
-    let (uri, host) = match parse_url_to_uri(url) {
+    let (uri, host) = match parse_url_to_uri(params.url) {
         Some(result) => result,
         None => return (None, None),
     };
@@ -277,13 +280,13 @@ async fn download_handler(
 
     // 计算延长的下载时间
     let warm_up_duration = Duration::from_secs(3); // 预热时间
-    let extended_duration = download_duration + warm_up_duration;
+    let extended_duration = params.download_duration + warm_up_duration;
 
     // 创建客户端进行下载测速
     let client = match hyper::build_hyper_client(
-        addr,
-        interface,
-        interface_ips,
+        params.addr,
+        params.interface,
+        params.interface_ips,
         extended_duration.as_millis() as u64,
     ) {
         Some(client) => client,
@@ -291,7 +294,7 @@ async fn download_handler(
     };
 
     // 创建下载处理器
-    let mut handler = DownloadHandler::new(Arc::clone(&current_speed));
+    let mut handler = DownloadHandler::new(Arc::clone(&params.current_speed));
 
     // 发送GET请求
     let response = hyper::send_get_response(
@@ -307,17 +310,16 @@ async fn download_handler(
         handler.update_headers(resp.headers());
 
         // 如果需要获取数据中心信息，从响应头中提取
-        if need_colo {
+        if params.need_colo {
             data_center = common::extract_data_center(&resp);
             // 如果没有提取到数据中心信息，直接返回None
             if data_center.is_none() {
                 return (None, None);
             }
             // 如果数据中心不符合要求，速度返回None，数据中心正常返回
-            if let Some(dc) = &data_center {
-                if !colo_filters.is_empty() && !common::is_colo_matched(dc, &colo_filters) {
-                    return (None, data_center);
-                }
+            if let Some(dc) = &data_center
+                && !params.colo_filters.is_empty() && !common::is_colo_matched(dc, &params.colo_filters) {
+                return (None, data_center);
             }
         }
 
@@ -337,7 +339,7 @@ async fn download_handler(
             }
 
             // 检查是否收到超时信号
-            if timeout_flag.load(Ordering::SeqCst) {
+            if params.timeout_flag.load(Ordering::SeqCst) {
                 return (None, data_center); // 收到超时信号，直接返回None，丢弃当前未完成的下载
             }
 

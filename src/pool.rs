@@ -43,8 +43,5 @@ where
     let _permit = GLOBAL_LIMITER.get().unwrap().acquire().await;
 
     // 执行操作
-    let result = f().await;
-
-    // 返回结果
-    result
+    f().await
 }

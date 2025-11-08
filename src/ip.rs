@@ -1,4 +1,3 @@
-use fastrand;
 use ipnet::IpNet;
 use std::collections::VecDeque;
 use std::fs::File;
@@ -91,7 +90,7 @@ impl IpBuffer {
         // 将每个CIDR状态包装成Arc
         let cidr_states: Vec<Arc<CidrState>> = cidr_states
             .into_iter()
-            .map(|state| Arc::new(state))
+            .map(Arc::new)
             .collect();
 
         // 创建IP列表或None
@@ -114,36 +113,34 @@ impl IpBuffer {
     /// 优先返回单个IP，再轮询CIDR
     pub fn pop(&self) -> Option<SocketAddr> {
         // 1. 尝试单 IP 列表
-        if let Some(ip_list) = &self.single_ips {
-            if let Ok(mut ips) = ip_list.lock() {
-                if let Some(ip) = ips.pop_front() {
+        if let Some(ip_list) = &self.single_ips
+            && let Ok(mut ips) = ip_list.lock()
+            && let Some(ip) = ips.pop_front() {
+            return Some(ip);
+        }
+
+        // 2. CIDR 轮询
+        loop {
+            let idx;
+            {
+                let states = self.cidr_states.read().unwrap();
+                if states.is_empty() {
+                    return None;
+                }
+                idx = self.current_cidr.fetch_add(1, Ordering::Relaxed) % states.len();
+                let cidr = states[idx].clone();
+                drop(states);
+                
+                if let Some(ip) = cidr.next_ip(self.tcp_port) {
                     return Some(ip);
                 }
             }
-        }
-
-        // 2. 尝试 CIDR 轮询
-        loop {
-            let states = self.cidr_states.read().unwrap();
-            let cidr_len = states.len();
-            if cidr_len == 0 {
-                return None;
-            }
-
-            let idx = self.current_cidr.fetch_add(1, Ordering::Relaxed) % cidr_len;
-            let cidr = states[idx].clone();
-            drop(states); // 提前释放读锁
-
-            if let Some(ip) = cidr.next_ip(self.tcp_port) {
-                return Some(ip);
-            }
-
-            // 3. CIDR 耗尽时删除
+            
+            // CIDR 耗尽则移除
             let mut states = self.cidr_states.write().unwrap();
-            if let Some(pos) = states.iter().position(|x| Arc::ptr_eq(x, &cidr)) {
-                states.remove(pos);
+            if idx < states.len() {
+                states.remove(idx);
             }
-            // loop 重试下一个 CIDR
         }
     }
 
@@ -177,13 +174,12 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
         }
 
         // 处理文件中的IP地址
-        if !ip_file.is_empty() && std::path::Path::new(ip_file).exists() {
-            if let Ok(lines) = read_lines(ip_file) {
-                for line in lines.flatten() {
-                    let line = line.trim();
-                    if !line.is_empty() {
-                        sources.push(line.to_string());
-                    }
+        if !ip_file.is_empty() && std::path::Path::new(ip_file).exists()
+            && let Ok(lines) = read_lines(ip_file) {
+            for line in lines.map_while(Result::ok) {
+                let line = line.trim();
+                if !line.is_empty() {
+                    sources.push(line.to_string());
                 }
             }
         }
@@ -210,8 +206,7 @@ fn parse_ip_range(ip_range: &str) -> (String, Option<u128>) {
             let count = count_str
                 .parse::<u128>()
                 .ok()
-                .filter(|&n| n > 0)
-                .map(|n| n.min(u128::MAX));
+                .filter(|&n| n > 0);
             (ip_part, count)
         } else {
             (ip_range, None)
@@ -290,7 +285,7 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
                         };
 
                         // 如果溢出，就用 u128::MAX
-                        let range_size = (end - start).checked_add(1).unwrap_or(u128::MAX);
+                        let range_size = (end - start).saturating_add(1);
 
                         let adjusted_count = count.min(range_size) as usize;
 

@@ -32,7 +32,7 @@ pub fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dyn std::
     let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(32 * 1024, file));
 
     // 写入表头
-    writer.write_record(&TABLE_HEADERS)?;
+    writer.write_record(TABLE_HEADERS)?;
 
     // 写入数据
     for result in results {

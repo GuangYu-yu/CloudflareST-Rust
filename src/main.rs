@@ -1,6 +1,5 @@
 use crate::common::PingData;
 use crate::csv::PrintResult;
-use fastrand;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -114,12 +113,10 @@ async fn main() {
     ping_data.print(&args);
 
     // 输出文件
-    if let Some(output_file) = &args.output {
-        if !ping_data.is_empty() {
-            match csv::export_csv(&ping_data, &args) {
-                Ok(_) => info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output_file)),
-                Err(e) => info_println(format_args!("导出 CSV 失败: {:?}", e)),
-            }
+    if let Some(output_file) = &args.output && !ping_data.is_empty() {
+        match csv::export_csv(&ping_data, &args) {
+            Ok(_) => info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output_file)),
+            Err(e) => info_println(format_args!("导出 CSV 失败: {:?}", e)),
         }
     }
 

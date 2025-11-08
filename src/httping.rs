@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -50,7 +50,7 @@ impl HandlerFactory for HttpingHandlerFactory {
             } else {
                 // 非HTTPS模式：直接使用IP构建URL
                 let mut host_str = addr.ip().to_string();
-                if let IpAddr::V6(_) = addr.ip() {
+                if addr.ip().is_ipv6() {
                     host_str = format!("[{}]", addr.ip());
                 }
                 Ping::build_trace_url("http", &host_str)
