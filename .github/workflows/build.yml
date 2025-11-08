@@ -204,7 +204,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           name: "${{ github.event.inputs.project_name }} 最新版本"
-          tag_name: "${{ github.ref_name }}-latest"
+          tag_name: "${{ github.event.inputs.project_name }}-latest"
+          target_commitish: ${{ github.sha }}
           files: release/*
           draft: false
           prerelease: false
