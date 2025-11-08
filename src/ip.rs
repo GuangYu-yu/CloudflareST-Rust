@@ -27,6 +27,7 @@ pub struct IpBuffer {
 /// CIDR网络状态结构体
 /// 用于管理CIDR网络中的IP地址生成
 struct CidrState {
+    id: usize,                 // 唯一标识符
     network: IpNet,             // 网络地址
     total_count: usize,         // 总数量
     interval_size: u128,        // 间隔大小
@@ -37,8 +38,9 @@ struct CidrState {
 
 impl CidrState {
     /// 创建新的CIDR状态实例
-    fn new(network: IpNet, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
+    fn new(id: usize, network: IpNet, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
         Self {
+            id,
             network,
             total_count: count,
             interval_size,
@@ -61,7 +63,7 @@ impl CidrState {
         let interval_end = if current_index == self.total_count - 1 {
             self.end
         } else {
-            self.start + ((current_index + 1) as u128 * self.interval_size - 1)
+            self.start + ((current_index + 1) as u128 * self.interval_size).saturating_sub(1)
         };
 
         let random_ip = fastrand::u128(interval_start..=interval_end);
@@ -112,36 +114,38 @@ impl IpBuffer {
     /// 获取一个IP地址
     /// 优先返回单个IP，再轮询CIDR
     pub fn pop(&self) -> Option<SocketAddr> {
-        // 1. 尝试单 IP 列表
-        if let Some(ip_list) = &self.single_ips
-            && let Ok(mut ips) = ip_list.lock()
-            && let Some(ip) = ips.pop_front() {
-            return Some(ip);
-        }
+        // 1. 单 IP 列表
+        if let Some(ip_list) = &self.single_ips 
+            && let Ok(mut ips) = ip_list.lock() 
+            && let Some(ip) = ips.pop_front() 
+        { 
+            return Some(ip); 
+        } 
 
         // 2. CIDR 轮询
-        loop {
-            let idx;
-            {
-                let states = self.cidr_states.read().unwrap();
-                if states.is_empty() {
-                    return None;
-                }
-                idx = self.current_cidr.fetch_add(1, Ordering::Relaxed) % states.len();
-                let cidr = states[idx].clone();
-                drop(states);
-                
-                if let Some(ip) = cidr.next_ip(self.tcp_port) {
-                    return Some(ip);
-                }
-            }
-            
-            // CIDR 耗尽则移除
-            let mut states = self.cidr_states.write().unwrap();
-            if idx < states.len() {
-                states.remove(idx);
-            }
-        }
+        loop { 
+            // 获取一个 CIDR 引用（读锁阶段）
+            let (cidr_id, cidr_arc) = { 
+                let states = self.cidr_states.read().ok()?; 
+                if states.is_empty() { 
+                    return None; 
+                } 
+                let idx = self.current_cidr.fetch_add(1, Ordering::Relaxed) % states.len(); 
+                let s = &states[idx]; 
+                (s.id, s.clone()) 
+            }; 
+
+            // 释放锁后尝试获取 IP
+            if let Some(ip) = cidr_arc.next_ip(self.tcp_port) { 
+                return Some(ip); 
+            } 
+
+            // 3. 耗尽则按 id 移除（写锁阶段）
+            let mut states = self.cidr_states.write().ok()?; 
+            if let Some(pos) = states.iter().position(|s| s.id == cidr_id) { 
+                states.swap_remove(pos); 
+            } 
+        } 
     }
 
     /// 获取预期总IP数量
@@ -309,7 +313,8 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     // 创建CIDR状态列表
     let cidr_states: Vec<_> = cidr_info
         .into_iter()
-        .map(|(net, count, start, end, size)| CidrState::new(net, count, start, end, size))
+        .enumerate()
+        .map(|(id, (net, count, start, end, size))| CidrState::new(id, net, count, start, end, size))
         .collect();
 
     IpBuffer::new(cidr_states, single_ips, total_expected, config.tcp_port)
