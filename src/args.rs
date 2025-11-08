@@ -1,5 +1,3 @@
-use colored::Colorize;
-use prettytable::{Cell, Row, Table, format};
 use std::env;
 use std::path::Path;
 use std::time::Duration;
@@ -324,70 +322,114 @@ pub fn parse_args() -> Args {
 
 /// 打印帮助信息
 pub fn print_help() {
-    // 创建表格
-    let mut table = Table::new();
+    const HELP_ARGS: &[(&str, &str, &str)] = &[
+        // 目标参数
+        ("", "目标参数", ""), // 标记标题
+        ("-f", "从指定文件名或文件路径获取 IP 或 CIDR", "未指定"),
+        ("-ip", "直接指定 IP 或 CIDR（多个用逗号分隔）", "未指定"),
+        ("-ipurl", "从 URL 读取 IP 或 CIDR", "未指定"),
+        ("-url", "TLS 模式的 Httping 或下载测速所使用的 URL", "未指定"),
+        ("-urlist", "从 URL 内读取测速地址列表", "未指定"),
+        ("-tp", "测速端口", "443"),
+        
+        // 测试参数
+        ("", "测试参数", ""), // 标记标题
+        ("-t", "延迟测速次数", "4"),
+        ("-dt", "下载测速时间（秒）", "10"),
+        ("-dn", "下载测速所需符合要求的结果数量", "10"),
+        ("-n", "延迟测速的线程数量", "256"),
+        ("-tn", "当 Ping 到指定可用数量，提前结束 Ping", "否"),
+        ("-intf", "绑定到指定接口名或 IP", "未指定"),
 
-    // 设置表格样式（可选）
-    table.set_format(*format::consts::FORMAT_CLEAN);
+        // 控制参数
+        ("", "控制参数", ""), // 标记标题
+        ("-httping", "使用非 TLS 模式的 Httping", "否"),
+        ("-hu", "使用 HTTPS 进行延迟测速，可指定测速地址", "否"),
+        ("-dd", "禁用下载测速", "否"),
+        ("-all4", "测速全部 IPv4 地址", "否"),
+        ("-timeout", "程序超时退出时间（秒）", "不限制"),
 
-    // Helper函数：添加标题行
-    fn add_title(table: &mut Table, title: &str) {
-        // 添加空行和标题行
-        table.add_row(Row::new(vec![Cell::new("")]));
-        table.add_row(Row::new(vec![
-            Cell::new(&format!(" {}", title.bold().magenta()))
-        ]));
-    }
+        // 过滤参数
+        ("", "过滤参数", ""), // 标记标题
+        ("-tl", "延迟上限（毫秒）", "2000"),
+        ("-tll", "延迟下限（毫秒）", "0"),
+        ("-tlr", "丢包率上限", "1.00"),
+        ("-sl", "下载速度下限（MB/s）", "0.00"),
+        ("-hc", "指定 HTTPing 的状态码（例如：200,301,302）", "未指定"),
+        ("-colo", "指定地区（例如：HKG,SJC）", "未指定"),
 
-    // Helper函数：插入参数行
-    fn add_arg(table: &mut Table, name: &str, desc: &str, default: &str) {
-        table.add_row(Row::new(vec![
-            Cell::new(&format!(" {:<12}", name.green())),   // 参数列：缩进+左对齐+宽度
-            Cell::new(&format!("{:<16}", desc)),     // 描述列
-            Cell::new(&format!("{:<10}", default.dimmed())),  // 默认值列
-        ]));
-    }
-
-    // 目标参数
-    add_title(&mut table, "目标参数");
-    add_arg(&mut table, "-f", "从指定文件名或文件路径获取 IP 或 CIDR", "未指定");
-    add_arg(&mut table, "-ip", "直接指定 IP 或 CIDR（多个用逗号分隔）", "未指定");
-    add_arg(&mut table, "-ipurl", "从 URL 读取 IP 或 CIDR", "未指定");
-    add_arg(&mut table, "-url", "TLS 模式的 Httping 或下载测速所使用的 URL", "未指定");
-    add_arg(&mut table, "-urlist", "从 URL 内读取测速地址列表", "未指定");
-    add_arg(&mut table, "-tp", "测速端口", "443");
+        // 结果参数
+        ("", "结果参数", ""), // 标记标题
+        ("-p", "终端显示结果数量", "10"),
+        ("-sp", "结果中带端口号", "否"),
+        ("-o", "输出结果文件（文件名或文件路径）", "result.csv"),
+    ];
     
-    // 测试参数
-    add_title(&mut table, "测试参数");
-    add_arg(&mut table, "-t", "延迟测速次数", "4");
-    add_arg(&mut table, "-dt", "下载测速时间（秒）", "10");
-    add_arg(&mut table, "-dn", "下载测速所需符合要求的结果数量", "10");
-    add_arg(&mut table, "-n", "延迟测速的线程数量", "256");
-    add_arg(&mut table, "-tn", "当 Ping 到指定可用数量，提前结束 Ping", "否");
-    add_arg(&mut table, "-intf", "绑定到指定接口名或 IP", "未指定");
+    // 固定的列宽，用于对齐：
+    const COL_NAME_WIDTH: usize = 11;
+    const COL_DESC_WIDTH: usize = 45;
+    const COL_DEFAULT_WIDTH: usize = 15;
+    
+    // 计算显示宽度 (忽略颜色代码)
+    fn approximate_display_width_no_color(s: &str) -> usize {
+        let mut width = 0;
+        let mut in_escape = false; 
 
-    // 控制参数
-    add_title(&mut table, "控制参数");
-    add_arg(&mut table, "-httping", "使用非 TLS 模式的 Httping", "否");
-    add_arg(&mut table, "-hu", "使用 HTTPS 进行延迟测速，可指定测速地址", "否");
-    add_arg(&mut table, "-dd", "禁用下载测速", "否");
-    add_arg(&mut table, "-all4", "测速全部 IPv4 地址", "否");
-    add_arg(&mut table, "-timeout", "程序超时退出时间（秒）", "不限制");
+        for c in s.chars() {
+            if c == '\x1b' {
+                in_escape = true;
+                continue;
+            }
+            if in_escape {
+                if c == 'm' || c.is_alphabetic() {
+                    in_escape = false;
+                }
+                continue;
+            }
+            // 非 ASCII (中文) 宽度为 2，ASCII 宽度为 1
+            if c.is_ascii() {
+                width += 1;
+            } else {
+                width += 2;
+            }
+        }
+        width
+    }
 
-    // 过滤参数
-    add_title(&mut table, "过滤参数");
-    add_arg(&mut table, "-tl", "延迟上限（毫秒）", "2000");
-    add_arg(&mut table, "-tll", "延迟下限（毫秒）", "0");
-    add_arg(&mut table, "-tlr", "丢包率上限", "1.00");
-    add_arg(&mut table, "-sl", "下载速度下限（MB/s）", "0.00");
-    add_arg(&mut table, "-hc", "指定 HTTPing 的状态码（例如：200,301,302）", "未指定");
-    add_arg(&mut table, "-colo", "指定地区（例如：HKG,SJC）", "未指定");
+    // 打印逻辑
+    for (name, desc, default) in HELP_ARGS.iter() {
+        
+        if name.is_empty() {
+            // 这是标题行
+            println!();
+            // 打印加粗洋红的标题
+            println!("\x1b[1;35m{}\x1b[0m", desc);
+            continue;
+        }
 
-    // 结果参数
-    add_title(&mut table, "结果参数");
-    add_arg(&mut table, "-p", "终端显示结果数量", "10");
-    add_arg(&mut table, "-sp", "结果中带端口号", "否");
-    add_arg(&mut table, "-o", "输出结果文件（文件名或文件路径）", "result.csv");
+        // 1. 格式化参数名：绿色 (\x1b[32m)
+        let name_colored = format!("\x1b[32m{}\x1b[0m", name);
+        let name_display_width = approximate_display_width_no_color(&name_colored);
+        let name_padding = COL_NAME_WIDTH.saturating_sub(name_display_width);
+        
+        // 2. 格式化描述 (默认颜色)
+        let desc_display_width = approximate_display_width_no_color(desc);
+        let desc_padding = COL_DESC_WIDTH.saturating_sub(desc_display_width);
 
-    table.printstd();
+        // 3. 格式化默认值：暗淡色 (\x1b[2m)
+        let default_colored = format!("\x1b[2m{}\x1b[0m", default);
+        let default_display_width = approximate_display_width_no_color(&default_colored);
+        let default_padding = COL_DEFAULT_WIDTH.saturating_sub(default_display_width);
+
+        // 4. 打印整行 (左侧增加 1 个空格作为缩进)
+        println!(
+            " {}{}{}{}{}{}",
+            name_colored,
+            " ".repeat(name_padding),
+            desc,
+            " ".repeat(desc_padding),
+            default_colored,
+            " ".repeat(default_padding)
+        );
+    }
 }
