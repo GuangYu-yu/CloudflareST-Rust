@@ -99,7 +99,7 @@
 
 ## 📊 测速结果示例
 
-<img width="1204" height="260" alt="QQ_1762279061898" src="https://github.com/user-attachments/assets/fafd61c9-b2e1-46a2-9411-ee4f50eb187c" />
+<img width="1151" height="343" alt="QQ_1762603871432" src="https://github.com/user-attachments/assets/bb77a5df-f542-4f8c-b1f6-fbcd59f75cd1" />
 
 > 这里 `x|y` 的含义是已进行下载测速 y 个，获取到 x 个符合要求的结果
 
