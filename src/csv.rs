@@ -1,9 +1,7 @@
 use crate::args::Args;
 use crate::common::{PingData, PingDataRef};
 use crate::info_println;
-use prettytable::{Cell, Row, Table, format};
-use std::fs::File;
-use std::io::BufWriter;
+use std::io::Write;
 
 const TABLE_HEADERS: [&str; 7] = [
     "IP 地址",
@@ -22,77 +20,94 @@ pub trait PrintResult {
 
 /// 从 PingResult 导出 CSV 文件
 pub fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+    /// 写入CSV行到文件
+    fn write_csv_line(file: &mut std::fs::File, fields: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        let line = fields.join(",");
+        writeln!(file, "{}", line)?;
+        Ok(())
+    }
+
     // 如果没有结果或未指定输出文件，直接返回
-    if results.is_empty() || args.output.is_none() {
+    if results.is_empty() || args.output.as_ref().is_none() {
         return Ok(());
     }
 
     let file_path = args.output.as_ref().unwrap();
-    let file = File::create(file_path)?;
-    let mut writer = csv::Writer::from_writer(BufWriter::with_capacity(32 * 1024, file));
+    let mut file = std::fs::File::create(file_path)?;
 
     // 写入表头
-    writer.write_record(TABLE_HEADERS)?;
+    write_csv_line(&mut file, &TABLE_HEADERS.iter().map(|s| s.to_string()).collect::<Vec<_>>())?;
 
     // 写入数据
     for result in results {
         let mut record = ping_data_to_fields(&result.as_ref());
         record[0] = result.as_ref().display_addr(args.show_port);
-        writer.write_record(&record)?;
+        write_csv_line(&mut file, &record)?;
     }
 
-    // flush
-    writer.flush()?;
+    // 确保数据写入磁盘
+    file.flush()?;
 
     Ok(())
 }
 
 impl PrintResult for Vec<PingData> {
-    /// 实现结果打印功能
     fn print(&self, args: &Args) {
-        // 如果没有结果，不创建文件
         if self.is_empty() {
             info_println(format_args!("测速结果 IP 数量为 0，跳过输出结果"));
             return;
         }
 
-        let mut table = Table::new();
+        const COLUMN_PADDING: usize = 3; // 每列额外间距
 
-        // 可选的表格格式（选择其中一种）：
-        // * FORMAT_DEFAULT - 默认样式，带有边框和分隔线
-        // * FORMAT_NO_BORDER - 无外部边框，但保留列和行的分隔线
-        // * FORMAT_NO_BORDER_LINE_SEPARATOR - 无外部边框和行分隔线，仅保留列分隔线
-        // * FORMAT_NO_COLSEP - 无列分隔符，仅保留行分隔线和边框
-        // * FORMAT_NO_LINESEP - 无行分隔线和标题分隔线，仅保留列分隔符和边框
-        // * FORMAT_NO_LINESEP_WITH_TITLE - 无行分隔线，但保留标题分隔线
-        // * FORMAT_NO_TITLE - 类似于默认样式，但没有标题行下的特殊分隔线
-        // * FORMAT_CLEAN - 无任何分隔符，仅保留内容对齐
-        // * FORMAT_BORDERS_ONLY - 仅显示外部边框和标题分隔线
-        // * FORMAT_BOX_CHARS - 使用盒字符（如 ┌─┬─┐）绘制边框和分隔线，适用于支持 Unicode 的终端
-        table.set_format(*format::consts::FORMAT_CLEAN);
+        let print_num = self.len().min(args.print_num.into());
+        let header_display_widths: [usize; 7] = [7, 6, 6, 6, 8, 14, 8]; 
+        let mut column_widths = header_display_widths.to_vec();
 
-        // 添加表头，使用青色
-        table.add_row(Row::new(
-            TABLE_HEADERS
+        // 预先计算每行字段显示值，并更新列宽
+        let rows: Vec<Vec<String>> = self.iter()
+            .take(print_num)
+            .map(|result| {
+                let r = result.as_ref();
+                ping_data_to_fields(&r)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, field)| {
+                        let display_field = if i == 0 { r.display_addr(args.show_port) } else { field };
+                        let width = display_field.chars().count();
+                        if width > column_widths[i] {
+                            column_widths[i] = width;
+                        }
+                        display_field
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        // 打印表头
+        let header_row: String = TABLE_HEADERS
+            .iter()
+            .enumerate()
+            .map(|(i, header)| {
+                let pad = column_widths[i].saturating_sub(header_display_widths[i]) + COLUMN_PADDING;
+                format!("{}{}", header, " ".repeat(pad))
+            })
+            .collect();
+        // 打印青色表头
+        println!("\x1b[36m{}\x1b[0m", header_row);
+
+        // 打印数据行
+        for row in rows {
+            let row_str: String = row
                 .iter()
-                .map(|&h| Cell::new(h).style_spec("Fc"))
-                .collect::<Vec<_>>(),
-        ));
-
-        // 添加数据行，最多显示 args.print_num 条
-        for result in self.iter().take(args.print_num.into()) {
-            let result_ref = result.as_ref();
-            let first_cell = Cell::new(&result_ref.display_addr(args.show_port));
-            let other_cells = ping_data_to_fields(&result_ref)
-                .into_iter()
-                .skip(1)
-                .map(|field| Cell::new(&field));
-            let row = Row::new(std::iter::once(first_cell).chain(other_cells).collect());
-            table.add_row(row);
+                .enumerate()
+                .map(|(i, field)| {
+                    let pad = column_widths[i].saturating_sub(field.chars().count()) + COLUMN_PADDING;
+                    format!("{}{}", field, " ".repeat(pad))
+                })
+                .collect();
+            println!("{}", row_str);
         }
-
-        // 打印表格
-        table.printstd();
     }
 }
 
