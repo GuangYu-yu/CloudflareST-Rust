@@ -165,8 +165,8 @@ impl Bar {
                         let c = percent_chars[percent_index];
                         let _ = write!(
                             &mut bar_str,
-                            "\x1b[48;2;{};{};{}m\x1b[1;97m{}\x1b[0m{}",
-                            bg_r, bg_g, bg_b, c, ""
+                            "\x1b[48;2;{};{};{}m\x1b[1;97m{}\x1b[0m",
+                            bg_r, bg_g, bg_b, c
                         );
                     } else {
                         // 4. 普通进度块：设置背景色 + 空格前景
