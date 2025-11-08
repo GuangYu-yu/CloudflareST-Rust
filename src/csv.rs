@@ -60,51 +60,67 @@ impl PrintResult for Vec<PingData> {
 
         const COLUMN_PADDING: usize = 3; // 每列额外间距
         const LEADING_SPACES: usize = 1; // 前导空格数量
+        const LINE_LENGTH_ADJUSTMENT: isize = -3; // 分割线长度调整，正数增加长度，负数减少长度
 
         let print_num = self.len().min(args.print_num.into());
-        let header_display_widths: [usize; 7] = [7, 6, 6, 6, 8, 14, 8]; 
+
+        // 初始列宽来自固定表头宽度
+        let header_display_widths = [7, 6, 6, 6, 8, 14, 8];
         let mut column_widths = header_display_widths.to_vec();
 
-        // 预先计算每行字段显示值，并更新列宽
+        // 预计算每行数据并动态更新列宽
         let rows: Vec<Vec<String>> = self.iter()
             .take(print_num)
-            .map(|result| {
-                let r = result.as_ref();
+            .map(|r| {
+                let r = r.as_ref();
                 ping_data_to_fields(&r)
                     .into_iter()
                     .enumerate()
-                    .map(|(i, field)| {
-                        let display_field = if i == 0 { r.display_addr(args.show_port) } else { field };
-                        let width = display_field.chars().count();
-                        if width > column_widths[i] {
-                            column_widths[i] = width;
-                        }
-                        display_field
+                    .map(|(i, f)| {
+                        let display = if i == 0 { r.display_addr(args.show_port) } else { f };
+                        column_widths[i] = column_widths[i].max(display.chars().count());
+                        display
                     })
-                    .collect::<Vec<_>>()
+                    .collect()
             })
             .collect();
 
-        // 打印表头
-        print!("{}", " ".repeat(LEADING_SPACES));
+        // 分割线宽度
+        let base_width: usize = column_widths.iter().map(|w| w + COLUMN_PADDING).sum::<usize>() + LEADING_SPACES;
+        let adjusted_width = if LINE_LENGTH_ADJUSTMENT >= 0 {
+            base_width + LINE_LENGTH_ADJUSTMENT as usize
+        } else {
+            base_width.saturating_sub((-LINE_LENGTH_ADJUSTMENT) as usize)
+        };
+
+        let leading = " ".repeat(LEADING_SPACES);
+        let line = "─".repeat(adjusted_width - LEADING_SPACES);
+
+        // 输出分割线
+        println!("{leading}{line}");
+
+        // 表头
+        print!("{leading}");
         for (i, header) in TABLE_HEADERS.iter().enumerate() {
-            let pad = column_widths[i].saturating_sub(header_display_widths[i]) + COLUMN_PADDING;
+            let pad = column_widths[i]
+                .saturating_sub(header_display_widths[i]) + COLUMN_PADDING;
             print!("\x1b[1;97;100m{}\x1b[0m{}", header, " ".repeat(pad));
         }
         println!();
 
-        // 打印数据行
-        for row in rows {
-            let row_str: String = " ".repeat(LEADING_SPACES) + &row
-                .iter()
-                .enumerate()
-                .map(|(i, field)| {
-                    let pad = column_widths[i].saturating_sub(field.chars().count()) + COLUMN_PADDING;
-                    format!("{}{}", field, " ".repeat(pad))
-                })
-                .collect::<String>();
-            println!("{}", row_str);
+        // 数据行
+        for row in &rows {
+            print!("{leading}");
+            for (i, field) in row.iter().enumerate() {
+                let pad = column_widths[i]
+                    .saturating_sub(field.chars().count()) + COLUMN_PADDING;
+                print!("{}{}", field, " ".repeat(pad));
+            }
+            println!();
         }
+
+        // 尾部分割线
+        println!("{leading}{line}");
     }
 }
 
