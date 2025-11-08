@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    fmt::Write as FmtWrite,
     io::{stdout, Write},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicPtr, Ordering},
@@ -36,6 +37,7 @@ pub struct LockFreeString {
 impl LockFreeString {
     pub fn new() -> Self {
         Self {
+            // 使用 Box::into_raw 传递指针给 AtomicPtr
             ptr: AtomicPtr::new(Box::into_raw(Box::new(Arc::from("")))),
         }
     }
@@ -91,39 +93,71 @@ impl Bar {
         let prefix_clone = Arc::clone(&prefix);
         let is_done_clone = Arc::clone(&is_done);
 
-        let start_str = start_str.to_string();
-        let end_str = end_str.to_string();
+        let start_str_arc: Arc<str> = start_str.into();
+        let end_str_arc: Arc<str> = end_str.into();
 
         // 固定终端宽度和 reserved_space，避免每次刷新都计算
         let term_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
-        let reserved_space = 20 + start_str.len() + end_str.len() + 10;
+        let reserved_space = 20 + start_str_arc.len() + end_str_arc.len() + 10;
 
         let handle = thread::spawn(move || {
+            // 定义未填充区域的亮灰色背景色 (RGB: 70, 70, 70)
+            const UNFILLED_BG: (u8, u8, u8) = (70, 70, 70);
+            
+            let mut bar_str = String::new();
+            
             loop {
+                bar_str.clear();
+
                 let bar_length = term_width.saturating_sub(reserved_space);
                 let current_pos = pos_clone.load(Ordering::Relaxed);
                 let progress = (current_pos.min(count) as f64) / count.max(1) as f64;
                 let filled = (progress * bar_length as f64) as usize;
                 let phase = (start_instant.elapsed().as_secs_f64() * 0.3) % 1.0;
 
-                let percent_str = format!("[\x1b[1;97m{:>4.2}%\x1b[0m]", progress * 100.0);
-                let percent_chars: Vec<char> = percent_str.chars().collect();
-                let start_index = (bar_length / 2).saturating_sub(percent_chars.len() / 2)
-                    .min(bar_length.saturating_sub(percent_chars.len()));
+                // 新的百分比内容
+                let percent_content = format!(" {:>4.1}% ", progress * 100.0);
+                let percent_chars: Vec<char> = percent_content.chars().collect();
+                let percent_len = percent_chars.len();
 
-                let mut bar_str = String::with_capacity(bar_length * 10);
+                let start_index = (bar_length / 2).saturating_sub(percent_len / 2)
+                    .min(bar_length.saturating_sub(percent_len));
+                let end_index = start_index + percent_len;
+
+                // 预留足够的容量
+                bar_str.reserve(bar_length * 10); 
+                
                 for i in 0..bar_length {
-                    let mut c = '░';
-                    if i < filled { c = '█'; }
-                    if i >= start_index && i < start_index + percent_chars.len() {
-                        c = percent_chars[i - start_index];
-                    }
-                    if i < filled && c == '█' {
-                        let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
-                        let (r, g, b) = hsv_to_rgb(hue, 0.4, 0.5);
-                        bar_str.push_str(&format!("\x1b[38;2;{};{};{}m█\x1b[0m", r, g, b));
+                    let is_filled = i < filled;
+                    let is_percent_char = i >= start_index && i < end_index;
+                    let percent_index = if is_percent_char { i - start_index } else { 0 };
+
+                    // 1. 计算已完成部分的颜色 (进度条颜色)
+                    let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
+                    let (r, g, b) = hsv_to_rgb(hue, 0.4, 0.5);
+
+                    // 2. 确定当前单元格应该使用的背景色
+                    let (bg_r, bg_g, bg_b) = if is_filled {
+                        (r, g, b) // 已完成：使用动态彩色
                     } else {
-                        bar_str.push(c);
+                        UNFILLED_BG // 未完成：使用亮灰色
+                    };
+
+                    if is_percent_char {
+                        // 3. 百分比字符：设置背景色 + 亮白前景
+                        let c = percent_chars[percent_index];
+                        let _ = write!(
+                            &mut bar_str,
+                            "\x1b[48;2;{};{};{}m\x1b[1;97m{}\x1b[0m{}",
+                            bg_r, bg_g, bg_b, c, ""
+                        );
+                    } else {
+                        // 4. 普通进度块：设置背景色 + 空格前景
+                        let _ = write!(
+                            &mut bar_str,
+                            "\x1b[48;2;{};{};{}m \x1b[0m",
+                            bg_r, bg_g, bg_b
+                        );
                     }
                 }
 
@@ -131,9 +165,10 @@ impl Bar {
                 let prefix_str = prefix_clone.get();
                 let is_done_val = is_done_clone.load(Ordering::Relaxed);
 
+                // 打印到控制台
                 print!(
-                    "\r\x1b[33m{}\x1b[0m [{}] {} \x1b[32m{}\x1b[0m {}",
-                    msg_str, bar_str, start_str, prefix_str, end_str
+                    "\r\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
+                    msg_str, bar_str, start_str_arc, prefix_str, end_str_arc
                 );
 
                 if is_done_val {

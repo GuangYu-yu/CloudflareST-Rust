@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::common::{PingData, PingDataRef};
 use crate::info_println;
-use std::io::Write;
+use std::io::Write as IoWrite;
 
 const TABLE_HEADERS: [&str; 7] = [
     "IP 地址",
@@ -86,16 +86,12 @@ impl PrintResult for Vec<PingData> {
             .collect();
 
         // 打印表头
-        let header_row: String = " ".repeat(LEADING_SPACES) + &TABLE_HEADERS
-            .iter()
-            .enumerate()
-            .map(|(i, header)| {
-                let pad = column_widths[i].saturating_sub(header_display_widths[i]) + COLUMN_PADDING;
-                format!("{}{}", header, " ".repeat(pad))
-            })
-            .collect::<String>();
-        // 打印表头 (使用亮白色+粗体)
-        println!("\x1b[1;97m{}\x1b[0m", header_row);
+        print!("{}", " ".repeat(LEADING_SPACES));
+        for (i, header) in TABLE_HEADERS.iter().enumerate() {
+            let pad = column_widths[i].saturating_sub(header_display_widths[i]) + COLUMN_PADDING;
+            print!("\x1b[1;97;100m{}\x1b[0m{}", header, " ".repeat(pad));
+        }
+        println!();
 
         // 打印数据行
         for row in rows {
