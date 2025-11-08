@@ -3,19 +3,21 @@ use crate::csv::PrintResult;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use colored::Colorize;
 
 // 定义统一的错误、信息和警告输出函数
 pub fn error_println(args: std::fmt::Arguments<'_>) {
-    eprintln!("{} {}", "[错误]".red().bold(), args);
+    // 红色加粗
+    eprintln!("\x1b[31;1m[错误]\x1b[0m {}", args);
 }
 
 pub fn info_println(args: std::fmt::Arguments<'_>) {
-    println!("{} {}", "[信息]".cyan().bold(), args);
+    // 青色加粗
+    println!("\x1b[36;1m[信息]\x1b[0m {}", args);
 }
 
 pub fn warning_println(args: std::fmt::Arguments<'_>) {
-    println!("{} {}", "[警告]".yellow().bold(), args);
+    // 黄色加粗
+    println!("\x1b[33;1m[警告]\x1b[0m {}", args);
 }
 
 mod args;
@@ -34,7 +36,8 @@ mod progress;
 #[tokio::main]
 async fn main() {
     // 打印全局标题
-    println!("{}", "# CloudflareST-Rust".bold().blue());
+    // 蓝色加粗
+    println!("\x1b[34;1m# CloudflareST-Rust\x1b[0m");
 
     // 解析命令行参数
     let args = args::parse_args();
