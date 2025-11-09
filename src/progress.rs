@@ -13,12 +13,15 @@ use terminal_size::{terminal_size, Width};
 
 // 进度条颜色配置
 const PROGRESS_BAR_BRIGHTNESS: [f64; 2] = [
-    0.7, // 亮度基准值
-    0.15  // 亮度变化幅度
+    0.5, // 亮度基准值
+    0.3  // 亮度变化幅度
 ];
 
 // 进度条动画配置常量
-const PROGRESS_BAR_SPEED: f64 = 0.3; // 进度条色彩流动速度
+const PROGRESS_BAR_SPEED: f64 = 0.2; // 进度条色彩流动速度
+const WAVE_WIDTH: f64 = 16.0; // 波浪效果宽度
+const SPEED_FACTOR: f64 = 0.3; // 波浪移动速度因子
+const SATURATION_BASE: f64 = 0.6; // 饱和度基准值
 
 // HSV 到 RGB 颜色转换
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
@@ -145,13 +148,31 @@ impl Bar {
                     let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
                     
                     // 计算周期性变化的饱和度和亮度
-                    let mut x = (start_instant.elapsed().as_secs_f64() * 2.0) % (std::f64::consts::PI * 2.0);
-                    if x > std::f64::consts::PI { x -= std::f64::consts::PI * 2.0; }
-                    let x2 = x * x;
-                    let brightness = PROGRESS_BAR_BRIGHTNESS[0] + PROGRESS_BAR_BRIGHTNESS[1]
-                        * x * (1.0 + x2 * (-1.0/6.0 + x2 * (1.0/120.0 + x2 * (-1.0/5040.0 + x2 * (1.0/362880.0)))));
+                    let t = (start_instant.elapsed().as_secs_f64() * SPEED_FACTOR).fract();
+                    let bar_length_f64 = bar_length as f64;
                     
-                    let (r, g, b) = hsv_to_rgb(hue, 0.4, brightness);
+                    // 1. 计算波峰中心位置 (mu)
+                    let mu = t * bar_length_f64; // 单向流动：t 从 0.0 到 1.0 匀速增长
+                    let i_f64 = i as f64;
+                    
+                    // 2. 计算周期性的最短距离
+                    // distance_raw: 像素 i 到波峰 mu 的直接距离
+                    let distance_raw = (i_f64 - mu).abs();
+                    
+                    // 3. 计算环绕距离 (即通过另一侧边界的最短距离)
+                    // 想象进度条是弯曲的，首尾相接形成一个圆环。
+                    let distance_wrap = bar_length_f64 - distance_raw;
+                    
+                    // 4. 周期性距离：取直接距离和环绕距离的最小值
+                    let distance = distance_raw.min(distance_wrap);
+                    
+                    // 5. 使用周期性距离计算衰减
+                    let distance_ratio = distance / WAVE_WIDTH;
+                    let attenuation = (-distance_ratio * distance_ratio).exp();
+                    let brightness = PROGRESS_BAR_BRIGHTNESS[0] + PROGRESS_BAR_BRIGHTNESS[1] * attenuation;
+                    // 饱和度衰减：波峰中心保持 SATURATION_BASE，边缘降至 SATURATION_BASE * 0.6
+                    let saturation = SATURATION_BASE * (0.6 + 0.4 * attenuation);
+                    let (r, g, b) = hsv_to_rgb(hue, saturation, brightness);
 
                     // 2. 确定当前单元格应该使用的背景色
                     let (bg_r, bg_g, bg_b) = if is_filled {
@@ -182,20 +203,26 @@ impl Bar {
                 let prefix_str = prefix_clone.get();
                 let is_done_val = is_done_clone.load(Ordering::Relaxed);
 
-                // 打印到控制台
-                print!(
+                // 创建完整的输出缓冲区
+                let mut output_buffer = String::with_capacity(bar_str.len() + 100);
+                
+                // 将所有输出内容写入缓冲区
+                let _ = write!(
+                    &mut output_buffer,
                     "\r\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
                     msg_str, bar_str, start_str_arc, prefix_str, end_str_arc
                 );
 
                 if is_done_val {
-                    println!();
+                    output_buffer.push('\n');
                 }
 
-                stdout().flush().ok();
+                // 一次性原子写入所有内容
+                let _ = stdout().write_all(output_buffer.as_bytes());
+                let _ = stdout().flush();
 
                 if is_done_clone.load(Ordering::Acquire) { break; }
-                thread::sleep(Duration::from_millis(120));
+                thread::sleep(Duration::from_millis(16));
             }
         });
 
