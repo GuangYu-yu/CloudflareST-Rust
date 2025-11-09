@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     fmt::Write as FmtWrite,
-    io::{stdout, Write},
+    io::{self, stdout, Write},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicPtr, Ordering},
         Arc, Mutex,
@@ -55,13 +55,21 @@ impl LockFreeString {
     }
 
     pub fn set(&self, s: &str) {
-        let old_ptr = self.ptr.swap(Box::into_raw(Box::new(Arc::from(s))), Ordering::SeqCst);
+        // 创建新的 Arc<str>，封装在 Box 中
+        let new_box = Box::new(Arc::from(s));
+        let new_ptr = Box::into_raw(new_box);
+
+        // 原子交换指针
+        let old_ptr = self.ptr.swap(new_ptr, Ordering::SeqCst);
+        
+        // 释放旧的 Box<Arc<str>>
         unsafe { drop(Box::from_raw(old_ptr)); }
     }
 
     pub fn get(&self) -> Arc<str> {
         let ptr = self.ptr.load(Ordering::SeqCst);
-        unsafe { (*ptr).clone() }
+        // 克隆 Arc<str>，增加引用计数，保证数据存活
+        unsafe { (*ptr).clone() } 
     }
 }
 
@@ -69,6 +77,7 @@ impl Drop for LockFreeString {
     fn drop(&mut self) {
         let ptr = self.ptr.load(Ordering::SeqCst);
         if !ptr.is_null() {
+            // 释放 Arc<str> 所在的 Box
             unsafe { drop(Box::from_raw(ptr)); }
         }
     }
@@ -87,6 +96,7 @@ pub struct Bar {
 }
 
 impl Bar {
+    // 仅在进度条未完成时执行操作
     fn update_if_not_done<F: FnOnce()>(&self, f: F) {
         if !self.is_done.load(Ordering::Relaxed) {
             f();
@@ -108,19 +118,23 @@ impl Bar {
         let start_str_arc: Arc<str> = start_str.into();
         let end_str_arc: Arc<str> = end_str.into();
 
-        let term_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
-        let reserved_space = 20 + start_str_arc.len() + end_str_arc.len() + 10;
-
         let handle = thread::spawn(move || {
             // 定义未填充区域的亮灰色背景色 (RGB: 70, 70, 70)
             const UNFILLED_BG: (u8, u8, u8) = (70, 70, 70);
             
+            // 在循环外创建，以重用内存分配
             let mut bar_str = String::new();
+            let mut output_buffer = String::new();
             
             loop {
                 bar_str.clear();
+                output_buffer.clear(); // 清空缓冲区以重用内存
 
+                // 在循环内重新获取终端宽度
+                let term_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
+                let reserved_space = 20 + start_str_arc.len() + end_str_arc.len() + 10;
                 let bar_length = term_width.saturating_sub(reserved_space);
+                
                 let current_pos = pos_clone.load(Ordering::Relaxed);
                 let progress = (current_pos.min(count) as f64) / count.max(1) as f64;
                 let filled = (progress * bar_length as f64) as usize;
@@ -146,7 +160,7 @@ impl Bar {
                     // 1. 计算已完成部分的颜色 (进度条颜色)
                     let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
                     
-                    // 计算周期性变化的饱和度和亮度
+                    // 计算周期性变化的饱和度和亮度 (波浪效果)
                     let t = (start_instant.elapsed().as_secs_f64() * SPEED_FACTOR).fract();
                     let bar_length_f64 = bar_length as f64;
                     
@@ -155,20 +169,18 @@ impl Bar {
                     let i_f64 = i as f64;
                     
                     // 2. 计算周期性的最短距离
-                    // distance_raw: 像素 i 到波峰 mu 的直接距离
                     let distance_raw = (i_f64 - mu).abs();
-                    
                     // 3. 计算环绕距离 (即通过另一侧边界的最短距离)
                     let distance_wrap = bar_length_f64 - distance_raw;
                     
                     // 4. 周期性距离：取直接距离和环绕距离的最小值
                     let distance = distance_raw.min(distance_wrap);
                     
-                    // 5. 使用周期性距离计算衰减
+                    // 5. 使用周期性距离计算衰减 (高斯函数)
                     let distance_ratio = distance / WAVE_WIDTH;
                     let attenuation = (-distance_ratio * distance_ratio).exp();
                     let brightness = PROGRESS_BAR_BRIGHTNESS[0] + PROGRESS_BAR_BRIGHTNESS[1] * attenuation;
-                    // 饱和度衰减：波峰中心保持 SATURATION_BASE，边缘降至 SATURATION_BASE * 0.6
+                    // 饱和度衰减：波峰中心保持 SATURATION_BASE，边缘略微降低
                     let saturation = SATURATION_BASE * (0.6 + 0.4 * attenuation);
                     let (r, g, b) = hsv_to_rgb(hue, saturation, brightness);
 
@@ -179,6 +191,7 @@ impl Bar {
                         UNFILLED_BG // 未完成：使用亮灰色
                     };
 
+                    // 写入 ANSI 颜色码和字符
                     if is_percent_char {
                         // 3. 百分比字符：设置背景色 + 亮白前景
                         let c = percent_chars[percent_index];
@@ -201,13 +214,10 @@ impl Bar {
                 let prefix_str = prefix_clone.get();
                 let is_done_val = is_done_clone.load(Ordering::Relaxed);
 
-                // 创建完整的输出缓冲区
-                let mut output_buffer = String::with_capacity(bar_str.len() + 100);
-                
-                // 将所有输出内容写入缓冲区
+                // 将所有输出内容写入 output_buffer
                 let _ = write!(
                     &mut output_buffer,
-                    "\r\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
+                    "\r\x1b[K\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
                     msg_str, bar_str, start_str_arc, prefix_str, end_str_arc
                 );
 
@@ -216,7 +226,11 @@ impl Bar {
                 }
 
                 // 一次性原子写入所有内容
-                let _ = stdout().write_all(output_buffer.as_bytes());
+                if let Err(e) = stdout().write_all(output_buffer.as_bytes())
+                    && e.kind() == io::ErrorKind::BrokenPipe {
+                    break; 
+                }
+                
                 let _ = stdout().flush();
 
                 if is_done_clone.load(Ordering::Acquire) { break; }
@@ -244,15 +258,21 @@ impl Bar {
         self.update_if_not_done(|| self.msg.set(message.into().as_ref()));
     }
 
+    // 完成进度条并清理
     pub fn done(&self) {
+        // 原子设置完成标志
         self.is_done.store(true, Ordering::Release);
+        
+        // 尝试获取锁并 join 渲染线程
         if let Ok(mut guard) = self.thread_handle.lock() && let Some(handle) = guard.take() {
-            handle.join().ok();
+            // 忽略 join 错误
+            handle.join().ok(); 
         }
         let _ = stdout().flush();
     }
 }
 
+// 确保在 Bar 实例被 drop 时调用 done()
 impl Drop for Bar {
     fn drop(&mut self) {
         self.done();
