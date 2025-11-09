@@ -17,10 +17,21 @@ ipnet = "2.11"
 url = "2.5"
 terminal_size = "0.4"
 futures = "0.3"
-socket2 = "0.6"
+# surge-ping = "0.8"  # 已注释掉ICMP Ping功能
+
+# --- Windows ---
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
+network-interface = "2.0"
+
+# --- Linux ---
+[target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 network-interface = "2.0"
-# surge-ping = "0.8"  # 已注释掉ICMP Ping功能
+
+# --- macOS ---
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 
 [profile.release]
 opt-level = 3           # 最高级别的优化
