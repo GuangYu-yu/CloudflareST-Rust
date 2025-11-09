@@ -4,17 +4,17 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.46", features = ["rt", "rt-multi-thread", "macros", "time"], default-features = false }
-hyper = { version = "1.7", features = ["client"], default-features = false }
-hyper-util = { version = "0.1", features = ["client-legacy"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"], default-features = false }
+hyper = { version = "1", features = ["client"], default-features = false }
+hyper-util = { version = "0.1", features = ["client-legacy"], default-features = false }
 hyper-rustls = { version = "0.27", features = ["ring", "webpki-roots", "http1"], default-features = false }
-http = "1.3"
-http-body = "1.0"
+http = "1"
+http-body = "1"
 http-body-util = "0.1"
 tower = "0.5"
-fastrand = "2.3"
-ipnet = "2.11"
-url = "2.5"
+fastrand = "2"
+ipnet = "2"
+url = "2"
 terminal_size = "0.4"
 futures = "0.3"
 # surge-ping = "0.8"  # 已注释掉ICMP Ping功能
@@ -22,12 +22,12 @@ futures = "0.3"
 # --- Windows ---
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
-network-interface = "2.0"
+network-interface = "2"
 
 # --- Linux ---
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
-network-interface = "2.0"
+network-interface = "2"
 
 # --- macOS ---
 [target.'cfg(target_os = "macos")'.dependencies]
