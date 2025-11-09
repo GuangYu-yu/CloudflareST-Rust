@@ -9,13 +9,11 @@ use std::os::windows::io::AsRawSocket;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 
-// Windows 常量
-mod win_consts {
-    pub const IPPROTO_IP: i32      = 0;
-    pub const IPPROTO_IPV6: i32    = 41;
-    pub const IP_UNICAST_IF: i32   = 31;
-    pub const IPV6_UNICAST_IF: i32 = 31;
-}
+// 导入 Windows FFI 库中需要的常量和函数
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Networking::WinSock::{
+    setsockopt, IPPROTO_IP, IPPROTO_IPV6, IP_UNICAST_IF, IPV6_UNICAST_IF, SOCKET_ERROR,
+};
 
 /// 接口 IP 信息
 #[derive(Clone)]
@@ -65,7 +63,7 @@ pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
         .map(ParsedInterface::SocketAddr)
         .or_else(|_| interface.parse::<IpAddr>().map(ParsedInterface::Ip))
         .unwrap_or_else(|_| ParsedInterface::Name(interface.to_string()));
- 
+    
     match parsed { 
         ParsedInterface::SocketAddr(addr) => InterfaceParamResult { 
             interface_ips: Some(interface_ips_from_ip(addr.ip(), Some(addr.port()))), 
@@ -178,21 +176,32 @@ fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
 #[cfg(target_os = "windows")]
 fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> bool {
     let raw = sock.as_raw_socket();
-    let (level, option) = if is_ipv6 {
-        (win_consts::IPPROTO_IPV6, win_consts::IPV6_UNICAST_IF)
+    
+    let res = if is_ipv6 {
+        let idx_bytes = iface_idx.to_ne_bytes();
+        unsafe {
+            setsockopt(
+                raw as _,
+                IPPROTO_IPV6 as i32,
+                IPV6_UNICAST_IF,
+                idx_bytes.as_ptr() as *const _,
+                idx_bytes.len() as i32,
+            )
+        }
     } else {
-        (win_consts::IPPROTO_IP, win_consts::IP_UNICAST_IF)
+        let idx_bytes = iface_idx.to_be_bytes();
+        unsafe {
+            setsockopt(
+                raw as _,
+                IPPROTO_IP as i32,
+                IP_UNICAST_IF,
+                idx_bytes.as_ptr() as *const _,
+                idx_bytes.len() as i32,
+            )
+        }
     };
-    let res = unsafe {
-        libc::setsockopt(
-            raw as _,
-            level,
-            option,
-            &iface_idx as *const _ as *const _,
-            std::mem::size_of_val(&iface_idx) as i32,
-        )
-    };
-    res == 0
+    
+    res != SOCKET_ERROR
 }
 
 /// Windows: 获取接口索引
