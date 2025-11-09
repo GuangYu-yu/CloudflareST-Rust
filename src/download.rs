@@ -126,7 +126,7 @@ impl<'a> DownloadTest<'a> {
         Self {
             args,
             urlist: urlist_vec,
-            bar: Arc::new(Bar::new(test_num as u64, "", "MB/s   ")),
+            bar: Arc::new(Bar::new(test_num as u64, "", "MB/s")),
             current_speed: Arc::new(Mutex::new(0.0)),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
