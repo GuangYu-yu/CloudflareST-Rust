@@ -119,7 +119,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                             let close_connection = i == ping_times - 1;
 
                             // 发送 HEAD 请求，并传递连接关闭标志
-                            send_head_request(&client, &host, uri, 1800, close_connection)
+                            send_head_request(&client, &host, uri, 1200, close_connection)
                                 .await
                                 .ok()
                         };
