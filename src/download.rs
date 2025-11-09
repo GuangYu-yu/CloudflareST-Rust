@@ -278,8 +278,9 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
 
     let mut data_center = None;
 
-    // 计算延长的下载时间
-    let warm_up_duration = Duration::from_secs(3); // 预热时间
+    // 定义连接和TTFB的超时
+    const TTFB_TIMEOUT_MS: u64 = 1200;
+    let warm_up_duration = Duration::from_secs(3);
     let extended_duration = params.download_duration + warm_up_duration;
 
     // 创建客户端进行下载测速
@@ -287,7 +288,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
         params.addr,
         params.interface,
         params.interface_ips,
-        extended_duration.as_millis() as u64,
+        TTFB_TIMEOUT_MS,
     ) {
         Some(client) => client,
         None => return (None, None),
@@ -301,7 +302,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
         &client, 
         &host, 
         uri, 
-        extended_duration.as_millis() as u64
+        TTFB_TIMEOUT_MS
     ).await.ok();
 
     // 如果获取到响应，开始下载
