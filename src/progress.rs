@@ -108,7 +108,6 @@ impl Bar {
         let start_str_arc: Arc<str> = start_str.into();
         let end_str_arc: Arc<str> = end_str.into();
 
-        // 固定终端宽度和 reserved_space，避免每次刷新都计算
         let term_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
         let reserved_space = 20 + start_str_arc.len() + end_str_arc.len() + 10;
 
@@ -127,7 +126,7 @@ impl Bar {
                 let filled = (progress * bar_length as f64) as usize;
                 let phase = (start_instant.elapsed().as_secs_f64() * PROGRESS_BAR_SPEED) % 1.0;
 
-                // 新的百分比内容
+                // 百分比
                 let percent_content = format!(" {:>4.1}% ", progress * 100.0);
                 let percent_chars: Vec<char> = percent_content.chars().collect();
                 let percent_len = percent_chars.len();
@@ -160,7 +159,6 @@ impl Bar {
                     let distance_raw = (i_f64 - mu).abs();
                     
                     // 3. 计算环绕距离 (即通过另一侧边界的最短距离)
-                    // 想象进度条是弯曲的，首尾相接形成一个圆环。
                     let distance_wrap = bar_length_f64 - distance_raw;
                     
                     // 4. 周期性距离：取直接距离和环绕距离的最小值
