@@ -8,30 +8,30 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"],
 hyper = { version = "1", features = ["client"], default-features = false }
 hyper-util = { version = "0.1", features = ["client-legacy"], default-features = false }
 hyper-rustls = { version = "0.27", features = ["ring", "webpki-roots", "http1"], default-features = false }
-http = "1"
-http-body = "1"
-http-body-util = "0.1"
-tower = "0.5"
-fastrand = "2"
-ipnet = "2"
-url = "2"
-terminal_size = "0.4"
-futures = "0.3"
+http = { version = "1", default-features = false }
+http-body = { version = "1", default-features = false }
+http-body-util = { version = "0.1", default-features = false }
+tower = { version = "0.5", default-features = false }
+fastrand = { version = "2", features = ["std"], default-features = false }
+ipnet = { version = "2", default-features = false }
+url = { version = "2", default-features = false }
+terminal_size = { version = "0.4", default-features = false }
+futures = { version = "0.3", features = ["std"], default-features = false }
 # surge-ping = "0.8"  # 已注释掉ICMP Ping功能
 
 # --- Windows ---
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
-network-interface = "2"
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"], default-features = false }
+network-interface = { version = "2", default-features = false }
 
 # --- Linux ---
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-network-interface = "2"
+libc = { version = "0.2", default-features = false }
+network-interface = { version = "2", default-features = false }
 
 # --- macOS ---
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
+libc = { version = "0.2", default-features = false }
 
 [profile.release]
 opt-level = 3           # 最高级别的优化
