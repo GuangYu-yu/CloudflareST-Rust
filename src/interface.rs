@@ -182,7 +182,7 @@ fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> b
         unsafe {
             setsockopt(
                 raw as _,
-                IPPROTO_IPV6 as i32,
+                IPPROTO_IPV6,
                 IPV6_UNICAST_IF,
                 idx_bytes.as_ptr() as *const _,
                 idx_bytes.len() as i32,
@@ -193,7 +193,7 @@ fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> b
         unsafe {
             setsockopt(
                 raw as _,
-                IPPROTO_IP as i32,
+                IPPROTO_IP,
                 IP_UNICAST_IF,
                 idx_bytes.as_ptr() as *const _,
                 idx_bytes.len() as i32,

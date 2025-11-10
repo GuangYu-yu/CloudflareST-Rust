@@ -118,6 +118,9 @@ impl Args {
         let mut parsed = Self::new();
         let vec = Self::parse_args_to_vec(&args);
 
+        // 标记是否使用了 -hu 或 -tp 参数
+        let mut use_hu_or_tp = false;
+
         for (k, v_opt) in vec {
             match k.as_str() {
                 // 布尔参数
@@ -130,6 +133,7 @@ impl Args {
 
                 // hu 可以有值也可以没有值
                 "hu" => {
+                    use_hu_or_tp = true;
                     parsed.httping = true;
                     parsed.httping_urls = Some(v_opt.unwrap_or_default());
                 }
@@ -142,6 +146,7 @@ impl Args {
                     parsed.test_count = Self::parse_u16(v_opt, parsed.test_count).clamp(1, u16::MAX);
                 }
                 "tp" => {
+                    use_hu_or_tp = true;
                     parsed.tcp_port = Self::parse_u16(v_opt, parsed.tcp_port).clamp(1, u16::MAX);
                 }
                 "p" => {
@@ -159,11 +164,11 @@ impl Args {
                 }
                 // 时间参数
                 "dt" => {
-                    let seconds = Self::parse_u64(v_opt, parsed.timeout_duration.map(|d| d.as_secs()).unwrap_or(10));
+                    let seconds = Self::parse_u64(v_opt, parsed.timeout_duration.map(|d| d.as_secs()).unwrap());
                     parsed.timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 120)));
                 }
                 "timeout" => {
-                    let seconds = Self::parse_u64(v_opt, parsed.global_timeout_duration.map(|d| d.as_secs()).unwrap_or(0));
+                    let seconds = Self::parse_u64(v_opt, parsed.global_timeout_duration.map(|d| d.as_secs()).unwrap());
                     parsed.global_timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 36000)));
                 }
                 "tl" => {
@@ -233,6 +238,11 @@ impl Args {
                     error_and_exit(format_args!("无效的参数: {k}"));
                 }
             }
+        }
+
+        // 若启用 httping 且未使用 -hu 或 -tp，则默认端口为 80
+        if parsed.httping && !use_hu_or_tp {
+        parsed.tcp_port = 80;
         }
 
         parsed
@@ -330,7 +340,7 @@ pub fn print_help() {
         ("-ipurl", "从 URL 读取 IP 或 CIDR", "未指定"),
         ("-url", "TLS 模式的 Httping 或下载测速所使用的 URL", "未指定"),
         ("-urlist", "从 URL 内读取测速地址列表", "未指定"),
-        ("-tp", "测速端口", "443"),
+        ("-tp", "测速端口", "80 或 443"),
         
         // 测试参数
         ("", "测试参数", ""), // 标记标题
