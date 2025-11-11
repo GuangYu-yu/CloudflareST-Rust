@@ -22,20 +22,20 @@ jobs:
           sudo apt-get install -y jq gh
 
       - name: 获取仓库数据
-        id: 数据
+        id: fetch_data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          数据=$(gh api repos/GuangYu-yu/CloudflareST-Rust)
-          星标数=$(echo "$数据" | jq .stargazers_count)
-          派生数=$(echo "$数据" | jq .forks_count)
-          echo "stars=$星标数" >> $GITHUB_OUTPUT
-          echo "forks=$派生数" >> $GITHUB_OUTPUT
+          data=$(gh api repos/GuangYu-yu/CloudflareST-Rust)
+          stars=$(echo "$data" | jq .stargazers_count)
+          forks=$(echo "$data" | jq .forks_count)
+          echo "stars=$stars" >> $GITHUB_OUTPUT
+          echo "forks=$forks" >> $GITHUB_OUTPUT
 
       - name: 更新 SVG 模板
         run: |
-          sed "s/{{stars}}/${{ steps.数据.outputs.stars }}/" badges/star.svg > badges/star.svg.tmp && mv badges/star.svg.tmp badges/star.svg
-          sed "s/{{forks}}/${{ steps.数据.outputs.forks }}/" badges/fork.svg > badges/fork.svg.tmp && mv badges/fork.svg.tmp badges/fork.svg
+          sed "s/{{stars}}/${{ steps.fetch_data.outputs.stars }}/" badges/star.svg > badges/star.svg.tmp && mv badges/star.svg.tmp badges/star.svg
+          sed "s/{{forks}}/${{ steps.fetch_data.outputs.forks }}/" badges/fork.svg > badges/fork.svg.tmp && mv badges/fork.svg.tmp badges/fork.svg
 
       - name: 提交并推送
         run: |
