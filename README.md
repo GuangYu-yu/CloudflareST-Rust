@@ -9,7 +9,7 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
 [![ReadmeX](https://raw.githubusercontent.com/CodePhiliaX/resource-trusteeship/main/readmex.svg)](https://readmex.com/GuangYu-yu/CloudflareST-Rust)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![GitHub Star](https://img.shields.io/github/stars/GuangYu-yu/CloudflareST-Rust.svg?style=flat-square&label=Star&color=00ADD8&logo=github)](https://github.com/GuangYu-yu/CloudflareST-Rust/)
+[![GitHub Star](https://img.shields.io/github/stars/GuangYu-yu/CloudflareST-Rust.svg?style=flat-square&label=Star&color=00ADD8&logo=github)](https://github.com/GuangYu-yu/CloudflareST-Rust)
 [![GitHub Fork](https://img.shields.io/github/forks/GuangYu-yu/CloudflareST-Rust.svg?style=flat-square&label=Fork&color=00ADD8&logo=github)](https://github.com/GuangYu-yu/CloudflareST-Rust)
 
 **⚠️ 警告：工具仅用于简单的网络测速，造成的一切后果自负**
