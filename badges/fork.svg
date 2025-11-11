@@ -5,8 +5,8 @@
     <stop offset="0" stop-color="#4c9be8" stop-opacity=".9"/>
     <stop offset="1" stop-color="#357ab8" stop-opacity=".9"/>
   </linearGradient>
+  
   <path d="M50 0 h57 a3 3 0 0 1 3 3 v14 a3 3 0 0 1 -3 3 h-57 z" fill="url(#gradFork)"/>
-
   <path d="M0.5 3 a2.5 2.5 0 0 1 2.5 -2.5 h104 a2.5 2.5 0 0 1 2.5 2.5 v14 a2.5 2.5 0 0 1 -2.5 2.5 h-104 a2.5 2.5 0 0 1 -2.5 -2.5 z" fill="none" stroke="#000" stroke-opacity=".1"/>
 
   <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
