@@ -19,7 +19,7 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq gh
+          sudo apt-get install -y jq gh perl
 
       - name: 获取仓库数据
         id: fetch_data
@@ -32,15 +32,20 @@ jobs:
           echo "stars=$stars" >> $GITHUB_OUTPUT
           echo "forks=$forks" >> $GITHUB_OUTPUT
 
-      - name: 更新 SVG 模板
+      - name: 更新 Star 徽章
         run: |
-          sed "s/{{stars}}/${{ steps.fetch_data.outputs.stars }}/" badges/star.svg > badges/star.svg.tmp && mv badges/star.svg.tmp badges/star.svg
-          sed "s/{{forks}}/${{ steps.fetch_data.outputs.forks }}/" badges/fork.svg > badges/fork.svg.tmp && mv badges/fork.svg.tmp badges/fork.svg
+          stars=${{ steps.fetch_data.outputs.stars }}
+          perl -0777 -pe 's|(<metadata id="badge-stars">.*?</metadata>).*?<text[^>]*>{{stars}}</text>|$1<text x="80" y="13">'$stars'</text>|s' badges/star.svg > badges/star.svg.tmp && mv badges/star.svg.tmp badges/star.svg
+
+      - name: 更新 Fork 徽章
+        run: |
+          forks=${{ steps.fetch_data.outputs.forks }}
+          perl -0777 -pe 's|(<metadata id="badge-forks">.*?</metadata>).*?<text[^>]*>{{forks}}</text>|$1<text x="85" y="15">'$forks'</text>|s' badges/fork.svg > badges/fork.svg.tmp && mv badges/fork.svg.tmp badges/fork.svg
 
       - name: 提交并推送
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git add badges/
+          git add badges/star.svg badges/fork.svg
           git commit -m "自动更新徽章" || echo "没有变化"
           git push
