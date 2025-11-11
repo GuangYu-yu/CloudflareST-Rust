@@ -12,6 +12,29 @@
 [![GitHub Star](https://img.shields.io/github/stars/GuangYu-yu/CloudflareST-Rust.svg?style=flat-square&label=Star&color=00ADD8&logo=github)](https://github.com/GuangYu-yu/CloudflareST-Rust)
 [![GitHub Fork](https://img.shields.io/github/forks/GuangYu-yu/CloudflareST-Rust.svg?style=flat-square&label=Fork&color=00ADD8&logo=github)](https://github.com/GuangYu-yu/CloudflareST-Rust)
 
+
+
+
+
+
+
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/main/badges/star.svg" height="24">
+  <img src="https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/main/badges/fork.svg" height="24">
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
 **⚠️ 警告：工具仅用于简单的网络测速，造成的一切后果自负**
 
 </div>
