@@ -32,15 +32,19 @@ jobs:
           echo "stars=$stars" >> $GITHUB_OUTPUT
           echo "forks=$forks" >> $GITHUB_OUTPUT
 
-      - name: 更新 Star 徽章
+      - name: 生成 Star 徽章
         run: |
           stars=${{ steps.fetch_data.outputs.stars }}
-          perl -0777 -pe 's|(<metadata id="badge-stars">.*?</metadata>).*?<text[^>]*>{{stars}}</text>|$1<text x="80" y="13">'$stars'</text>|s' badges/star.svg > badges/star.svg.tmp && mv badges/star.svg.tmp badges/star.svg
+          cp badges/star-template.svg badges/star.svg
+          # 直接替换模板中的占位符 {{Stars}}
+          perl -pi -e 's/\{\{Stars\}\}/'"$stars"'/g' badges/star.svg
 
-      - name: 更新 Fork 徽章
+      - name: 生成 Fork 徽章
         run: |
           forks=${{ steps.fetch_data.outputs.forks }}
-          perl -0777 -pe 's|(<metadata id="badge-forks">.*?</metadata>).*?<text[^>]*>{{forks}}</text>|$1<text x="85" y="15">'$forks'</text>|s' badges/fork.svg > badges/fork.svg.tmp && mv badges/fork.svg.tmp badges/fork.svg
+          cp badges/fork-template.svg badges/fork.svg
+          # 直接替换模板中的占位符 {{Forks}}
+          perl -pi -e 's/\{\{Forks\}\}/'"$forks"'/g' badges/fork.svg
 
       - name: 提交并推送
         run: |
