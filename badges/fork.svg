@@ -8,6 +8,6 @@
   <rect width="120" height="24" rx="4" fill="none" stroke="#000" stroke-opacity=".1"/>
   <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="12">
     <text x="25" y="16">Forks</text>
-    <text x="85" y="16">{{forks}}</text>
+    <text x="85" y="16">4</text>
   </g>
 </svg>
