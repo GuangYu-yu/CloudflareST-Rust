@@ -3,6 +3,10 @@ name = "CloudflareST-Rust"
 version = "1.0.0"
 edition = "2024"
 
+[features]
+# default = ["icmp"]
+icmp = ["dep:surge-ping"]
+
 [dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"], default-features = false }
 hyper = { version = "1", features = ["client"], default-features = false }
@@ -17,7 +21,7 @@ ipnet = { version = "2", default-features = false }
 url = { version = "2", default-features = false }
 terminal_size = { version = "0.4", default-features = false }
 futures = { version = "0.3", features = ["std"], default-features = false }
-# surge-ping = "0.8"  # 已注释掉ICMP Ping功能
+surge-ping = { version = "0.8", optional = true, default-features = false }
 
 # --- Windows ---
 [target.'cfg(target_os = "windows")'.dependencies]
