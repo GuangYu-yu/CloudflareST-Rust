@@ -8,7 +8,8 @@ use crate::interface::{InterfaceIps, process_interface_param};
 #[derive(Clone)]
 pub struct Args {
     // 网络测试参数
-    //    pub icmp_ping: bool,                  // 是否使用ICMP Ping测速
+    #[cfg(feature = "icmp")]
+    pub icmp_ping: bool,                  // 是否使用ICMP Ping测速
     pub ping_times: u16,                    // Ping测试次数
     pub tcp_port: u16,                      // TCP端口号
     pub url: String,                        // 单个测速URL
@@ -55,7 +56,8 @@ impl Args {
     /// 创建默认参数配置
     pub fn new() -> Self {
         Self {
-            //            icmp_ping: false,
+            #[cfg(feature = "icmp")]
+            icmp_ping: false,
             ping_times: 4, // 默认Ping测试4次
             tcp_port: 443, // 默认使用443端口
             url: String::new(),
@@ -129,7 +131,8 @@ impl Args {
                 "dd" => parsed.disable_download = true,
                 "all4" => parsed.test_all = true,
                 "sp" => parsed.show_port = true,
-                // "ping" => parsed.icmp_ping = true,
+                #[cfg(feature = "icmp")]
+                "ping" => parsed.icmp_ping = true,
 
                 // hu 可以有值也可以没有值
                 "hu" => {
@@ -355,7 +358,8 @@ pub fn print_help() {
         ("", "控制参数", ""), // 标记标题
         ("-httping", "使用非 TLS 模式的 Httping", "否"),
         ("-hu", "使用 HTTPS 进行延迟测速，可指定测速地址", "否"),
-//        ("-ping", "使用 ICMP Ping 进行延迟测速", "否"),
+        #[cfg(feature = "icmp")]
+        ("-ping", "使用 ICMP Ping 进行延迟测速", "否"),
         ("-dd", "禁用下载测速", "否"),
         ("-all4", "测速全部 IPv4 地址", "否"),
         ("-timeout", "程序超时退出时间（秒）", "不限制"),

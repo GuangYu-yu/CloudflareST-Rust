@@ -23,7 +23,8 @@ pub fn warning_println(args: std::fmt::Arguments<'_>) {
 mod args;
 mod httping;
 mod tcping;
-// mod icmp;
+#[cfg(feature = "icmp")]
+mod icmp;
 mod common;
 mod csv;
 mod download;
@@ -65,19 +66,20 @@ async fn main() {
     let _ = fastrand::u32(..);
 
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
-    let ping_result: Vec<PingData> = if args.httping {
-        let ping = httping::new(&args, Arc::clone(&timeout_flag)).unwrap();
-        ping.run().await.unwrap()
-    } 
-    /*
-    else if args.icmp_ping {
-        let ping = icmp::new(&args, Arc::clone(&timeout_flag)).unwrap();
-        ping.run().await.unwrap()
-    }
-    */
-    else {
-        let ping = tcping::new(&args, Arc::clone(&timeout_flag)).unwrap();
-        ping.run().await.unwrap()
+    let ping_result: Vec<PingData> = match args.httping {
+        true => {
+            let ping = httping::new(&args, Arc::clone(&timeout_flag)).unwrap();
+            ping.run().await.unwrap()
+        },
+        #[cfg(feature = "icmp")]
+        false if args.icmp_ping => {
+            let ping = icmp::new(&args, Arc::clone(&timeout_flag)).unwrap();
+            ping.run().await.unwrap()
+        },
+        _ => {
+            let ping = tcping::new(&args, Arc::clone(&timeout_flag)).unwrap();
+            ping.run().await.unwrap()
+        }
     };
 
     // 检查是否在 ping 阶段被超时中断
