@@ -1,6 +1,16 @@
 [build]
 rustflags = [
-    "--remap-path-prefix=/home/runner/.cargo/registry=registry",
-    "--remap-path-prefix=/home/runner/work/CloudflareST-Rust=.",
-    "--remap-path-prefix=/home/runner=/",
+    "-C", "link-arg=-s",
+    "-C", "overflow-checks=off",
+    "-C", "codegen-units=1"
 ]
+
+[profile.release]
+opt-level = 3           # 最高级别的优化
+lto = "fat"             # 启用链接时优化，使用 "fat" 模式以获得最佳效果
+codegen-units = 1       # 禁用并行编译单元，确保全局优化
+panic = "abort"         # 禁用回溯，减少运行时开销
+strip = "symbols"       # 移除所有符号信息
+debug = 0               # 禁用调试信息
+incremental = false     # 禁用增量编译，确保全局优化
+overflow-checks = false # 禁用整数溢出检查
