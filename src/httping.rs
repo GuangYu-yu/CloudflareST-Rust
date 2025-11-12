@@ -14,8 +14,8 @@ use crate::warning_println;
 
 #[derive(Clone)]
 pub struct HttpingFactoryData {
-    colo_filters: Vec<String>,
-    urlist: Vec<String>,
+    colo_filters: Arc<Vec<String>>,
+    urlist: Arc<Vec<Arc<String>>>,
     use_https: bool,
     interface: Option<String>,
 }
@@ -27,8 +27,8 @@ impl common::PingMode for HttpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler> {
         Arc::new(HttpingHandlerFactory {
             base: Arc::new(base.clone()),
-            colo_filters: self.colo_filters.clone(),
-            urls: self.urlist.clone(),
+            colo_filters: Arc::clone(&self.colo_filters),
+            urls: Arc::clone(&self.urlist),
             url_index: Arc::new(AtomicUsize::new(0)),
             use_https: self.use_https,
             interface: self.interface.clone(),
@@ -38,8 +38,8 @@ impl common::PingMode for HttpingFactoryData {
 
 pub struct HttpingHandlerFactory {
     base: Arc<BasePing>,
-    colo_filters: Vec<String>,
-    urls: Vec<String>,
+    colo_filters: Arc<Vec<String>>,
+    urls: Arc<Vec<Arc<String>>>,
     url_index: Arc<AtomicUsize>,
     use_https: bool,
     interface: Option<String>,
@@ -64,14 +64,14 @@ impl HandlerFactory for HttpingHandlerFactory {
             let url = if use_https {
                 // HTTPS模式：从URL列表中选择（轮询）
                 let current_index = url_index.fetch_add(1, Ordering::Relaxed) % urls.len();
-                urls[current_index].clone()
+                Arc::clone(&urls[current_index])
             } else {
                 // 非HTTPS模式：直接使用IP构建URL
                 let mut host_str = addr.ip().to_string();
                 if addr.ip().is_ipv6() {
                     host_str = format!("[{}]", addr.ip());
                 }
-                build_trace_url("http", &host_str)
+                Arc::new(build_trace_url("http", &host_str))
             };
 
             let ping_times = args.ping_times;
@@ -98,12 +98,12 @@ impl HandlerFactory for HttpingHandlerFactory {
 
             // 预解析一次允许的 HTTP 状态码列表
             let allowed_codes = if !args.httping_code.is_empty() {
-                Some(
+                Some(Arc::new(
                     args.httping_code
                         .split(',')
                         .filter_map(|s| s.trim().parse::<u16>().ok())
                         .collect::<Vec<u16>>()
-                )
+                ))
             } else {
                 None
             };
@@ -114,7 +114,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                 let client = client.clone();
                 let colo_filters = colo_filters.clone();
                 let allowed_codes = allowed_codes.clone();
-                let url = url.clone();
+                let url = Arc::clone(&url);
                 let host = host.clone();
                 let should_continue = should_continue.clone();
                 let args = args.clone();
@@ -123,7 +123,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                     let client = client.clone();
                     let colo_filters = colo_filters.clone();
                     let allowed_codes = allowed_codes.clone();
-                    let url = url.clone();
+                    let url = Arc::clone(&url);
                     let host = host.clone();
                     let should_continue = should_continue.clone();
                     let args = args.clone();
@@ -141,7 +141,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                             let delay_result = {
                                 let result = {
                                     // 解析 URL 字符串为 hyper::Uri
-                                    let (uri, _) = match parse_url_to_uri(&url) {
+                                    let (uri, _) = match parse_url_to_uri(&**url) {
                                         Some(result) => result,
                                         None => return Ok(None),
                                     };
@@ -184,7 +184,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                                     if dc_guard.is_none() {
                                         // 检查数据中心（Colo）是否符合过滤要求
                                         if !args.httping_cf_colo.is_empty()
-                                            && !common::is_colo_matched(&dc, &colo_filters)
+                                            && !common::is_colo_matched(&dc, &*colo_filters)
                                         {
                                             should_continue.store(false, Ordering::Relaxed);
                                             return None;
@@ -249,7 +249,7 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
                 urls.split(',')
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
-                    .map(|url| url_to_trace(&url))
+                    .map(|url| Arc::new(url_to_trace(&url)))
                     .collect()
             } else {
                 // -hu 未指定 URL，从 -url 或 -urlist 获取域名列表
@@ -257,7 +257,7 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
                     tokio::runtime::Handle::current()
                         .block_on(common::get_url_list(&args.url, &args.urlist))
                 });
-                url_list.iter().map(|url| url_to_trace(url)).collect()
+                url_list.iter().map(|url| Arc::new(url_to_trace(url))).collect()
             }
         } else {
             Vec::new()
@@ -288,8 +288,8 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
     });
 
     let factory_data = HttpingFactoryData {
-        colo_filters,
-        urlist,
+        colo_filters: Arc::new(colo_filters),
+        urlist: Arc::new(urlist),
         use_https,
         interface: args.interface.clone(),
     };
