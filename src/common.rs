@@ -206,22 +206,45 @@ where
 }
 
 pub trait PingMode: Clone + Send + Sync + 'static {
-    // 约束 HandlerFactory 的类型
     type Handler: HandlerFactory;
-    
-    // 要求实现者提供一个创建 HandlerFactory 的方法
     fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler>;
 }
 
-/// 泛型Ping结构体
-pub struct Ping<T: PingMode> {
-    pub base: BasePing,
-    pub factory_data: T,
+pub trait PingModeObject: Send + Sync + 'static {
+    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory>;
+    fn clone_box(&self) -> Box<dyn PingModeObject>;
 }
 
-impl<T: PingMode> Ping<T> {
-    pub fn new(base: BasePing, factory_data: T) -> Self {
-        Self { base, factory_data }
+impl<T> PingModeObject for T
+where
+    T: PingMode + Clone + 'static,
+{
+    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
+        self.create_handler_factory(base)
+    }
+    
+    fn clone_box(&self) -> Box<dyn PingModeObject> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn PingModeObject> {
+    fn clone(&self) -> Box<dyn PingModeObject> {
+        self.clone_box()
+    }
+}
+
+pub struct Ping {
+    pub base: BasePing,
+    pub factory_data: Box<dyn PingModeObject>,
+}
+
+impl Ping {
+    pub fn new<T: PingMode + Clone + 'static>(base: BasePing, factory_data: T) -> Self {
+        Self { 
+            base, 
+            factory_data: Box::new(factory_data) 
+        }
     }
 
     // 通用的 run 方法
@@ -230,7 +253,7 @@ impl<T: PingMode> Ping<T> {
         let mode_data = self.factory_data;
         
         // 调用 run_ping_test，传递一个创建工厂的闭包
-        run_ping_test(base, |b| mode_data.create_handler_factory(b)).await
+        run_ping_test(base, move |b| mode_data.create_handler_factory(b)).await
     }
 }
 

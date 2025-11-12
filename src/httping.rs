@@ -231,7 +231,7 @@ fn build_trace_url(scheme: &str, host: &str) -> String {
     format!("{}://{}/cdn-cgi/trace", scheme, host)
 }
 
-pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing<HttpingFactoryData>> {
+pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 判断是否使用-hu参数（无论是否传值）
     let use_https = args.httping_urls.is_some();
 

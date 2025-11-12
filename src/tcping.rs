@@ -70,7 +70,7 @@ impl HandlerFactory for TcpingHandlerFactory {
     }
 }
 
-pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing<TcpingFactoryData>> {
+pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 打印开始延迟测试的信息
     common::print_speed_test_info("Tcping", args);
 
