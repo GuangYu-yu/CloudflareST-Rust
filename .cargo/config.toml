@@ -2,7 +2,10 @@
 rustflags = [
     "-C", "link-arg=-s",
     "-C", "overflow-checks=off",
-    "-C", "codegen-units=1"
+    "-C", "codegen-units=1",
+    "--remap-path-prefix=/home/runner/.cargo/registry=registry",
+    "--remap-path-prefix=/home/runner/work/CloudflareST-Rust=.",
+    "--remap-path-prefix=/home/runner=/"
 ]
 
 [profile.release]
