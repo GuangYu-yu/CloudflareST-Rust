@@ -5,8 +5,7 @@ rustflags = [
     "-C", "codegen-units=1",
     "--remap-path-prefix=/home/runner/.cargo/registry=registry",
     "--remap-path-prefix=/home/runner/work/CloudflareST-Rust=.",
-    "--remap-path-prefix=/home/runner=/",
-    "--remap-path-prefix=/.cargo/registry/src=deps"
+    "--remap-path-prefix=/home/runner=/"
 ]
 
 [profile.release]
