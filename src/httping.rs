@@ -141,7 +141,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                             let delay_result = {
                                 let result = {
                                     // 解析 URL 字符串为 hyper::Uri
-                                    let (uri, _) = match parse_url_to_uri(&**url) {
+                                    let (uri, _) = match parse_url_to_uri(&url) {
                                         Some(result) => result,
                                         None => return Ok(None),
                                     };
@@ -184,7 +184,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                                     if dc_guard.is_none() {
                                         // 检查数据中心（Colo）是否符合过滤要求
                                         if !args.httping_cf_colo.is_empty()
-                                            && !common::is_colo_matched(&dc, &*colo_filters)
+                                            && !common::is_colo_matched(&dc, &colo_filters)
                                         {
                                             should_continue.store(false, Ordering::Relaxed);
                                             return None;
