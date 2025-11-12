@@ -246,7 +246,7 @@ impl<'a> DownloadTest<'a> {
         }
 
         // 对结果进行业务排序
-        common::sort_results(&mut qualified_results);
+        common::sort_results(&mut qualified_results[..]);
 
         qualified_results
     }

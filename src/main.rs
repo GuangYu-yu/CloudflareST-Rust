@@ -66,25 +66,18 @@ async fn main() {
 
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingData> = if args.httping {
-        httping::Ping::new(&args, Arc::clone(&timeout_flag))
-            .await
-            .unwrap()
-            .run()
-            .await
-            .unwrap()
+        let ping = httping::new(&args, Arc::clone(&timeout_flag)).unwrap();
+        ping.run().await.unwrap()
+    } 
+    /*
+    else if args.icmp_ping {
+        let ping = icmp::new(&args, Arc::clone(&timeout_flag)).unwrap();
+        ping.run().await.unwrap()
     }
-    /* else if args.icmp_ping {
-        icmp::Ping::new(&args, Arc::clone(&timeout_flag))
-            .await.unwrap()
-            .run().await.unwrap()
-    } */
+    */
     else {
-        tcping::Ping::new(&args, Arc::clone(&timeout_flag))
-            .await
-            .unwrap()
-            .run()
-            .await
-            .unwrap()
+        let ping = tcping::new(&args, Arc::clone(&timeout_flag)).unwrap();
+        ping.run().await.unwrap()
     };
 
     // 检查是否在 ping 阶段被超时中断

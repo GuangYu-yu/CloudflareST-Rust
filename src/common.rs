@@ -81,8 +81,6 @@ impl<'a> PingDataRef<'a> {
     }
 }
 
-pub type PingDelaySet = Vec<PingData>;
-
 // 打印测速信息的通用函数
 pub fn print_speed_test_info(mode: &str, args: &Args) {
     println!(
@@ -138,60 +136,6 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     (avg_ms * 100.0).round() / 100.0
 }
 
-/*
-/// 创建基础客户端构建器
-fn client_builder() -> reqwest::ClientBuilder {
-    Client::builder()
-        // 使用用户标识常量
-        .user_agent(USER_AGENT)
-}
-
-/// 构建 Reqwest 客户端
-pub async fn build_reqwest_client(
-    addr: SocketAddr,
-    host: &str,
-    timeout_ms: u64,
-    interface: Option<&str>,
-    interface_ips: Option<&InterfaceIps>,
-) -> Option<Client> {
-    let mut builder = client_builder()
-        .resolve(host, addr) // 解析域名
-        .timeout(Duration::from_millis(timeout_ms)) // 整个请求超时时间
-        //        .danger_accept_invalid_certs(true)         // 跳过证书验证
-        //        .pool_max_idle_per_host(0)                 // 禁用连接复用
-        .redirect(reqwest::redirect::Policy::none()); // 禁止重定向
-
-    // 如果 interface_ips 不为空，所有平台都根据目标 IP 类型选择源 IP
-    if let Some(ips) = interface_ips {
-        // 根据 resolve 的 addr 类型选择源 IP
-        let source_ip = match addr.ip() {
-            IpAddr::V4(_) => ips.ipv4,
-            IpAddr::V6(_) => ips.ipv6,
-        };
-
-        if let Some(ip) = source_ip {
-            builder = builder.local_address(Some(ip));
-        }
-    } else if let Some(intf) = interface {
-        // 如果 interface_ips 为空，但 interface 不为空
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        {
-            // Linux 和 macOS 使用接口名
-            builder = builder.interface(intf);
-        }
-        #[cfg(target_os = "windows")]
-        {
-            // Windows 系统：接口名已经在 args.rs 中处理过，并转换为 IP 地址
-            // 这里不需要额外处理，因为 interface_ips 应该已经包含 IP 地址
-            let _ = intf; // 占位使用变量以避免警告
-        }
-    }
-
-    let client = builder.build().ok();
-    client
-}
- */
-
 /// 从响应中提取数据中心信息
 pub fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -> Option<String> {
     resp.headers()
@@ -229,11 +173,77 @@ pub trait HandlerFactory: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>>;
 }
 
+/// 通用的ping测试循环函数
+pub async fn run_ping_loop<F, Fut>(
+    ping_times: u16,
+    wait_ms: u64,
+    mut test_fn: F,
+) -> Option<f32>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<f32>>,
+{
+    let mut recv = 0;
+    let mut total_delay_ms = 0.0;
+
+    for _ in 0..ping_times {
+        if let Some(delay) = test_fn().await {
+            recv += 1;
+            total_delay_ms += delay;
+
+            // 成功时等待指定时间再进行下一次ping
+            tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
+        }
+    }
+
+    // 计算平均延迟
+    let avg_delay_ms = calculate_precise_delay(total_delay_ms, recv);
+    if recv > 0 {
+        Some(avg_delay_ms)
+    } else {
+        None
+    }
+}
+
+pub trait PingMode: Clone + Send + Sync + 'static {
+    // 约束 HandlerFactory 的类型
+    type Handler: HandlerFactory;
+    
+    // 要求实现者提供一个创建 HandlerFactory 的方法
+    fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler>;
+}
+
+/// 泛型Ping结构体
+pub struct Ping<T: PingMode> {
+    pub base: BasePing,
+    pub factory_data: T,
+}
+
+impl<T: PingMode> Ping<T> {
+    pub fn new(base: BasePing, factory_data: T) -> Self {
+        Self { base, factory_data }
+    }
+
+    // 通用的 run 方法
+    pub async fn run(self) -> Result<Vec<PingData>, io::Error> {
+        let base = self.base;
+        let mode_data = self.factory_data;
+        
+        // 调用 run_ping_test，传递一个创建工厂的闭包
+        run_ping_test(base, |b| mode_data.create_handler_factory(b)).await
+    }
+}
+
 /// 通用的 ping 测试运行函数
-pub async fn run_ping_test(
-    base: &BasePing,
-    handler_factory: Arc<dyn HandlerFactory>,
-) -> Result<PingDelaySet, io::Error> {
+pub async fn run_ping_test<F>(
+    base: BasePing,
+    factory_creator: F,
+) -> Result<Vec<PingData>, io::Error>
+where
+    F: FnOnce(&BasePing) -> Arc<dyn HandlerFactory> + Send + Sync,
+{
+    let handler_factory = factory_creator(&base);
+
     // 并发限制器最大并发数量
     let pool_concurrency = GLOBAL_LIMITER.get().unwrap().max_concurrent;
 
@@ -405,7 +415,7 @@ pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
 }
 
 /// 排序结果
-pub fn sort_results(results: &mut PingDelaySet) {
+pub fn sort_results(results: &mut [PingData]) {
     if results.is_empty() {
         return;
     }

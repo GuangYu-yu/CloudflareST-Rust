@@ -7,17 +7,30 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use crate::args::Args;
-use crate::common::{self, HandlerFactory, PingData, PingDelaySet};
+use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing, PingMode};
 use crate::pool::execute_with_rate_limit;
 use crate::interface::{InterfaceIps, bind_socket_to_interface};
 
-// Ping 主体结构体
-pub struct Ping {
-    base: common::BasePing,
+#[derive(Clone)]
+pub struct TcpingFactoryData {
+    interface: Option<String>,
+    interface_ips: Option<InterfaceIps>,
+}
+
+impl PingMode for TcpingFactoryData {
+    type Handler = TcpingHandlerFactory;
+
+    fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler> {
+        Arc::new(TcpingHandlerFactory {
+            base: Arc::new(base.clone()),
+            interface: self.interface.clone(),
+            interface_ips: self.interface_ips.clone(),
+        })
+    }
 }
 
 pub struct TcpingHandlerFactory {
-    base: common::BasePing,
+    base: Arc<BasePing>,
     interface: Option<String>,
     interface_ips: Option<InterfaceIps>,
 }
@@ -33,33 +46,22 @@ impl HandlerFactory for TcpingHandlerFactory {
 
         Box::pin(async move {
             let ping_times = args.ping_times;
-            let mut recv = 0;
-            let mut total_delay_ms = 0.0;
-
-            for _ in 0..ping_times {
+            
+            // 使用通用的ping循环函数
+            let avg_delay = common::run_ping_loop(ping_times, 200, || async {
                 let interface_ref = interface.as_deref();
                 let interface_ips_ref = interface_ips.as_ref();
-                if let Ok(Some(delay)) = execute_with_rate_limit(|| async move {
+                
+                (execute_with_rate_limit(|| async move {
                     Ok::<Option<f32>, io::Error>(
                         tcping(addr, interface_ref, interface_ips_ref).await,
                     )
                 })
-                .await
-                {
-                    recv += 1;
-                    total_delay_ms += delay;
+                .await).unwrap_or_default()
+            }).await;
 
-                    // 成功时等待200ms再进行下一次ping
-                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                }
-            }
-
-            // 计算平均延迟
-            let avg_delay_ms = common::calculate_precise_delay(total_delay_ms, recv);
-
-            if recv > 0 {
-                let data = PingData::new(addr, ping_times, recv, avg_delay_ms);
-                // 返回测试数据
+            if let Some(avg_delay_ms) = avg_delay {
+                let data = PingData::new(addr, ping_times, ping_times, avg_delay_ms);
                 Some(data)
             } else {
                 None
@@ -68,29 +70,21 @@ impl HandlerFactory for TcpingHandlerFactory {
     }
 }
 
-impl Ping {
-    pub async fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<Self> {
-        // 打印开始延迟测试的信息
-        common::print_speed_test_info("Tcping", args);
+pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing<TcpingFactoryData>> {
+    // 打印开始延迟测试的信息
+    common::print_speed_test_info("Tcping", args);
 
-        // 初始化测试环境
-        let base = common::create_base_ping(args, timeout_flag).await;
+    // 初始化测试环境
+    let base = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, timeout_flag))
+    });
 
-        Ok(Ping { base })
-    }
+    let factory_data = TcpingFactoryData {
+        interface: args.interface.clone(),
+        interface_ips: args.interface_ips.clone(),
+    };
 
-    fn make_handler_factory(&self) -> Arc<dyn HandlerFactory> {
-        Arc::new(TcpingHandlerFactory {
-            base: self.base.clone(),
-            interface: self.base.args.interface.clone(),
-            interface_ips: self.base.args.interface_ips.clone(),
-        })
-    }
-
-    pub async fn run(self) -> Result<PingDelaySet, io::Error> {
-        let handler_factory = self.make_handler_factory();
-        common::run_ping_test(&self.base, handler_factory).await
-    }
+    Ok(CommonPing::new(base, factory_data))
 }
 
 // TCP连接测试函数
