@@ -211,8 +211,8 @@ pub trait PingMode: Send + Sync + 'static {
 }
 
 impl Clone for Box<dyn PingMode> {
-    fn clone(&self) -> Self {
-        self.clone_box()
+    fn clone(&self) -> Box<dyn PingMode> {
+        (**self).clone_box()
     }
 }
 
@@ -244,14 +244,12 @@ pub async fn run_ping_test(
 {
     // 并发限制器最大并发数量
     let pool_concurrency = GLOBAL_LIMITER.get().unwrap().max_concurrent;
-
-    // 创建异步任务管理器
+    
+    // 创建异步任务管理器和结果收集器
     let mut tasks = JoinSet::new();
-
-    // 用于收集结果
     let mut results = Vec::new();
 
-    // 缓存一些常用值以减少原子操作
+    // 缓存常用值
     let target_num = base.args.target_num;
     let timeout_flag = &base.timeout_flag;
     let success_count = &base.success_count;
@@ -262,10 +260,9 @@ pub async fn run_ping_test(
     // 初始启动任务直到达到并发限制或没有更多 IP
     for _ in 0..pool_concurrency {
         if let Some(addr) = base.ip_buffer.pop() {
-            let handler_future = handler_factory.create_handler(addr);
-            tasks.spawn(handler_future);
+            tasks.spawn(handler_factory.create_handler(addr));
         } else {
-            break; // 没有更多IP
+            break;
         }
     }
     
@@ -273,14 +270,13 @@ pub async fn run_ping_test(
     while let Some(join_result) = tasks.join_next().await {
         // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
         let current_success = success_count.load(Ordering::Relaxed);
-        let should_break = check_timeout_signal(timeout_flag)
-            || target_num.is_some_and(|tn| current_success >= tn as usize);
-        if should_break {
-            // 如果需要退出，清空所有剩余任务
+        if check_timeout_signal(timeout_flag) 
+            || target_num.is_some_and(|tn| current_success >= tn as usize) {
             tasks.abort_all();
             break;
         }
 
+        // 处理结果
         if let Ok(result) = join_result
             && let Some(ping_data) = result.filter(|d| should_keep_result(d, args))
         {
@@ -288,29 +284,19 @@ pub async fn run_ping_test(
             results.push(ping_data);
         }
 
-        // 更新测试计数
+        // 更新测试计数和进度条
         let current_tested = base.tested_count.fetch_add(1, Ordering::Relaxed) + 1;
-
-        // 更新进度条
         let current_success = success_count.load(Ordering::Relaxed);
-        update_progress_bar(
-            bar,
-            current_tested,
-            current_success,
-            total_ips,
-        );
+        update_progress_bar(bar, current_tested, current_success, total_ips);
 
         // 继续添加新任务
         if let Some(addr) = base.ip_buffer.pop() {
-            let handler_future = handler_factory.create_handler(addr);
-            tasks.spawn(handler_future);
+            tasks.spawn(handler_factory.create_handler(addr));
         }
     }
 
-    // 完成进度条但保持当前进度
+    // 完成进度条并排序结果
     bar.done();
-
-    // 排序结果
     sort_results(&mut results);
 
     Ok(results)
@@ -397,21 +383,11 @@ pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
 /// 判断测试结果是否符合筛选条件
 pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
     let data_ref = data.as_ref();
-
-    // 检查丢包率
-    if data_ref.loss_rate() > args.max_loss_rate {
-        return false;
-    }
-
-    // 检查延迟上下限
-    if data_ref.delay < args.min_delay.as_millis() as f32
-        || data_ref.delay > args.max_delay.as_millis() as f32
-    {
-        return false;
-    }
-
-    // 通过所有筛选条件
-    true
+    
+    // 检查丢包率和延迟上下限
+    data_ref.loss_rate() <= args.max_loss_rate
+        && data_ref.delay >= args.min_delay.as_millis() as f32
+        && data_ref.delay <= args.max_delay.as_millis() as f32
 }
 
 /// 排序结果
@@ -460,12 +436,14 @@ pub fn sort_results(results: &mut [PingData]) {
     });
 }
 
-/// 检查是否收到超时信号，如果是则打印信息并返回 true
+/// 检查是否收到超时信号
+#[inline]
 pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
     timeout_flag.load(Ordering::Relaxed)
 }
 
 /// 统一的进度条更新函数
+#[inline]
 pub fn update_progress_bar(
     bar: &Arc<Bar>,
     current_tested: usize,
