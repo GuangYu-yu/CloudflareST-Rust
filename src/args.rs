@@ -171,8 +171,9 @@ impl Args {
                     parsed.timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 120)));
                 }
                 "timeout" => {
-                    let seconds = Self::parse_u64(v_opt, parsed.global_timeout_duration.map(|d| d.as_secs()).unwrap());
-                    parsed.global_timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 36000)));
+                    parsed.global_timeout_duration = v_opt
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .map(|s| Duration::from_secs(s.clamp(1, 36000)));
                 }
                 "tl" => {
                     let ms = Self::parse_u64(v_opt, parsed.max_delay.as_millis() as u64);
