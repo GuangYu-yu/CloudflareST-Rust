@@ -1,8 +1,8 @@
 name: 更新徽章
 
 on:
-  schedule:
-    - cron: "0 * * * *"   # 每小时自动运行
+#  schedule:
+#    - cron: "0 * * * *"   # 每小时自动运行
   workflow_dispatch:       # 手动触发
 
 jobs:
