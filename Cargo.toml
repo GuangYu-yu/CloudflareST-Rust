@@ -20,7 +20,6 @@ fastrand = { version = "2", features = ["std"], default-features = false }
 ipnet = { version = "2", default-features = false }
 url = { version = "2", default-features = false }
 terminal_size = { version = "0.4", default-features = false }
-futures = { version = "0.3", features = ["std"], default-features = false }
 surge-ping = { version = "0.8", optional = true, default-features = false }
 
 # --- Windows ---
