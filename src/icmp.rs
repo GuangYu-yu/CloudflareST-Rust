@@ -3,13 +3,15 @@ use std::sync::Arc;
 use std::io;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
-use fastrand;
 use crate::pool::execute_with_rate_limit;
 
 use crate::args::Args;
 use crate::common::{self, PingData, HandlerFactory, BasePing, Ping as CommonPing, PingMode};
+
+// 全局原子计数器，用于生成唯一的ping标识符
+static PING_IDENTIFIER_COUNTER: AtomicU16 = AtomicU16::new(0);
 
 #[derive(Clone)]
 pub struct IcmpingFactoryData {
@@ -18,14 +20,16 @@ pub struct IcmpingFactoryData {
 }
 
 impl PingMode for IcmpingFactoryData {
-    type Handler = IcmpingHandlerFactory;
-
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler> {
+    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(IcmpingHandlerFactory {
             base: Arc::new(base.clone()),
             client_v4: Arc::clone(&self.client_v4),
             client_v6: Arc::clone(&self.client_v6),
         })
+    }
+    
+    fn clone_box(&self) -> Box<dyn PingMode> {
+        Box::new(self.clone())
     }
 }
 
@@ -93,7 +97,8 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
 async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
     let ip = addr.ip();
     let payload = [0; 56];
-    let identifier = PingIdentifier(fastrand::u16(0..=u16::MAX));
+    // 使用原子计数器生成唯一标识符
+    let identifier = PingIdentifier(PING_IDENTIFIER_COUNTER.fetch_add(1, Ordering::Relaxed));
     let mut rtt = None;
 
     let mut pinger = client.pinger(ip, identifier).await;

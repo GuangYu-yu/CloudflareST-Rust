@@ -3,7 +3,7 @@ use crate::ip::{IpBuffer, load_ip_to_buffer};
 use crate::progress::Bar;
 use crate::hyper::{client_builder, parse_url_to_uri};
 use crate::pool::GLOBAL_LIMITER;
-use futures::stream::{FuturesUnordered, StreamExt};
+use tokio::task::JoinSet;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -205,38 +205,20 @@ where
     }
 }
 
-pub trait PingMode: Clone + Send + Sync + 'static {
-    type Handler: HandlerFactory;
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler>;
-}
-
-pub trait PingModeObject: Send + Sync + 'static {
+pub trait PingMode: Send + Sync + 'static {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory>;
-    fn clone_box(&self) -> Box<dyn PingModeObject>;
+    fn clone_box(&self) -> Box<dyn PingMode>;
 }
 
-impl<T> PingModeObject for T
-where
-    T: PingMode + Clone + 'static,
-{
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
-        self.create_handler_factory(base)
-    }
-    
-    fn clone_box(&self) -> Box<dyn PingModeObject> {
-        Box::new(self.clone())
-    }
-}
-
-impl Clone for Box<dyn PingModeObject> {
-    fn clone(&self) -> Box<dyn PingModeObject> {
+impl Clone for Box<dyn PingMode> {
+    fn clone(&self) -> Self {
         self.clone_box()
     }
 }
 
 pub struct Ping {
     pub base: BasePing,
-    pub factory_data: Box<dyn PingModeObject>,
+    pub factory_data: Box<dyn PingMode>,
 }
 
 impl Ping {
@@ -249,89 +231,84 @@ impl Ping {
 
     // 通用的 run 方法
     pub async fn run(self) -> Result<Vec<PingData>, io::Error> {
-        let base = self.base;
-        let mode_data = self.factory_data;
-        
-        // 调用 run_ping_test，传递一个创建工厂的闭包
-        run_ping_test(base, move |b| mode_data.create_handler_factory(b)).await
+        let handler_factory = self.factory_data.create_handler_factory(&self.base);
+        run_ping_test(self.base, handler_factory).await
     }
 }
 
-/// 通用的 ping 测试运行函数
-pub async fn run_ping_test<F>(
+/// 运行 ping 测试
+pub async fn run_ping_test(
     base: BasePing,
-    factory_creator: F,
+    handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<Vec<PingData>, io::Error>
-where
-    F: FnOnce(&BasePing) -> Arc<dyn HandlerFactory> + Send + Sync,
 {
-    let handler_factory = factory_creator(&base);
-
     // 并发限制器最大并发数量
     let pool_concurrency = GLOBAL_LIMITER.get().unwrap().max_concurrent;
 
     // 创建异步任务管理器
-    let mut tasks = FuturesUnordered::new();
-
-    // 创建并推送任务
-    let create_task = |addr: SocketAddr| handler_factory.create_handler(addr);
+    let mut tasks = JoinSet::new();
 
     // 用于收集结果
     let mut results = Vec::new();
 
-    // 批量初始启动任务
+    // 缓存一些常用值以减少原子操作
+    let target_num = base.args.target_num;
+    let timeout_flag = &base.timeout_flag;
+    let success_count = &base.success_count;
+    let bar = &base.bar;
+    let args = &base.args;
+    let total_ips = base.ip_buffer.total_expected();
+
+    // 初始启动任务直到达到并发限制或没有更多 IP
     for _ in 0..pool_concurrency {
         if let Some(addr) = base.ip_buffer.pop() {
-            tasks.push(create_task(addr));
+            let handler_future = handler_factory.create_handler(addr);
+            tasks.spawn(handler_future);
         } else {
             break; // 没有更多IP
         }
     }
-
+    
     // 动态循环处理任务，直到超时或任务耗尽
-    while let Some(result) = tasks.next().await {
+    while let Some(join_result) = tasks.join_next().await {
         // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
-        if check_timeout_signal(&base.timeout_flag)
-            || base
-                .args
-                .target_num
-                .map(|tn| base.success_count.load(Ordering::Relaxed) >= tn as usize)
-                .unwrap_or(false)
-        {
+        let current_success = success_count.load(Ordering::Relaxed);
+        let should_break = check_timeout_signal(timeout_flag)
+            || target_num.is_some_and(|tn| current_success >= tn as usize);
+        if should_break {
+            // 如果需要退出，清空所有剩余任务
+            tasks.abort_all();
             break;
         }
 
-        // 处理任务结果
-        if let Some(ping_data) = result {
-            // 应用筛选条件
-            if should_keep_result(&ping_data, &base.args) {
-                // 增加成功计数
-                base.success_count.fetch_add(1, Ordering::Relaxed);
-                results.push(ping_data);
-            }
+        if let Ok(result) = join_result
+            && let Some(ping_data) = result.filter(|d| should_keep_result(d, args))
+        {
+            success_count.fetch_add(1, Ordering::Relaxed);
+            results.push(ping_data);
         }
 
         // 更新测试计数
         let current_tested = base.tested_count.fetch_add(1, Ordering::Relaxed) + 1;
 
         // 更新进度条
-        let total_ips = base.ip_buffer.total_expected();
+        let current_success = success_count.load(Ordering::Relaxed);
         update_progress_bar(
-            &base.bar,
+            bar,
             current_tested,
-            &base.success_count,
+            current_success,
             total_ips,
-            None,
         );
 
         // 继续添加新任务
         if let Some(addr) = base.ip_buffer.pop() {
-            tasks.push(create_task(addr));
+            let handler_future = handler_factory.create_handler(addr);
+            tasks.spawn(handler_future);
         }
     }
 
     // 完成进度条但保持当前进度
-    base.bar.done();
+    bar.done();
 
     // 排序结果
     sort_results(&mut results);
@@ -492,12 +469,9 @@ pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
 pub fn update_progress_bar(
     bar: &Arc<Bar>,
     current_tested: usize,
-    success_count: &Arc<AtomicUsize>,
+    success_count: usize,
     total_ips: usize,
-    success_count_override: Option<usize>,
 ) {
-    let current_success =
-        success_count_override.unwrap_or_else(|| success_count.load(Ordering::Relaxed));
     bar.grow(1, format!("{}/{}", current_tested, total_ips));
-    bar.set_suffix(current_success.to_string());
+    bar.set_suffix(success_count.to_string());
 }

@@ -18,14 +18,16 @@ pub struct TcpingFactoryData {
 }
 
 impl PingMode for TcpingFactoryData {
-    type Handler = TcpingHandlerFactory;
-
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler> {
+    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(TcpingHandlerFactory {
             base: Arc::new(base.clone()),
             interface: self.interface.clone(),
             interface_ips: self.interface_ips.clone(),
         })
+    }
+    
+    fn clone_box(&self) -> Box<dyn PingMode> {
+        Box::new(self.clone())
     }
 }
 

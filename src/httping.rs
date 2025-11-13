@@ -22,9 +22,7 @@ pub struct HttpingFactoryData {
 
 // 实现 PingMode Trait
 impl common::PingMode for HttpingFactoryData {
-    type Handler = HttpingHandlerFactory;
-
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<Self::Handler> {
+    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(HttpingHandlerFactory {
             base: Arc::new(base.clone()),
             colo_filters: Arc::clone(&self.colo_filters),
@@ -33,6 +31,10 @@ impl common::PingMode for HttpingFactoryData {
             use_https: self.use_https,
             interface: self.interface.clone(),
         })
+    }
+    
+    fn clone_box(&self) -> Box<dyn common::PingMode> {
+        Box::new(self.clone())
     }
 }
 
