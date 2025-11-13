@@ -381,6 +381,7 @@ pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
 }
 
 /// 判断测试结果是否符合筛选条件
+#[inline]
 pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
     let data_ref = data.as_ref();
     
