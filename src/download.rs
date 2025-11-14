@@ -7,6 +7,9 @@ use std::time::{Duration, Instant};
 use http::HeaderMap;
 use http_body_util::BodyExt;
 
+// 统一的速度更新间隔（毫秒）
+const SPEED_UPDATE_INTERVAL_MS: u64 = 500;
+
 use crate::args::Args;
 use crate::common::{self, PingData};
 use crate::progress::Bar;
@@ -41,8 +44,8 @@ impl DownloadHandler {
         // 将当前数据点添加到队列
         self.speed_samples.push_back((now, self.data_received));
 
-        // 移除超出 500ms 窗口的数据点
-        let window_start = now - Duration::from_millis(500);
+        // 移除超出窗口的数据点
+        let window_start = now - Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
         while let Some(front) = self.speed_samples.front() {
             if front.0 < window_start {
                 self.speed_samples.pop_front();
@@ -53,7 +56,7 @@ impl DownloadHandler {
 
         // 检查是否需要更新显示速度
         let elapsed_since_last_update = now.duration_since(self.last_update);
-        if elapsed_since_last_update.as_millis() >= 500 {
+        if elapsed_since_last_update.as_millis() >= SPEED_UPDATE_INTERVAL_MS as u128 {
             // 通过取队列中第一个和最后一个数据点计算字节差和时间差
             // 若没有数据或时间差无效，速度返回0
             let speed = self
@@ -138,6 +141,32 @@ impl<'a> DownloadTest<'a> {
         // 数据中心过滤条件
         let colo_filters = Arc::clone(&self.colo_filter);
 
+        let current_speed_arc: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
+        let bar_arc: Arc<Bar> = Arc::clone(&self.bar);
+        let timeout_flag_clone = Arc::clone(&self.timeout_flag);
+        
+        // 使用统一的速度更新间隔
+        let update_interval = Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
+
+        let speed_update_handle = tokio::spawn(async move {
+            loop {
+                if timeout_flag_clone.load(Ordering::SeqCst) {
+                    break;
+                }
+                
+                // 锁定并读取当前速度 (B/s)
+                let speed = *current_speed_arc.lock().unwrap();
+                
+                if speed >= 0.0 {
+                    // 更新进度条的速率后缀 (MB/s)
+                    bar_arc.as_ref()
+                        .set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
+                }
+
+                tokio::time::sleep(update_interval).await;
+            }
+        });
+
         let mut ping_queue = self.ping_results.drain(..).collect::<VecDeque<_>>();
         let mut qualified_results = Vec::with_capacity(self.args.test_count as usize);
         let mut tested_count = 0;
@@ -211,19 +240,16 @@ impl<'a> DownloadTest<'a> {
             if is_qualified {
                 qualified_results.push(ping_result);
                 qualified_len += 1;
+                bar.grow(1, "");
             }
-            
-            // 生成消息
+
+            // 生成消息（合格数 已测数）
             let message = format!("{}|{}", qualified_len, tested_count);
-            
-            // 更新进度条或消息
-            if is_qualified {
-                let speed_str = format!("{:.2}", *self.current_speed.lock().unwrap() as f64 / 1024.0 / 1024.0);
-                bar.update_all(1, message, speed_str);
-            } else {
-                bar.set_message(message);
-            }
+            bar.set_message(message);
         }
+
+        // 中止速度更新任务
+        speed_update_handle.abort();
 
         // 完成进度条但保持当前进度
         self.bar.done();
