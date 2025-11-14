@@ -334,7 +334,62 @@ pub fn parse_args() -> Args {
     args
 }
 
-/// 打印帮助信息
+// 计算显示宽度
+fn approximate_display_width_no_color(s: &str) -> usize {
+    let mut width = 0;
+    let mut in_escape = false; 
+
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_escape = true;
+            continue;
+        }
+        if in_escape {
+            if c == 'm' || c.is_alphabetic() {
+                in_escape = false;
+            }
+            continue;
+        }
+        // 非 ASCII (中文) 宽度为 2，ASCII 宽度为 1
+        width += if c.is_ascii() { 1 } else { 2 };
+    }
+    width
+}
+
+// 格式化和打印单个参数行
+fn print_arg_row(name: &str, desc: &str, default: &str) {
+    // 固定的列宽
+    const COL_NAME_WIDTH: usize = 11;
+    const COL_DESC_WIDTH: usize = 45;
+    const COL_DEFAULT_WIDTH: usize = 15;
+
+    // 1. 格式化参数名：绿色 (\x1b[32m)
+    let name_colored = format!("\x1b[32m{}\x1b[0m", name);
+    let name_display_width = approximate_display_width_no_color(&name_colored);
+    let name_padding = COL_NAME_WIDTH.saturating_sub(name_display_width);
+    
+    // 2. 格式化描述 (默认颜色)
+    let desc_display_width = approximate_display_width_no_color(desc);
+    let desc_padding = COL_DESC_WIDTH.saturating_sub(desc_display_width);
+
+    // 3. 格式化默认值：暗淡色 (\x1b[2m)
+    let default_colored = format!("\x1b[2m{}\x1b[0m", default);
+    let default_display_width = approximate_display_width_no_color(&default_colored);
+    let default_padding = COL_DEFAULT_WIDTH.saturating_sub(default_display_width);
+
+    // 4. 打印整行 (左侧增加 1 个空格作为缩进)
+    println!(
+        " {}{}{}{}{}{}",
+        name_colored,
+        " ".repeat(name_padding),
+        desc,
+        " ".repeat(desc_padding),
+        default_colored,
+        " ".repeat(default_padding)
+    );
+}
+
+
 pub fn print_help() {
     const HELP_ARGS: &[(&str, &str, &str)] = &[
         // 目标参数
@@ -381,71 +436,17 @@ pub fn print_help() {
         ("-o", "输出结果文件（文件名或文件路径）", "result.csv"),
     ];
     
-    // 固定的列宽，用于对齐：
-    const COL_NAME_WIDTH: usize = 11;
-    const COL_DESC_WIDTH: usize = 45;
-    const COL_DEFAULT_WIDTH: usize = 15;
-    
-    // 计算显示宽度 (忽略颜色代码)
-    fn approximate_display_width_no_color(s: &str) -> usize {
-        let mut width = 0;
-        let mut in_escape = false; 
-
-        for c in s.chars() {
-            if c == '\x1b' {
-                in_escape = true;
-                continue;
-            }
-            if in_escape {
-                if c == 'm' || c.is_alphabetic() {
-                    in_escape = false;
-                }
-                continue;
-            }
-            // 非 ASCII (中文) 宽度为 2，ASCII 宽度为 1
-            if c.is_ascii() {
-                width += 1;
-            } else {
-                width += 2;
-            }
-        }
-        width
-    }
-
     // 打印逻辑
     for (name, desc, default) in HELP_ARGS.iter() {
-        
         if name.is_empty() {
-            // 这是标题行
+            // 标题行
             println!();
             // 打印加粗洋红的标题
             println!("\x1b[1;35m{}\x1b[0m", desc);
             continue;
         }
 
-        // 1. 格式化参数名：绿色 (\x1b[32m)
-        let name_colored = format!("\x1b[32m{}\x1b[0m", name);
-        let name_display_width = approximate_display_width_no_color(&name_colored);
-        let name_padding = COL_NAME_WIDTH.saturating_sub(name_display_width);
-        
-        // 2. 格式化描述 (默认颜色)
-        let desc_display_width = approximate_display_width_no_color(desc);
-        let desc_padding = COL_DESC_WIDTH.saturating_sub(desc_display_width);
-
-        // 3. 格式化默认值：暗淡色 (\x1b[2m)
-        let default_colored = format!("\x1b[2m{}\x1b[0m", default);
-        let default_display_width = approximate_display_width_no_color(&default_colored);
-        let default_padding = COL_DEFAULT_WIDTH.saturating_sub(default_display_width);
-
-        // 4. 打印整行 (左侧增加 1 个空格作为缩进)
-        println!(
-            " {}{}{}{}{}{}",
-            name_colored,
-            " ".repeat(name_padding),
-            desc,
-            " ".repeat(desc_padding),
-            default_colored,
-            " ".repeat(default_padding)
-        );
+        // 打印参数行
+        print_arg_row(name, desc, default);
     }
 }
