@@ -60,7 +60,6 @@ impl PrintResult for Vec<PingData> {
 
         const COLUMN_PADDING: usize = 3; // 每列额外间距
         const LEADING_SPACES: usize = 1; // 前导空格数量
-        const LINE_LENGTH_ADJUSTMENT: isize = -3; // 分割线长度调整，正数增加长度，负数减少长度
 
         let print_num = self.len().min(args.print_num.into());
 
@@ -86,15 +85,14 @@ impl PrintResult for Vec<PingData> {
             .collect();
 
         // 分割线宽度
-        let base_width: usize = column_widths.iter().map(|w| w + COLUMN_PADDING).sum::<usize>() + LEADING_SPACES;
-        let adjusted_width = if LINE_LENGTH_ADJUSTMENT >= 0 {
-            base_width + LINE_LENGTH_ADJUSTMENT as usize
-        } else {
-            base_width.saturating_sub((-LINE_LENGTH_ADJUSTMENT) as usize)
+        let base_width: usize = {
+            let sum_content_widths: usize = column_widths.iter().sum();
+            let sum_padding: usize = COLUMN_PADDING * (column_widths.len().saturating_sub(1));
+            sum_content_widths + sum_padding + LEADING_SPACES
         };
 
         let leading = " ".to_string();
-        let line = "─".repeat(adjusted_width - LEADING_SPACES);
+        let line = "─".repeat(base_width.saturating_sub(LEADING_SPACES));
 
         // 输出分割线
         println!("{leading}{line}");
