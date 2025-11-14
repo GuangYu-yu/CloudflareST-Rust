@@ -138,25 +138,6 @@ impl<'a> DownloadTest<'a> {
         // 数据中心过滤条件
         let colo_filters = Arc::clone(&self.colo_filter);
 
-        // 创建一个任务来更新进度条的速度显示
-        let current_speed: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
-        let bar: Arc<Bar> = Arc::clone(&self.bar);
-        let timeout_flag_clone = Arc::clone(&self.timeout_flag);
-        let speed_update_handle = tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                // 检查是否收到超时信号
-                if timeout_flag_clone.load(Ordering::SeqCst) {
-                    break;
-                }
-                let speed = *current_speed.lock().unwrap();
-                if speed >= 0.0 {
-                    bar.as_ref()
-                        .set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
-                }
-            }
-        });
-
         let mut ping_queue = self.ping_results.drain(..).collect::<VecDeque<_>>();
         let mut qualified_results = Vec::with_capacity(self.args.test_count as usize);
         let mut tested_count = 0;
@@ -221,21 +202,28 @@ impl<'a> DownloadTest<'a> {
             tested_count += 1;
 
             // 同时满足速度和数据中心要求
-            if speed_match && colo_match {
+            let bar = self.bar.as_ref();
+            let mut qualified_len = qualified_results.len();
+            
+            let is_qualified = speed_match && colo_match;
+            
+            // 如果合格，先推入结果并更新长度
+            if is_qualified {
                 qualified_results.push(ping_result);
-                // 只有找到合格结果时才推进进度条（进度条进度基于合格数/test_num）
-                self.bar.as_ref().grow(1, "");
+                qualified_len += 1;
             }
-
-            // 更新左侧显示：合格数 已测数
-            let qualified_count = qualified_results.len();
-            self.bar
-                .as_ref()
-                .set_message(format!("{}|{}", qualified_count, tested_count));
+            
+            // 生成消息
+            let message = format!("{}|{}", qualified_len, tested_count);
+            
+            // 更新进度条或消息
+            if is_qualified {
+                let speed_str = format!("{:.2}", *self.current_speed.lock().unwrap() as f64 / 1024.0 / 1024.0);
+                bar.update_all(1, message, speed_str);
+            } else {
+                bar.set_message(message);
+            }
         }
-
-        // 中止速度更新任务
-        speed_update_handle.abort();
 
         // 完成进度条但保持当前进度
         self.bar.done();

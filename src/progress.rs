@@ -22,6 +22,7 @@ const PROGRESS_BAR_SPEED: f64 = 0.2; // 进度条色彩流动速度
 const WAVE_WIDTH: f64 = 16.0; // 波浪效果宽度
 const SPEED_FACTOR: f64 = 0.3; // 波浪移动速度因子
 const SATURATION_BASE: f64 = 0.6; // 饱和度基准值
+const REFRESH_INTERVAL_MS: u64 = 40; // 进度条刷新间隔（毫秒）
 
 // HSV 到 RGB 颜色转换
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
@@ -234,7 +235,7 @@ impl Bar {
                 let _ = stdout().flush();
 
                 if is_done_clone.load(Ordering::Acquire) { break; }
-                thread::sleep(Duration::from_millis(16));
+                thread::sleep(Duration::from_millis(REFRESH_INTERVAL_MS));
             }
         });
 
@@ -256,6 +257,15 @@ impl Bar {
 
     pub fn set_message(&self, message: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| self.msg.set(message.into().as_ref()));
+    }
+
+    // 原子更新所有进度条数据，确保一致性
+    pub fn update_all(&self, num: u64, message: impl Into<Cow<'static, str>>, suffix: impl Into<Cow<'static, str>>) {
+        self.update_if_not_done(|| {
+            self.pos.fetch_add(num, Ordering::Relaxed);
+            self.msg.set(message.into().as_ref());
+            self.prefix.set(suffix.into().as_ref());
+        });
     }
 
     // 完成进度条并清理
