@@ -44,19 +44,19 @@ impl DownloadHandler {
         // 将当前数据点添加到队列
         self.speed_samples.push_back((now, self.data_received));
 
-        // 移除超出窗口的数据点
-        let window_start = now - Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
-        while let Some(front) = self.speed_samples.front() {
-            if front.0 < window_start {
-                self.speed_samples.pop_front();
-            } else {
-                break; // 队列中的数据都在窗口内了
-            }
-        }
-
         // 检查是否需要更新显示速度
         let elapsed_since_last_update = now.duration_since(self.last_update);
         if elapsed_since_last_update.as_millis() >= SPEED_UPDATE_INTERVAL_MS as u128 {
+            // 只在需要更新速度时才移除超出窗口的数据点
+            let window_start = now - Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
+            while let Some(front) = self.speed_samples.front() {
+                if front.0 < window_start {
+                    self.speed_samples.pop_front();
+                } else {
+                    break; // 队列中的数据都在窗口内了
+                }
+            }
+
             // 通过取队列中第一个和最后一个数据点计算字节差和时间差
             // 若没有数据或时间差无效，速度返回0
             let speed = self
@@ -212,8 +212,6 @@ impl<'a> DownloadTest<'a> {
                 ping_result.data_center = colo;
             }
 
-            let ping_result_ref = ping_result.as_ref();
-
             // 检查速度是否符合要求
             let speed_match = match speed {
                 Some(s) => s >= self.args.min_speed * 1024.0 * 1024.0,
@@ -222,7 +220,7 @@ impl<'a> DownloadTest<'a> {
 
             // 检查数据中心是否符合要求
             let colo_match = if !colo_filters.is_empty() {
-                common::is_colo_matched(ping_result_ref.data_center, &colo_filters)
+                common::is_colo_matched(&ping_result.data_center, &colo_filters)
             } else {
                 true // 没有过滤条件时视为匹配
             };
