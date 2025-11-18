@@ -108,12 +108,12 @@
 
 | 平台   | 架构   | 下载链接                                                                 |
 |:-------|:-------|:--------------------------------------------------------------------------|
-| Linux   | AMD64 | https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Linux_AMD64/CloudflareST-Rust |
-| Linux   | ARM64 | https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Linux_ARM64/CloudflareST-Rust |
-| MacOS   | AMD64 | https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/MacOS_AMD64/CloudflareST-Rust |
-| MacOS   | ARM64 | https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/MacOS_ARM64/CloudflareST-Rust |
-| Windows | AMD64 | https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Windows_AMD64/CloudflareST-Rust.exe |
-| Windows | ARM64 | https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Windows_ARM64/CloudflareST-Rust.exe |
+| Linux   | AMD64 | [下载](https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Linux_AMD64/CloudflareST-Rust) |
+| Linux   | ARM64 | [下载](https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Linux_ARM64/CloudflareST-Rust) |
+| MacOS   | AMD64 | [下载](https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/MacOS_AMD64/CloudflareST-Rust) |
+| MacOS   | ARM64 | [下载](https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/MacOS_ARM64/CloudflareST-Rust) |
+| Windows | AMD64 | [下载](https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Windows_AMD64/CloudflareST-Rust.exe) |
+| Windows | ARM64 | [下载](https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/binaries/Windows_ARM64/CloudflareST-Rust.exe) |
 
 ## 📱 安装方法
 
