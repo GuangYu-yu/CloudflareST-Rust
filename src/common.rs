@@ -377,7 +377,7 @@ pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
         && (colo_filters.is_empty()
             || colo_filters
                 .iter()
-                .any(|filter| filter == &data_center.to_uppercase()))
+                .any(|filter| filter.eq_ignore_ascii_case(data_center)))
 }
 
 /// 判断测试结果是否符合筛选条件
