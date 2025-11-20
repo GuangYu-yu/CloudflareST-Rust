@@ -174,7 +174,7 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
         // 处理URL链接中的IP地址列表
         if !ip_url.is_empty() {
             let url_list = get_list(ip_url, 5).await;
-            sources.extend(url_list.iter().map(|s| s.to_string()));
+            sources.extend(url_list);
         }
 
         // 处理文件中的IP地址
