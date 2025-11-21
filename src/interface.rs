@@ -231,7 +231,7 @@ pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> {
                     libc::AF_INET => { 
                         if let IpAddr::V4(ipv4) = ip { 
                             let sa_in: &libc::sockaddr_in = &*(ifa.ifa_addr as *const libc::sockaddr_in); 
-                            if IpAddr::V4(std::net::Ipv4Addr::from(u32::from_be(sa_in.sin_addr.s_addr))) == ipv4 { 
+                            if IpAddr::V4(std::net::Ipv4Addr::from(u32::from_be(sa_in.sin_addr.s_addr))) == *ipv4 { 
                                 let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name); 
                                 let name = cstr.to_string_lossy().to_string(); 
                                 libc::freeifaddrs(ifaddrs); 
@@ -243,7 +243,7 @@ pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> {
                         if let IpAddr::V6(ipv6) = ip { 
                             let sa_in6: &libc::sockaddr_in6 = &*(ifa.ifa_addr as *const libc::sockaddr_in6); 
                             let ip_bytes = sa_in6.sin6_addr.s6_addr; 
-                            if IpAddr::V6(std::net::Ipv6Addr::from(ip_bytes)) == ipv6 { 
+                            if IpAddr::V6(std::net::Ipv6Addr::from(ip_bytes)) == *ipv6 { 
                                 let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name); 
                                 let name = cstr.to_string_lossy().to_string(); 
                                 libc::freeifaddrs(ifaddrs); 
