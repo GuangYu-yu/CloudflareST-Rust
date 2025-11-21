@@ -1,22 +1,18 @@
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpSocket;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::os::fd::AsRawFd;
-#[cfg(target_os = "windows")]
-use std::os::windows::io::AsRawSocket;
-
-#[cfg(target_os = "windows")]
-use network_interface::{NetworkInterface, NetworkInterfaceConfig};
-
-#[cfg(target_os = "linux")]
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-// 导入 Windows FFI 库中需要的常量和函数
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Networking::WinSock::{
     setsockopt, IPPROTO_IP, IPPROTO_IPV6, IP_UNICAST_IF, IPV6_UNICAST_IF, SOCKET_ERROR,
 };
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::os::fd::AsRawFd;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::io::AsRawSocket;
+#[cfg(target_os = "windows")]
+use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 
 /// 接口 IP 信息
 #[derive(Clone)]
@@ -40,194 +36,120 @@ pub enum ParsedInterface {
     Name(String),
 }
 
-/// 从 IP 和 port 构建 InterfaceIps 
-fn interface_ips_from_ip(ip: IpAddr, port: Option<u16>) -> InterfaceIps { 
-    match ip { 
-        IpAddr::V4(ipv4) => InterfaceIps { ipv4: Some(ipv4.into()), ipv6: None, port }, 
-        IpAddr::V6(ipv6) => InterfaceIps { ipv4: None, ipv6: Some(ipv6.into()), port }, 
-    } 
-} 
-
-/// 验证接口名是否有效
-fn is_valid_interface_name(name: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    { get_interface_index(name).is_some() }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        std::ffi::CString::new(name)
-            .map_or(false, |c| unsafe { libc::if_nametoindex(c.as_ptr()) != 0 })
-    }
-}
-
 /// 解析接口参数（支持 IP、SocketAddr、接口名）
-pub fn process_interface_param(interface: &str) -> InterfaceParamResult { 
-    let parsed = interface.parse::<SocketAddr>()
-        .map(ParsedInterface::SocketAddr)
-        .or_else(|_| interface.parse::<IpAddr>().map(ParsedInterface::Ip))
-        .unwrap_or_else(|_| ParsedInterface::Name(interface.to_string()));
-    
-    match parsed { 
-        ParsedInterface::SocketAddr(addr) => InterfaceParamResult { 
-            interface_ips: Some(interface_ips_from_ip(addr.ip(), Some(addr.port()))), 
-            is_valid_interface: true, 
-        }, 
-        ParsedInterface::Ip(ip) => InterfaceParamResult { 
-            interface_ips: Some(interface_ips_from_ip(ip, None)), 
-            is_valid_interface: true, 
-        }, 
-        ParsedInterface::Name(name) => InterfaceParamResult { 
-            interface_ips: None, 
-            is_valid_interface: is_valid_interface_name(&name), 
-        }, 
-    } 
-}
+pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
+    let parsed = if let Ok(socket_addr) = interface.parse::<SocketAddr>() {
+        ParsedInterface::SocketAddr(socket_addr)
+    } else if let Ok(ip) = interface.parse::<IpAddr>() {
+        ParsedInterface::Ip(ip)
+    } else {
+        ParsedInterface::Name(interface.to_string())
+    };
 
-/// 根据目标IP地址绑定源IP到socket
-fn bind_source_ip_to_socket(sock: &TcpSocket, addr: &SocketAddr, ips: &InterfaceIps) -> Option<()> {
-    let ip = match addr.ip() { 
-        IpAddr::V4(_) => ips.ipv4?, 
-        IpAddr::V6(_) => ips.ipv6?, 
-    }; 
-    let port = ips.port.unwrap_or(0); 
-    sock.bind(SocketAddr::new(ip, port)).ok() 
-}
+    match parsed {
+        ParsedInterface::SocketAddr(addr) => {
+            let ips = match addr.ip() {
+                IpAddr::V4(ipv4) => InterfaceIps { ipv4: Some(ipv4.into()), ipv6: None, port: Some(addr.port()) },
+                IpAddr::V6(ipv6) => InterfaceIps { ipv4: None, ipv6: Some(ipv6.into()), port: Some(addr.port()) },
+            };
+            InterfaceParamResult { interface_ips: Some(ips), is_valid_interface: true }
+        }
+        ParsedInterface::Ip(ip) => {
+            let ips = match ip {
+                IpAddr::V4(ipv4) => InterfaceIps { ipv4: Some(ipv4.into()), ipv6: None, port: None },
+                IpAddr::V6(ipv6) => InterfaceIps { ipv4: None, ipv6: Some(ipv6.into()), port: None },
+            };
+            InterfaceParamResult { interface_ips: Some(ips), is_valid_interface: true }
+        }
+        ParsedInterface::Name(name) => {
+            let valid = {
+                #[cfg(target_os = "windows")]
+                { get_interface_index(&name).is_some() }
 
-/// 根据IP地址类型创建对应的TCP Socket
-fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
-    match addr {
-        IpAddr::V4(_) => TcpSocket::new_v4().ok(),
-        IpAddr::V6(_) => TcpSocket::new_v6().ok(),
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                {
+                    let c_name = std::ffi::CString::new(name.as_str()).ok();
+                    c_name.map_or(false, |c| unsafe { libc::if_nametoindex(c.as_ptr()) != 0 })
+                }
+            };
+            InterfaceParamResult { interface_ips: None, is_valid_interface: valid }
+        }
     }
-}
-
-/// 尝试绑定接口，失败时返回None
-#[cfg(target_os = "linux")]
-fn try_bind_interface_or_return_none(sock: &TcpSocket, name: &str) -> Option<()> {
-    if bind_to_interface(sock, name).is_err() {
-        return None;
-    }
-    Some(())
-}
-
-#[cfg(target_os = "windows")]
-/// 创建并绑定 TCP Socket
-fn create_and_bind_tcp_socket(
-    addr: &SocketAddr,
-    ips: Option<&InterfaceIps>,
-) -> Option<TcpSocket> {
-    let sock = create_tcp_socket_for_ip(&addr.ip())?;
-
-    if let Some(ips) = ips {
-        bind_source_ip_to_socket(&sock, addr, ips)?;
-    }
-
-    Some(sock)
 }
 
 //
 // 平台专用接口绑定函数
 //
 
-/// Linux/macOS: 按接口名绑定
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
-    #[cfg(target_os = "linux")]
-    {
-        let raw_fd = sock.as_raw_fd();
-        let c_name = std::ffi::CString::new(name)?;
-        
-        let ret = unsafe {
-            libc::setsockopt(
-                raw_fd,
-                libc::SOL_SOCKET,
-                libc::SO_BINDTODEVICE,
-                c_name.as_ptr() as *const libc::c_void,
-                name.len() as libc::socklen_t,
-            )
-        };
-        
-        if ret == 0 { 
-            Ok(()) 
-        } else { 
-            Err(std::io::Error::last_os_error())
-        }
-    }
-    
-    #[cfg(target_os = "macos")]
-    {
-        let raw_fd = sock.as_raw_fd();
-        let cname = std::ffi::CString::new(name)?;
-        
-        let idx = unsafe { libc::if_nametoindex(cname.as_ptr()) };
-        if idx == 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        let apply = |level, opt| unsafe {
-            libc::setsockopt(
-                raw_fd,
-                level,
-                opt,
-                &idx as *const _ as *const libc::c_void,
-                std::mem::size_of_val(&idx) as libc::socklen_t,
-            )
-        };
-
-        if apply(libc::IPPROTO_IP, libc::IP_BOUND_IF) == 0
-            || apply(libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF) == 0
-        {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
-        }
-    }
-}
-
-/// Windows: 按接口索引绑定
-#[cfg(target_os = "windows")]
-fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> bool {
-    let raw = sock.as_raw_socket();
-    
-    let res = if is_ipv6 {
-        let idx_bytes = iface_idx.to_ne_bytes();
-        unsafe {
-            setsockopt(
-                raw as _,
-                IPPROTO_IPV6,
-                IPV6_UNICAST_IF,
-                idx_bytes.as_ptr() as *const _,
-                idx_bytes.len() as i32,
-            )
-        }
-    } else {
-        let idx_bytes = iface_idx.to_be_bytes();
-        unsafe {
-            setsockopt(
-                raw as _,
-                IPPROTO_IP,
-                IP_UNICAST_IF,
-                idx_bytes.as_ptr() as *const _,
-                idx_bytes.len() as i32,
-            )
-        }
+    let raw_fd = sock.as_raw_fd();
+    let c_name = std::ffi::CString::new(name)?;
+    let ret = unsafe {
+        libc::setsockopt(
+            raw_fd,
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            c_name.as_ptr() as *const libc::c_void,
+            name.len() as libc::socklen_t,
+        )
     };
-    
-    res != SOCKET_ERROR
+    if ret == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
-/// Windows: 获取接口索引
+#[cfg(target_os = "macos")]
+fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
+    let raw_fd = sock.as_raw_fd();
+    let cname = std::ffi::CString::new(name)?;
+    let idx = unsafe { libc::if_nametoindex(cname.as_ptr()) };
+    if idx == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let apply = |level, opt| unsafe {
+        libc::setsockopt(
+            raw_fd,
+            level,
+            opt,
+            &idx as *const _ as *const libc::c_void,
+            std::mem::size_of_val(&idx) as libc::socklen_t,
+        )
+    };
+
+    if apply(libc::IPPROTO_IP, libc::IP_BOUND_IF) == 0
+        || apply(libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF) == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn bind_to_interface(sock: &TcpSocket, name: &str, is_ipv6: bool) -> std::io::Result<()> {
+    let idx = get_interface_index(name).ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, ""))?;
+    let raw = sock.as_raw_socket();
+    let (level, opt) = if is_ipv6 { (IPPROTO_IPV6, IPV6_UNICAST_IF) } else { (IPPROTO_IP, IP_UNICAST_IF) };
+    let ret = unsafe {
+        setsockopt(
+            raw as _,
+            level,
+            opt,
+            &idx as *const _ as *const _,
+            std::mem::size_of_val(&idx) as i32,
+        )
+    };
+    if ret != SOCKET_ERROR { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
 #[cfg(target_os = "windows")]
 pub fn get_interface_index(name: &str) -> Option<u32> {
-    NetworkInterface::show().ok()?
-        .into_iter()
-        .find(|iface| iface.name == name)
-        .map(|iface| iface.index)
+    let interfaces = NetworkInterface::show().ok()?;
+    interfaces.into_iter().find(|i| i.name == name).map(|i| i.index)
 }
 
-/// Linux: IP 对应 接口名
 #[cfg(target_os = "linux")]
-pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> {
+fn interface_for_ip(ip: IpAddr) -> Option<String> {
     unsafe {
         let mut ifaddrs: *mut libc::ifaddrs = std::ptr::null_mut();
         if libc::getifaddrs(&mut ifaddrs) != 0 {
@@ -243,8 +165,7 @@ pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> {
                     libc::AF_INET => {
                         if let IpAddr::V4(ipv4) = ip {
                             let sa_in: &libc::sockaddr_in = &*(ifa.ifa_addr as *const libc::sockaddr_in);
-                            let addr_u32 = u32::from_be(sa_in.sin_addr.s_addr);
-                            if &Ipv4Addr::from(addr_u32) == ipv4 {
+                            if IpAddr::V4(std::net::Ipv4Addr::from(u32::from_be(sa_in.sin_addr.s_addr))) == ipv4 {
                                 let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name);
                                 let name = cstr.to_string_lossy().to_string();
                                 libc::freeifaddrs(ifaddrs);
@@ -256,7 +177,7 @@ pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> {
                         if let IpAddr::V6(ipv6) = ip {
                             let sa_in6: &libc::sockaddr_in6 = &*(ifa.ifa_addr as *const libc::sockaddr_in6);
                             let ip_bytes = sa_in6.sin6_addr.s6_addr;
-                            if &Ipv6Addr::from(ip_bytes) == ipv6 {
+                            if IpAddr::V6(std::net::Ipv6Addr::from(ip_bytes)) == ipv6 {
                                 let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name);
                                 let name = cstr.to_string_lossy().to_string();
                                 libc::freeifaddrs(ifaddrs);
@@ -274,91 +195,44 @@ pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> {
     }
 }
 
-//
-// 主函数：绑定 socket
-//
-
 /// 核心函数：绑定 TCP Socket
 pub async fn bind_socket_to_interface(
     addr: SocketAddr,
     interface: Option<&str>,
     interface_ips: Option<&InterfaceIps>,
 ) -> Option<TcpSocket> {
-    // Windows平台保持原有逻辑
-    #[cfg(target_os = "windows")]
-    {
-        // 1. 优先尝试 IP 绑定
-        if let Some(sock) = create_and_bind_tcp_socket(&addr, interface_ips) {
-            return Some(sock);
-        }
-        
-        // 2. 尝试接口名绑定
-        if let Some(name) = interface {
-            if let Some(idx) = get_interface_index(name) {
-                let sock = create_and_bind_tcp_socket(&addr, None)?;
-                if bind_to_interface_index(&sock, idx, addr.is_ipv6()) {
-                    return Some(sock);
-                }
-            }
-            // 接口绑定失败
-            return None;
-        }
-        
-        // 3. 只有在没有指定接口时才返回默认普通 socket
-        create_and_bind_tcp_socket(&addr, None)
-    }
-    
-    #[cfg(target_os = "macos")]
-    {
-        let sock = create_tcp_socket_for_ip(&addr.ip())?;
+    let sock = match addr.ip() {
+        IpAddr::V4(_) => TcpSocket::new_v4().ok()?,
+        IpAddr::V6(_) => TcpSocket::new_v6().ok()?,
+    };
 
-        // 接口绑定
-        if let Some(name) = interface {
-            if bind_to_interface(&sock, name).is_err() {
-                return None;
-            }
-        }
-
-        // 源IP绑定
-        if let Some(ips) = interface_ips {
-            bind_source_ip_to_socket(&sock, &addr, ips)?;
-        }
-
-        Some(sock)
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let sock = create_tcp_socket_for_ip(&addr.ip())?;
-
-        // Step 1：确定需要绑定的接口
-        let chosen_interface = match interface {
-            Some(name) => Some(name.to_string()),
-            None => {
-                if let Some(ips) = &interface_ips {
-                    let source_ip = match addr.ip() {
-                        IpAddr::V4(_) => ips.ipv4,
-                        IpAddr::V6(_) => ips.ipv6,
-                    }?;
-                    find_interface_by_ip(&source_ip)
-                } else {
-                    None
-                }
-            }
+    // 如果指定了接口名
+    if let Some(name) = interface {
+        let ok = {
+            #[cfg(target_os = "windows")]
+            { bind_to_interface(&sock, name, addr.is_ipv6()).is_ok() }
+            #[cfg(not(target_os = "windows"))]
+            { bind_to_interface(&sock, name).is_ok() }
         };
+        if !ok { return None; }
+    }
 
-        // Step 2：如果决定了接口，则绑定
-        if let Some(if_name) = &chosen_interface {
-            try_bind_interface_or_return_none(&sock, if_name)?;
-        }
-
-        // Step 3：未指定 interface 且提供 interface_ips 时，绑定源 IP
-        if interface.is_none() {
-            if let Some(ips) = &interface_ips {
-                bind_source_ip_to_socket(&sock, &addr, ips)?;
+    // 如果只指定了源IP
+    if interface.is_none() && let Some(ips) = &interface_ips {
+        let source_ip = match addr.ip() {
+            IpAddr::V4(_) => ips.ipv4,
+            IpAddr::V6(_) => ips.ipv6,
+        }?;
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(if_name) = interface_for_ip(source_ip) {
+                if bind_to_interface(&sock, &if_name).is_err() {
+                    return None;
+                }
             }
         }
-
-        Some(sock)
+        sock.bind(SocketAddr::new(source_ip, ips.port.unwrap_or(0))).ok()?;
     }
+
+    Some(sock)
 }
