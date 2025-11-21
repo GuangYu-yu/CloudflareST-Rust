@@ -6,8 +6,11 @@ use std::os::fd::AsRawFd;
 #[cfg(target_os = "windows")]
 use std::os::windows::io::AsRawSocket;
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
+
+#[cfg(target_os = "linux")]
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 // 导入 Windows FFI 库中需要的常量和函数
 #[cfg(target_os = "windows")]
@@ -216,9 +219,50 @@ pub fn get_interface_index(name: &str) -> Option<u32> {
 /// Linux: IP 对应 接口名
 #[cfg(target_os = "linux")]
 pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> {
-    NetworkInterface::show().ok()?.into_iter()
-        .find(|iface| iface.addr.iter().any(|a| a.ip() == *ip))
-        .map(|iface| iface.name)
+    unsafe {
+        let mut ifaddrs: *mut libc::ifaddrs = std::ptr::null_mut();
+        if libc::getifaddrs(&mut ifaddrs) != 0 {
+            return None;
+        }
+
+        let mut ptr = ifaddrs;
+        while !ptr.is_null() {
+            let ifa = &*ptr;
+            if !ifa.ifa_addr.is_null() {
+                let sa = &*ifa.ifa_addr;
+                match sa.sa_family as i32 {
+                    libc::AF_INET => {
+                        if let IpAddr::V4(ipv4) = ip {
+                            let sa_in: &libc::sockaddr_in = &*(ifa.ifa_addr as *const libc::sockaddr_in);
+                            let addr_u32 = u32::from_be(sa_in.sin_addr.s_addr);
+                            if &Ipv4Addr::from(addr_u32) == ipv4 {
+                                let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name);
+                                let name = cstr.to_string_lossy().to_string();
+                                libc::freeifaddrs(ifaddrs);
+                                return Some(name);
+                            }
+                        }
+                    }
+                    libc::AF_INET6 => {
+                        if let IpAddr::V6(ipv6) = ip {
+                            let sa_in6: &libc::sockaddr_in6 = &*(ifa.ifa_addr as *const libc::sockaddr_in6);
+                            let ip_bytes = sa_in6.sin6_addr.s6_addr;
+                            if &Ipv6Addr::from(ip_bytes) == ipv6 {
+                                let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name);
+                                let name = cstr.to_string_lossy().to_string();
+                                libc::freeifaddrs(ifaddrs);
+                                return Some(name);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            ptr = (*ptr).ifa_next;
+        }
+        libc::freeifaddrs(ifaddrs);
+        None
+    }
 }
 
 //
