@@ -101,6 +101,15 @@ fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
     }
 }
 
+/// 尝试绑定接口，失败时返回None
+#[cfg(target_os = "linux")]
+fn try_bind_interface_or_return_none(sock: &TcpSocket, name: &str) -> Option<()> {
+    if bind_to_interface(sock, name).is_err() {
+        return None;
+    }
+    Some(())
+}
+
 #[cfg(target_os = "windows")]
 /// 创建并绑定 TCP Socket
 fn create_and_bind_tcp_socket(
@@ -321,26 +330,33 @@ pub async fn bind_socket_to_interface(
     #[cfg(target_os = "linux")]
     {
         let sock = create_tcp_socket_for_ip(&addr.ip())?;
-        
-        // 确定要绑定的接口名
-        let source_ip = interface_ips.and_then(|ips| match addr.ip() {
-            IpAddr::V4(_) => ips.ipv4,
-            IpAddr::V6(_) => ips.ipv6,
-        });
-        
-        let interface_name = interface.map(|s| s.to_string())
-            .or_else(|| source_ip.and_then(|ip| find_interface_by_ip(&ip)));
-        
-        // 接口绑定
-        if let Some(name) = &interface_name {
-            if bind_to_interface(&sock, name).is_err() {
-                return None;
+
+        // Step 1：确定需要绑定的接口
+        let chosen_interface = match interface {
+            Some(name) => Some(name.to_string()),
+            None => {
+                if let Some(ips) = &interface_ips {
+                    let source_ip = match addr.ip() {
+                        IpAddr::V4(_) => ips.ipv4,
+                        IpAddr::V6(_) => ips.ipv6,
+                    }?;
+                    find_interface_by_ip(&source_ip)
+                } else {
+                    None
+                }
             }
+        };
+
+        // Step 2：如果决定了接口，则绑定
+        if let Some(if_name) = &chosen_interface {
+            try_bind_interface_or_return_none(&sock, if_name)?;
         }
-        
-        // 源IP绑定（在接口绑定后额外进行bind操作）
-        if let Some(ips) = interface_ips {
-            bind_source_ip_to_socket(&sock, &addr, ips)?;
+
+        // Step 3：未指定 interface 且提供 interface_ips 时，绑定源 IP
+        if interface.is_none() {
+            if let Some(ips) = &interface_ips {
+                bind_source_ip_to_socket(&sock, &addr, ips)?;
+            }
         }
 
         Some(sock)
