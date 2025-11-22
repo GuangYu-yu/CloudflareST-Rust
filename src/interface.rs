@@ -92,10 +92,28 @@ fn bind_source_ip_to_socket(sock: &TcpSocket, addr: &SocketAddr, ips: &Interface
 
 /// 根据IP地址类型创建对应的TCP Socket
 fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
-    match addr {
+    let sock = match addr {
         IpAddr::V4(_) => TcpSocket::new_v4().ok(),
         IpAddr::V6(_) => TcpSocket::new_v6().ok(),
+    }?;
+    
+    // 设置IP_BIND_ADDRESS_NO_PORT选项
+    #[cfg(target_os = "linux")]
+    {
+        let raw_fd = sock.as_raw_fd();
+        let on: libc::c_int = 1;
+        unsafe {
+            libc::setsockopt(
+                raw_fd,
+                libc::SOL_IP,
+                libc::IP_BIND_ADDRESS_NO_PORT,
+                &on as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&on) as libc::socklen_t,
+            );
+        }
     }
+    
+    Some(sock)
 }
 
 #[cfg(target_os = "windows")]
@@ -213,54 +231,6 @@ pub fn get_interface_index(name: &str) -> Option<u32> {
         .map(|iface| iface.index)
 }
 
-/// Linux: IP 对应 接口名
-#[cfg(target_os = "linux")]
-pub fn find_interface_by_ip(ip: &IpAddr) -> Option<String> { 
-    unsafe { 
-        let mut ifaddrs: *mut libc::ifaddrs = std::ptr::null_mut(); 
-        if libc::getifaddrs(&mut ifaddrs) != 0 { 
-            return None; 
-        } 
- 
-        let mut ptr = ifaddrs; 
-        while !ptr.is_null() { 
-            let ifa = &*ptr; 
-            if !ifa.ifa_addr.is_null() { 
-                let sa = &*ifa.ifa_addr; 
-                match sa.sa_family as i32 { 
-                    libc::AF_INET => { 
-                        if let IpAddr::V4(ipv4) = ip { 
-                            let sa_in: &libc::sockaddr_in = &*(ifa.ifa_addr as *const libc::sockaddr_in); 
-                            if IpAddr::V4(std::net::Ipv4Addr::from(u32::from_be(sa_in.sin_addr.s_addr))) == *ipv4 { 
-                                let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name); 
-                                let name = cstr.to_string_lossy().to_string(); 
-                                libc::freeifaddrs(ifaddrs); 
-                                return Some(name); 
-                            } 
-                        } 
-                    } 
-                    libc::AF_INET6 => { 
-                        if let IpAddr::V6(ipv6) = ip { 
-                            let sa_in6: &libc::sockaddr_in6 = &*(ifa.ifa_addr as *const libc::sockaddr_in6); 
-                            let ip_bytes = sa_in6.sin6_addr.s6_addr; 
-                            if IpAddr::V6(std::net::Ipv6Addr::from(ip_bytes)) == *ipv6 { 
-                                let cstr = std::ffi::CStr::from_ptr(ifa.ifa_name); 
-                                let name = cstr.to_string_lossy().to_string(); 
-                                libc::freeifaddrs(ifaddrs); 
-                                return Some(name); 
-                            } 
-                        } 
-                    } 
-                    _ => {} 
-                } 
-            } 
-            ptr = (*ptr).ifa_next; 
-        } 
-        libc::freeifaddrs(ifaddrs); 
-        None 
-    } 
-}
-
 //
 // 主函数：绑定 socket
 //
@@ -295,50 +265,22 @@ pub async fn bind_socket_to_interface(
         create_and_bind_tcp_socket(&addr, None)
     }
     
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let sock = create_tcp_socket_for_ip(&addr.ip())?;
-
-        // 接口绑定
+        
+        // 先绑定接口
         if let Some(name) = interface {
             if bind_to_interface(&sock, name).is_err() {
                 return None;
             }
         }
-
-        // 源IP绑定
+        
+        // 再绑定源IP
         if let Some(ips) = interface_ips {
             bind_source_ip_to_socket(&sock, &addr, ips)?;
         }
-
-        Some(sock)
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let sock = create_tcp_socket_for_ip(&addr.ip())?;
         
-        // 确定要绑定的接口名
-        let source_ip = interface_ips.and_then(|ips| match addr.ip() {
-            IpAddr::V4(_) => ips.ipv4,
-            IpAddr::V6(_) => ips.ipv6,
-        });
-        
-        let interface_name = interface.map(|s| s.to_string())
-            .or_else(|| source_ip.and_then(|ip| find_interface_by_ip(&ip)));
-        
-        // 接口绑定
-        if let Some(name) = &interface_name {
-            if bind_to_interface(&sock, name).is_err() {
-                return None;
-            }
-        }
-        
-        // 源IP绑定（在接口绑定后额外进行bind操作）
-        if let Some(ips) = interface_ips {
-            bind_source_ip_to_socket(&sock, &addr, ips)?;
-        }
-
         Some(sock)
     }
 }
