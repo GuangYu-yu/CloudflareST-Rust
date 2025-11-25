@@ -1,18 +1,20 @@
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpSocket;
 
+// 存储Windows系统下的接口索引
+#[cfg(target_os = "windows")]
+pub static mut INTERFACE_INDEX: Option<u32> = None;
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::fd::AsRawFd;
-#[cfg(target_os = "windows")]
-use std::os::windows::io::AsRawSocket;
 
 #[cfg(target_os = "windows")]
-use network_interface::{NetworkInterface, NetworkInterfaceConfig};
-
-// 导入 Windows FFI 库中需要的常量和函数
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::Networking::WinSock::{
-    setsockopt, IPPROTO_IP, IPPROTO_IPV6, IP_UNICAST_IF, IPV6_UNICAST_IF, SOCKET_ERROR,
+use {
+    std::os::windows::io::AsRawSocket,
+    network_interface::{NetworkInterface, NetworkInterfaceConfig},
+    windows_sys::Win32::Networking::WinSock::{
+        setsockopt, IPPROTO_IP, IPPROTO_IPV6, IP_UNICAST_IF, IPV6_UNICAST_IF, SOCKET_ERROR,
+    },
 };
 
 /// 接口 IP 信息
@@ -73,9 +75,22 @@ pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
             interface_ips: Some(interface_ips_from_ip(ip, None)), 
             is_valid_interface: true, 
         }, 
-        ParsedInterface::Name(name) => InterfaceParamResult { 
-            interface_ips: None, 
-            is_valid_interface: is_valid_interface_name(&name), 
+        ParsedInterface::Name(name) => {
+            // 验证接口名是否有效
+            let is_valid = is_valid_interface_name(&name);
+            
+            // 在Windows系统上，如果接口名有效，则将其转换为接口索引并存储到全局变量中
+            #[cfg(target_os = "windows")]
+            if is_valid {
+                if let Some(index) = get_interface_index(&name) {
+                    unsafe { INTERFACE_INDEX = Some(index) }
+                }
+            }
+            
+            InterfaceParamResult { 
+                interface_ips: None, 
+                is_valid_interface: is_valid, 
+            }
         }, 
     } 
 }
@@ -112,21 +127,6 @@ fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
         IpAddr::V6(_) => TcpSocket::new_v6().ok(),
     }?;
     
-    Some(sock)
-}
-
-#[cfg(target_os = "windows")]
-/// 创建并绑定 TCP Socket
-fn create_and_bind_tcp_socket(
-    addr: &SocketAddr,
-    ips: Option<&InterfaceIps>,
-) -> Option<TcpSocket> {
-    let sock = create_tcp_socket_for_ip(&addr.ip())?;
-
-    if let Some(ips) = ips {
-        bind_source_ip_to_socket(&sock, addr, ips)?;
-    }
-
     Some(sock)
 }
 
@@ -230,58 +230,38 @@ pub fn get_interface_index(name: &str) -> Option<u32> {
         .map(|iface| iface.index)
 }
 
-//
-// 主函数：绑定 socket
-//
-
-/// 核心函数：绑定 TCP Socket
+/// 绑定 TCP Socket
 pub async fn bind_socket_to_interface(
     addr: SocketAddr,
-    interface: Option<&str>,
+    #[cfg(any(target_os = "linux", target_os = "macos"))] interface: Option<&str>,
+    #[cfg(target_os = "windows")] _interface: Option<&str>,
     interface_ips: Option<&InterfaceIps>,
 ) -> Option<TcpSocket> {
-    // Windows平台保持原有逻辑
-    #[cfg(target_os = "windows")]
-    {
-        // 1. 优先尝试 IP 绑定
-        if let Some(sock) = create_and_bind_tcp_socket(&addr, interface_ips) {
-            return Some(sock);
-        }
-        
-        // 2. 尝试接口名绑定
-        if let Some(name) = interface {
-            if let Some(idx) = get_interface_index(name) {
-                let sock = create_and_bind_tcp_socket(&addr, None)?;
-                if bind_to_interface_index(&sock, idx, addr.is_ipv6()) {
-                    return Some(sock);
-                }
-            }
-            // 接口绑定失败
-            return None;
-        }
-        
-        // 3. 只有在没有指定接口时才返回默认普通 socket
-        create_and_bind_tcp_socket(&addr, None)
+    // 创建基础socket
+    let sock = create_tcp_socket_for_ip(&addr.ip())?;
+
+    if let Some(ips) = interface_ips {
+        // 如果提供了IP地址，则绑定IP地址
+        bind_source_ip_to_socket(&sock, &addr, ips)?;
+        return Some(sock);
     }
-    
+
+    // 使用全局变量中的接口索引
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let idx = INTERFACE_INDEX?;
+        // 尝试绑定到接口索引
+        return bind_to_interface_index(&sock, idx, addr.is_ipv6())
+            .then_some(sock);
+    }
+
+    // 使用接口名
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        let sock = create_tcp_socket_for_ip(&addr.ip())?;
-        
-        // 接口名绑定
-        if interface_ips.is_none() {
-            if let Some(name) = interface {
-                if bind_to_interface(&sock, name).is_err() {
-                    return None;
-                }
-            }
+        // 如果提供了接口名，尝试绑定
+        if let Some(name) = interface {
+            bind_to_interface(&sock, name).ok()?;
         }
-        
-        // 源 IP 绑定
-        if let Some(ips) = interface_ips {
-            bind_source_ip_to_socket(&sock, &addr, ips)?;
-        }
-        
         Some(sock)
     }
 }
