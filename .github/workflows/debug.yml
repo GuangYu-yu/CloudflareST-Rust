@@ -70,6 +70,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # 安装 Zig
+      - name: 安装 Zig
+        uses: mlugg/setup-zig@v2.0.5
+        with:
+          version: master
+
       # Linux平台需要安装MUSL工具链
       - if: startsWith(matrix.os, 'Linux')
         name: 安装MUSL工具链
@@ -80,7 +86,10 @@ jobs:
 
       # 执行debug模式构建
       - name: 执行debug模式构建
-        run: cargo build --target ${{ matrix.target }}
+        run: |
+          cargo install --locked cargo-zigbuild
+          cargo update
+          cargo zigbuild --target ${{ matrix.target }} || cargo build --target ${{ matrix.target }}
 
       # 准备构建产物
       - name: 准备构建产物
