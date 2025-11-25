@@ -30,7 +30,6 @@ network-interface = { version = "2", default-features = false }
 # --- Linux ---
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", default-features = false }
-network-interface = { version = "2", default-features = false }
 
 # --- macOS ---
 [target.'cfg(target_os = "macos")'.dependencies]
