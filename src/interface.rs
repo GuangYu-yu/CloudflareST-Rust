@@ -268,14 +268,16 @@ pub async fn bind_socket_to_interface(
     {
         let sock = create_tcp_socket_for_ip(&addr.ip())?;
         
-        // 先绑定接口
-        if let Some(name) = interface {
-            if bind_to_interface(&sock, name).is_err() {
-                return None;
+        // 接口名绑定
+        if interface_ips.is_none() {
+            if let Some(name) = interface {
+                if bind_to_interface(&sock, name).is_err() {
+                    return None;
+                }
             }
         }
         
-        // 再绑定源IP
+        // 源 IP 绑定
         if let Some(ips) = interface_ips {
             bind_source_ip_to_socket(&sock, &addr, ips)?;
         }
