@@ -82,22 +82,6 @@ pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
 
 /// 根据目标IP地址绑定源IP到socket
 fn bind_source_ip_to_socket(sock: &TcpSocket, addr: &SocketAddr, ips: &InterfaceIps) -> Option<()> {
-    let ip = match addr.ip() { 
-        IpAddr::V4(_) => ips.ipv4?, 
-        IpAddr::V6(_) => ips.ipv6?, 
-    }; 
-    let port = ips.port.unwrap_or(0); 
-    sock.bind(SocketAddr::new(ip, port)).ok() 
-}
-
-/// 根据IP地址类型创建对应的TCP Socket
-fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
-    let sock = match addr {
-        IpAddr::V4(_) => TcpSocket::new_v4().ok(),
-        IpAddr::V6(_) => TcpSocket::new_v6().ok(),
-    }?;
-    
-    // 设置IP_BIND_ADDRESS_NO_PORT选项
     #[cfg(target_os = "linux")]
     {
         let raw_fd = sock.as_raw_fd();
@@ -112,6 +96,21 @@ fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
             );
         }
     }
+    
+    let ip = match addr.ip() { 
+        IpAddr::V4(_) => ips.ipv4?, 
+        IpAddr::V6(_) => ips.ipv6?, 
+    }; 
+    let port = ips.port.unwrap_or(0); 
+    sock.bind(SocketAddr::new(ip, port)).ok() 
+}
+
+/// 根据IP地址类型创建对应的TCP Socket
+fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
+    let sock = match addr {
+        IpAddr::V4(_) => TcpSocket::new_v4().ok(),
+        IpAddr::V6(_) => TcpSocket::new_v6().ok(),
+    }?;
     
     Some(sock)
 }
