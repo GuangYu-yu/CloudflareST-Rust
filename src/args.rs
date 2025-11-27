@@ -249,7 +249,7 @@ impl Args {
         }
 
         // 若启用 httping 且未使用 -hu 或 -tp，则默认端口为 80
-        if parsed.httping && !parsed.httping_urls.is_some() && !use_tp {
+        if parsed.httping && parsed.httping_urls.is_none() && !use_tp {
         parsed.tcp_port = 80;
         }
 
@@ -336,16 +336,23 @@ pub fn parse_args() -> Args {
     }
 
     // 检查端口与协议的匹配情况
-    if (args.httping && TLS_PORTS.contains(&args.tcp_port)) 
-        || (args.httping_urls.is_some() && NON_TLS_PORTS.contains(&args.tcp_port)) 
-        || (!args.disable_download && !args.url.is_empty() 
-            && { 
-                let url_lower = args.url.to_lowercase(); 
-                (url_lower.starts_with("http:") && TLS_PORTS.contains(&args.tcp_port)) 
-                    || (url_lower.starts_with("https:") && NON_TLS_PORTS.contains(&args.tcp_port)) 
-            }) 
-    { 
-        warning_println(format_args!("端口与协议可能不匹配！")); 
+    let is_mismatch = 
+        // 场景1：使用-httping参数但指定了TLS端口
+        (args.httping && TLS_PORTS.contains(&args.tcp_port)) ||
+        
+        // 场景2：使用-hu参数但指定了非TLS端口
+        (args.httping_urls.is_some() && NON_TLS_PORTS.contains(&args.tcp_port)) ||
+        
+        // 场景3：下载测试中URL协议与端口不匹配
+        (!args.disable_download && !args.url.is_empty() && {
+            let url_lower = args.url.to_lowercase();
+            // HTTP URL配TLS端口，或HTTPS URL配非TLS端口
+            (url_lower.starts_with("http:") && TLS_PORTS.contains(&args.tcp_port)) ||
+            (url_lower.starts_with("https:") && NON_TLS_PORTS.contains(&args.tcp_port))
+        });
+
+    if is_mismatch {
+        warning_println(format_args!("端口与协议可能不匹配！"));
     }
 
     args
