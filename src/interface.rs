@@ -81,10 +81,8 @@ pub fn process_interface_param(interface: &str) -> InterfaceParamResult {
             
             // 在Windows系统上，如果接口名有效，则将其转换为接口索引并存储到全局变量中
             #[cfg(target_os = "windows")]
-            if is_valid {
-                if let Some(index) = get_interface_index(&name) {
-                    unsafe { INTERFACE_INDEX = Some(index) }
-                }
+            if is_valid && let Some(index) = get_interface_index(&name) {
+                unsafe { INTERFACE_INDEX = Some(index) }
             }
             
             InterfaceParamResult { 
@@ -249,10 +247,12 @@ pub async fn bind_socket_to_interface(
     // 使用全局变量中的接口索引
     #[cfg(target_os = "windows")]
     unsafe {
-        let idx = INTERFACE_INDEX?;
-        // 尝试绑定到接口索引
-        return bind_to_interface_index(&sock, idx, addr.is_ipv6())
-            .then_some(sock);
+        if let Some(idx) = INTERFACE_INDEX {
+            // 尝试绑定到接口索引
+            if !bind_to_interface_index(&sock, idx, addr.is_ipv6()) {
+                return None;
+            }
+        }
     }
 
     // 使用接口名
@@ -262,6 +262,7 @@ pub async fn bind_socket_to_interface(
         if let Some(name) = interface {
             bind_to_interface(&sock, name).ok()?;
         }
-        Some(sock)
     }
+
+    Some(sock)
 }

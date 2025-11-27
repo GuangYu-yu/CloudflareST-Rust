@@ -4,6 +4,11 @@ use std::time::Duration;
 use crate::{error_println, warning_println};
 use crate::interface::{InterfaceIps, process_interface_param};
 
+// 非TLS端口数组
+const NON_TLS_PORTS: [u16; 7] = [80, 8080, 8880, 2052, 2082, 2086, 2095];
+// TLS端口数组
+const TLS_PORTS: [u16; 6] = [443, 2053, 2083, 2087, 2096, 8443];
+
 /// 命令行参数配置结构体
 #[derive(Clone)]
 pub struct Args {
@@ -120,8 +125,8 @@ impl Args {
         let mut parsed = Self::new();
         let vec = Self::parse_args_to_vec(&args);
 
-        // 标记是否使用了 -hu 或 -tp 参数
-        let mut use_hu_or_tp = false;
+        // 标记是否使用了 -tp 参数
+        let mut use_tp = false;
 
         for (k, v_opt) in vec {
             match k.as_str() {
@@ -136,7 +141,6 @@ impl Args {
 
                 // hu 可以有值也可以没有值
                 "hu" => {
-                    use_hu_or_tp = true;
                     parsed.httping = true;
                     parsed.httping_urls = Some(v_opt.unwrap_or_default());
                 }
@@ -149,7 +153,7 @@ impl Args {
                     parsed.test_count = Self::parse_u16(v_opt, parsed.test_count).clamp(1, u16::MAX);
                 }
                 "tp" => {
-                    use_hu_or_tp = true;
+                    use_tp = true;
                     parsed.tcp_port = Self::parse_u16(v_opt, parsed.tcp_port).clamp(1, u16::MAX);
                 }
                 "p" => {
@@ -245,7 +249,7 @@ impl Args {
         }
 
         // 若启用 httping 且未使用 -hu 或 -tp，则默认端口为 80
-        if parsed.httping && !use_hu_or_tp {
+        if parsed.httping && !parsed.httping_urls.is_some() && !use_tp {
         parsed.tcp_port = 80;
         }
 
@@ -329,6 +333,19 @@ pub fn parse_args() -> Args {
         && !(args.httping_urls.is_some() && args.httping_urls.as_ref().unwrap().is_empty())
     {
         warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
+    }
+
+    // 检查端口与协议的匹配情况
+    if (args.httping && TLS_PORTS.contains(&args.tcp_port)) 
+        || (args.httping_urls.is_some() && NON_TLS_PORTS.contains(&args.tcp_port)) 
+        || (!args.disable_download && !args.url.is_empty() 
+            && { 
+                let url_lower = args.url.to_lowercase(); 
+                (url_lower.starts_with("http:") && TLS_PORTS.contains(&args.tcp_port)) 
+                    || (url_lower.starts_with("https:") && NON_TLS_PORTS.contains(&args.tcp_port)) 
+            }) 
+    { 
+        warning_println(format_args!("端口与协议可能不匹配！")); 
     }
 
     args

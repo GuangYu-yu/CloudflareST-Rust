@@ -19,7 +19,7 @@ use crate::common::get_list;
 pub struct IpBuffer {
     total_expected: usize,                           // 预期总IP数量
     cidr_states: Arc<RwLock<Vec<Arc<CidrState>>>>,   // 每个CIDR状态
-    single_ips: Option<Arc<Mutex<VecDeque<SocketAddr>>>>, // 单个IP地址列表
+    single_ips: Arc<Mutex<VecDeque<SocketAddr>>>,     // 单个IP地址列表
     current_cidr: AtomicUsize,                      // 轮询索引
     tcp_port: u16,                                  // TCP端口
 }
@@ -95,12 +95,8 @@ impl IpBuffer {
             .map(Arc::new)
             .collect();
 
-        // 创建IP列表或None
-        let single_ip_list = if single_ips.is_empty() {
-            None
-        } else {
-            Some(Arc::new(Mutex::new(VecDeque::from(single_ips))))
-        };
+        // 创建IP列表
+        let single_ip_list = Arc::new(Mutex::new(VecDeque::from(single_ips)));
 
         Self {
             total_expected,
@@ -115,8 +111,7 @@ impl IpBuffer {
     /// 优先返回单个IP，再轮询CIDR
     pub fn pop(&self) -> Option<SocketAddr> {
         // 1. 单 IP 列表
-        if let Some(ip_list) = &self.single_ips 
-            && let Ok(mut ips) = ip_list.lock() 
+        if let Ok(mut ips) = self.single_ips.lock() 
             && let Some(ip) = ips.pop_front() 
         { 
             return Some(ip); 

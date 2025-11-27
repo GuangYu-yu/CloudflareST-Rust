@@ -419,14 +419,14 @@ pub fn sort_results(results: &mut [PingData]) {
     // 计算分数
     let score = |d: &PingData| {
         let d_ref = d.as_ref();
-        let speed_diff = d_ref.download_speed.unwrap_or(0.0) - avg_speed;
-        let loss_diff = d_ref.loss_rate() - avg_loss;
-        let delay_diff = d_ref.delay - avg_delay;
+        let speed = d_ref.download_speed.unwrap_or(0.0);
+        let loss = d_ref.loss_rate();
+        let delay = d_ref.delay;
 
         if has_speed {
-            speed_diff * 0.5 + delay_diff * -0.2 + loss_diff * -0.3
+            (speed - avg_speed) * 0.5 + (delay - avg_delay) * -0.2 + (loss - avg_loss) * -0.3
         } else {
-            delay_diff * -0.4 + loss_diff * -0.6
+            (delay - avg_delay) * -0.4 + (loss - avg_loss) * -0.6
         }
     };
 

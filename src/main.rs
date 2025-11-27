@@ -62,9 +62,6 @@ async fn main() {
         });
     }
 
-    // 初始化随机数种子
-    let _ = fastrand::u32(..);
-
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingData> = match args.httping {
         true => {
@@ -87,22 +84,18 @@ async fn main() {
 
     // 开始下载测速
     let ping_data = if args.disable_download || ping_result.is_empty() || ping_interrupted {
-        info_println(format_args!(
-            "{}",
-            if args.disable_download {
-                "已禁用下载测速"
-            } else if ping_interrupted {
-                "由于全局超时，跳过下载测速"
-            } else {
-                "延迟测速结果为空，跳过下载测速"
-            }
-        ));
+        let reason = if args.disable_download {
+            "已禁用下载测速"
+        } else if ping_interrupted {
+            "由于全局超时，跳过下载测速"
+        } else {
+            "延迟测速结果为空，跳过下载测速"
+        };
+        info_println(format_args!("{}", reason));
         ping_result
     } else {
         // 创建可变下载测速实例
-        let mut download_test =
-            download::DownloadTest::new(&args, ping_result, Arc::clone(&timeout_flag)).await;
-
+        let mut download_test = download::DownloadTest::new(&args, ping_result, Arc::clone(&timeout_flag)).await;
         // 执行下载测速
         download_test.test_download_speed().await
     };

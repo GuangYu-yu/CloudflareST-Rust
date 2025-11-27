@@ -103,7 +103,7 @@ pub async fn send_get_request_simple(
         .method(Method::GET)
         .header("User-Agent", USER_AGENT)
         .header("Host", host)
-        .body(Full::new(Bytes::default()))?;
+        .body(Full::new(Bytes::new()))?;
 
     let resp = timeout(Duration::from_millis(timeout_ms), client.call(req)).await??;
     

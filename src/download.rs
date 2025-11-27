@@ -4,11 +4,14 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use http::HeaderMap;
 use http_body_util::BodyExt;
 
 // 统一的速度更新间隔（毫秒）
 const SPEED_UPDATE_INTERVAL_MS: u64 = 500;
+
+// 下载测速相关常量
+const TTFB_TIMEOUT_MS: u64 = 1200; // 首字节超时时间（毫秒）
+const WARM_UP_DURATION_SECS: u64 = 3; // 预热时间（秒）
 
 use crate::args::Args;
 use crate::common::{self, PingData};
@@ -19,7 +22,6 @@ use crate::hyper::{self, parse_url_to_uri};
 // 定义下载处理器来处理下载数据
 struct DownloadHandler {
     data_received: u64,
-    headers: std::collections::HashMap<String, String>,
     last_update: Instant,
     current_speed: Arc<Mutex<f32>>,
     speed_samples: VecDeque<(Instant, u64)>,
@@ -30,7 +32,6 @@ impl DownloadHandler {
         let now = Instant::now();
         Self {
             data_received: 0,
-            headers: std::collections::HashMap::new(),
             last_update: now,
             current_speed,
             speed_samples: VecDeque::new(),
@@ -79,15 +80,6 @@ impl DownloadHandler {
 
             // 更新上次显示更新的时间
             self.last_update = now;
-        }
-    }
-
-    fn update_headers(&mut self, headers: &HeaderMap) {
-        for (name, value) in headers.iter() {
-            if let Ok(value_str) = value.to_str() {
-                self.headers
-                    .insert(name.as_str().to_lowercase(), value_str.to_string());
-            }
         }
     }
 }
@@ -291,8 +283,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
     let mut data_center = None;
 
     // 定义连接和TTFB的超时
-    const TTFB_TIMEOUT_MS: u64 = 1200;
-    let warm_up_duration = Duration::from_secs(3);
+    let warm_up_duration = Duration::from_secs(WARM_UP_DURATION_SECS);
     let extended_duration = params.download_duration + warm_up_duration;
 
     // 创建客户端进行下载测速
@@ -319,9 +310,6 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
 
     // 如果获取到响应，开始下载
     let avg_speed = if let Some(mut resp) = response {
-        // 更新头部信息
-        handler.update_headers(resp.headers());
-
         // 如果需要获取数据中心信息，从响应头中提取
         if params.need_colo {
             data_center = common::extract_data_center(&resp);
