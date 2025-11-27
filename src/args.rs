@@ -298,16 +298,13 @@ pub fn parse_args() -> Args {
     if let Some(ref output_file) = args.output {
         let output_path = Path::new(output_file);
         if output_path.exists() {
-            match std::fs::OpenOptions::new().write(true).open(output_path) {
-                Ok(_) => {}, // 文件可写，继续执行
-                Err(e) if e.raw_os_error() == Some(32) => { // ERROR_SHARING_VIOLATION
-                    error_and_exit(format_args!("输出文件 '{}' 正被其他程序占用", output_path.display()));
-                }
-                Err(e) => {
-                    // 其他错误（如权限问题）只显示警告，不视为致命错误
-                    warning_println(format_args!("无法写入输出文件 '{}': {}", output_path.display(), e));
-                }
-            }
+            std::fs::OpenOptions::new().write(true).open(output_path).unwrap_or_else(|e| {
+                let msg = match e.raw_os_error() {
+                    Some(32) => format!("输出文件 '{}' 正被其他程序占用", output_path.display()),
+                    _ => format!("无法写入输出文件 '{}': {}", output_path.display(), e),
+                };
+                error_and_exit(format_args!("{}", msg));
+            });
         }
     }
 
