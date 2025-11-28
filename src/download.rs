@@ -104,10 +104,10 @@ impl<'a> DownloadTest<'a> {
         let urlist_vec = common::get_url_list(&args.url, &args.urlist).await;
 
         // 计算实际需要测试的数量
-        let test_num = min(args.test_count as u32, ping_results.len() as u32);
+        let test_num = min(args.test_count, ping_results.len());
 
         // 先检查队列数量是否足够
-        if args.test_count as usize > ping_results.len() {
+        if args.test_count > ping_results.len() {
             warning_println(format_args!("队列的 IP 数量不足，可能需要降低延迟测速筛选条件！"));
         }
 
@@ -121,7 +121,7 @@ impl<'a> DownloadTest<'a> {
         Self {
             args,
             urlist: urlist_vec,
-            bar: Arc::new(Bar::new(test_num as u64, "", "MB/s")),
+            bar: Arc::new(Bar::new(test_num, "", "MB/s")),
             current_speed: Arc::new(Mutex::new(0.0)),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
@@ -160,13 +160,13 @@ impl<'a> DownloadTest<'a> {
         });
 
         let mut ping_queue = self.ping_results.drain(..).collect::<VecDeque<_>>();
-        let mut qualified_results = Vec::with_capacity(self.args.test_count as usize);
+        let mut qualified_results = Vec::with_capacity(self.args.test_count);
         let mut tested_count = 0;
 
         while let Some(mut ping_result) = ping_queue.pop_front() {
             // 检查是否收到超时信号或已经找到足够数量的合格结果
             if common::check_timeout_signal(&self.timeout_flag)
-                || qualified_results.len() >= self.args.test_count as usize
+                || qualified_results.len() >= self.args.test_count
             {
                 break;
             }
@@ -245,7 +245,7 @@ impl<'a> DownloadTest<'a> {
         self.bar.done();
 
         // 如果没有找到足够的结果，打印提示
-        if qualified_results.len() < self.args.test_count as usize {
+        if qualified_results.len() < self.args.test_count {
             warning_println(format_args!("下载测速符合要求的 IP 数量不足！"));
         }
 

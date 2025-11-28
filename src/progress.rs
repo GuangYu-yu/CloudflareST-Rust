@@ -3,7 +3,7 @@ use std::{
     fmt::Write as FmtWrite,
     io::{self, stdout, Write},
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicUsize, AtomicPtr, Ordering},
         Arc, Mutex,
     },
     thread,
@@ -89,11 +89,18 @@ unsafe impl Sync for LockFreeString {}
 
 // 进度条
 pub struct Bar {
-    pos: Arc<AtomicU64>,
+    pos: Arc<AtomicUsize>,
     msg: Arc<LockFreeString>,
     prefix: Arc<LockFreeString>,
     is_done: Arc<AtomicBool>,
     thread_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+}
+
+// 获取终端宽度，返回usize类型
+fn get_terminal_width() -> usize {
+    terminal_size()
+        .map(|(Width(w), _)| w as usize)
+        .unwrap_or(80)
 }
 
 impl Bar {
@@ -104,8 +111,8 @@ impl Bar {
         }
     }
 
-    pub fn new(count: u64, start_str: &str, end_str: &str) -> Self {
-        let pos = Arc::new(AtomicU64::new(0));
+    pub fn new(count: usize, start_str: &str, end_str: &str) -> Self {
+        let pos = Arc::new(AtomicUsize::new(0));
         let msg = Arc::new(LockFreeString::new());
         let prefix = Arc::new(LockFreeString::new());
         let is_done = Arc::new(AtomicBool::new(false));
@@ -132,7 +139,7 @@ impl Bar {
                 output_buffer.clear(); // 清空缓冲区以重用内存
 
                 // 在循环内重新获取终端宽度
-                let term_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
+                let term_width = get_terminal_width();
                 let reserved_space = 20 + start_str_arc.len() + end_str_arc.len() + 10;
                 let bar_length = term_width.saturating_sub(reserved_space);
                 
@@ -244,7 +251,7 @@ impl Bar {
         Self { pos, msg, prefix, is_done, thread_handle }
     }
 
-    pub fn grow(&self, num: u64, msg: impl Into<Cow<'static, str>>) {
+    pub fn grow(&self, num: usize, msg: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| {
             self.pos.fetch_add(num, Ordering::Relaxed);
             self.msg.set(msg.into().as_ref());
@@ -260,7 +267,7 @@ impl Bar {
     }
 
     // 原子更新所有进度条数据，确保一致性
-    pub fn update_all(&self, num: u64, message: impl Into<Cow<'static, str>>, suffix: impl Into<Cow<'static, str>>) {
+    pub fn update_all(&self, num: usize, message: impl Into<Cow<'static, str>>, suffix: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| {
             self.pos.fetch_add(num, Ordering::Relaxed);
             self.msg.set(message.into().as_ref());

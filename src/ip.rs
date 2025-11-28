@@ -269,7 +269,7 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
                     _ => {
                         // 计算需要测试的IP数量
                         let count =
-                            calculate_ip_count(&ip_range_str, custom_count, config.test_all);
+                            calculate_ip_count(&ip_range_str, custom_count, config.test_all_ipv4);
                         let (start, end) = match &network {
                             IpNet::V4(ipv4_net) => {
                                 let start = u32::from_be_bytes(ipv4_net.network().octets()) as u128;
@@ -317,7 +317,7 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
 
 /// 计算需要测试的IP地址数量
 /// 根据IP范围、自定义数量和测试模式计算实际要测试的IP数量
-fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all: bool) -> u128 {
+fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all_ipv4: bool) -> u128 {
     // 如果是单个IP地址，直接返回1
     if SocketAddr::from_str(ip_range).is_ok() || IpAddr::from_str(ip_range).is_ok() {
         return 1;
@@ -336,7 +336,7 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all: bool
         }
 
         // 如果是IPv4且启用全量测试，计算所有IP
-        if is_ipv4 && test_all {
+        if is_ipv4 && test_all_ipv4 {
             return if prefix < 32 {
                 2u128.pow((32 - prefix) as u32)
             } else {

@@ -14,41 +14,41 @@ const TLS_PORTS: [u16; 6] = [443, 2053, 2083, 2087, 2096, 8443];
 pub struct Args {
     // 网络测试参数
     #[cfg(feature = "icmp")]
-    pub icmp_ping: bool,                  // 是否使用ICMP Ping测速
+    pub icmp_ping: bool,                    // 是否使用ICMP Ping测速
     pub ping_times: u16,                    // Ping测试次数
-    pub tcp_port: u16,                      // TCP端口号
-    pub url: String,                        // 单个测速URL
-    pub urlist: String,                     // URL列表文件路径
+    pub tcp_port: u16,                      // 端口号
+    pub url: String,                        // 测速URL
+    pub urlist: String,                     // 测速URL列表文件路径
     pub httping: bool,                      // 是否启用HTTPing测试
-    pub httping_code: String,               // HTTPing使用的HTTP状态码
-    pub httping_cf_colo: String,            // 指定Cloudflare地区代码
+    pub httping_code: String,               // HTTPing要求的HTTP状态码
+    pub httping_cf_colo: String,            // 指定数据中心
     pub httping_urls: Option<String>,       // HTTPing使用的URL列表
     pub max_delay: Duration,                // 最大可接受延迟
     pub min_delay: Duration,                // 最小可接受延迟
     pub max_loss_rate: f32,                 // 最大丢包率阈值
-    pub test_count: u16,                    // 下载测试次数
-    pub timeout_duration: Option<Duration>, // 单次测试超时时间
+    pub test_count: usize,                  // 所需达到下载速度下限的IP数量
+    pub timeout_duration: Option<Duration>, // 单次下载测速的持续时间
     pub min_speed: f32,                     // 最低下载速度要求(MB/s)
     pub disable_download: bool,             // 是否禁用下载测试
 
     // 结果处理参数
-    pub target_num: Option<u32>, // 提前结束测试的目标数量
-    pub print_num: u16,          // 显示结果数量
-    pub ip_file: String,         // IP列表文件路径
-    pub ip_text: String,         // 直接指定的IP列表
-    pub ip_url: String,          // 获取IP的URL地址
-    pub output: Option<String>,  // 结果输出文件
+    pub target_num: Option<usize>, // Ping所需可用IP数量
+    pub print_num: u16,            // 显示结果数量
+    pub ip_file: String,           // IP列表文件路径
+    pub ip_text: String,           // 直接指定的IP
+    pub ip_url: String,            // 获取IP的URL地址
+    pub output: Option<String>,    // 结果输出文件
 
     // 功能开关
-    pub test_all: bool,  // 是否测试所有IP
-    pub help: bool,      // 是否显示帮助信息
-    pub show_port: bool, // 是否在结果中显示端口
+    pub test_all_ipv4: bool,  // 测试所有IPv4
+    pub help: bool,           // 打印帮助信息
+    pub show_port: bool,      // 在结果中显示端口
 
     // 高级设置
     pub global_timeout_duration: Option<Duration>, // 全局超时设置
     pub max_threads: usize,                        // 最大线程数
-    pub interface: Option<String>,                 // 网络接口名或 IP 地址
-    pub interface_ips: Option<InterfaceIps>, // 接口的 IPv4 和 IPv6 地址
+    pub interface: Option<String>,                 // 绑定网络接口名或 IP 地址
+    pub interface_ips: Option<InterfaceIps>,       // 绑定的 IPv4 或 IPv6 地址
 }
 
 // 错误处理
@@ -63,60 +63,50 @@ impl Args {
         Self {
             #[cfg(feature = "icmp")]
             icmp_ping: false,
-            ping_times: 4, // 默认Ping测试4次
-            tcp_port: 443, // 默认使用443端口
+            ping_times: 4,
+            tcp_port: 443,
             url: String::new(),
             urlist: String::new(),
             httping: false,
             httping_code: String::new(),
             httping_cf_colo: String::new(),
             httping_urls: None,
-            max_delay: Duration::from_millis(2000), // 默认最大延迟2000ms
-            min_delay: Duration::from_millis(0),    // 默认最小延迟0ms
-            max_loss_rate: 1.0,                     // 默认最大丢包率100%
-            test_count: 10,                         // 默认下载测试10次
-            timeout_duration: Some(Duration::from_secs(10)), // 默认单次超时10秒
-            min_speed: 0.0,                         // 默认最低速度0MB/s
+            max_delay: Duration::from_millis(2000),
+            min_delay: Duration::from_millis(0),
+            max_loss_rate: 1.0,
+            test_count: 10,
+            timeout_duration: Some(Duration::from_secs(10)),
+            min_speed: 0.0,
             disable_download: false,
             target_num: None,
-            print_num: 10, // 默认显示前10个结果
+            print_num: 10,
             ip_file: String::new(),
             ip_text: String::new(),
             ip_url: String::new(),
-            output: Some("result.csv".to_string()), // 默认输出文件
-            test_all: false,
+            output: Some("result.csv".to_string()),
+            test_all_ipv4: false,
             help: false,
             show_port: false,
-            global_timeout_duration: None, // 默认无全局超时
-            max_threads: 256,              // 默认最大线程数256
+            global_timeout_duration: None,
+            max_threads: 256,
             interface: None,
             interface_ips: None,
         }
     }
 
-    // 私有解析助手函数
-    fn parse_u16(value_opt: Option<String>, default: u16) -> u16 {
-        value_opt
-            .and_then(|s| s.parse::<u16>().ok())
-            .unwrap_or(default)
+    // 字符串转换为数字
+    fn parse_or<T>(value_opt: Option<String>, default: T) -> T
+    where
+        T: std::str::FromStr + Copy,
+    {
+        value_opt.map_or(default, |s| s.parse().unwrap_or(default))
     }
 
-    fn parse_f32(value_opt: Option<String>, default: f32) -> f32 {
-        value_opt
-            .and_then(|s| s.parse::<f32>().ok())
-            .unwrap_or(default)
-    }
-
-    fn parse_u64(value_opt: Option<String>, default: u64) -> u64 {
-        value_opt
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(default)
-    }
-
-    fn parse_usize(value_opt: Option<String>, default: usize) -> usize {
-        value_opt
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(default)
+    // 字符串赋值
+    fn assign_string(target: &mut String, value_opt: Option<String>) {
+        if let Some(v) = value_opt {
+            *target = v;
+        }
     }
 
     /// 解析命令行参数
@@ -134,7 +124,7 @@ impl Args {
                 "h" | "help" => parsed.help = true,
                 "httping" => parsed.httping = true,
                 "dd" => parsed.disable_download = true,
-                "all4" => parsed.test_all = true,
+                "all4" => parsed.test_all_ipv4 = true,
                 "sp" => parsed.show_port = true,
                 #[cfg(feature = "icmp")]
                 "ping" => parsed.icmp_ping = true,
@@ -147,31 +137,31 @@ impl Args {
 
                 // 数值参数
                 "t" => {
-                    parsed.ping_times = Self::parse_u16(v_opt, parsed.ping_times).clamp(1, u16::MAX);
+                    parsed.ping_times = Self::parse_or(v_opt, parsed.ping_times).clamp(1, u16::MAX);
                 }
                 "dn" => {
-                    parsed.test_count = Self::parse_u16(v_opt, parsed.test_count).clamp(1, u16::MAX);
+                    parsed.test_count = Self::parse_or(v_opt, parsed.test_count).clamp(1, usize::MAX);
                 }
                 "tp" => {
                     use_tp = true;
-                    parsed.tcp_port = Self::parse_u16(v_opt, parsed.tcp_port).clamp(1, u16::MAX);
+                    parsed.tcp_port = Self::parse_or(v_opt, parsed.tcp_port).clamp(1, u16::MAX);
                 }
                 "p" => {
-                    parsed.print_num = Self::parse_u16(v_opt, parsed.print_num).clamp(1, u16::MAX);
+                    parsed.print_num = Self::parse_or(v_opt, parsed.print_num).clamp(1, u16::MAX);
                 }
                 "tlr" => {
-                    parsed.max_loss_rate = Self::parse_f32(v_opt, parsed.max_loss_rate).clamp(0.0, 1.0);
+                    parsed.max_loss_rate = Self::parse_or(v_opt, parsed.max_loss_rate).clamp(0.0, 1.0);
                 }
                 "sl" => {
-                    parsed.min_speed = Self::parse_f32(v_opt, parsed.min_speed).clamp(0.0, f32::MAX);
+                    parsed.min_speed = Self::parse_or(v_opt, parsed.min_speed).clamp(0.0, f32::MAX);
                 }
                 "tn" => parsed.target_num = v_opt.and_then(|s| s.parse().ok()),
                 "n" => {
-                    parsed.max_threads = Self::parse_usize(v_opt, parsed.max_threads).clamp(1, 1024);
+                    parsed.max_threads = Self::parse_or(v_opt, parsed.max_threads).clamp(1, 1024);
                 }
                 // 时间参数
                 "dt" => {
-                    let seconds = Self::parse_u64(v_opt, parsed.timeout_duration.map(|d| d.as_secs()).unwrap());
+                    let seconds = Self::parse_or(v_opt, parsed.timeout_duration.map(|d| d.as_secs()).unwrap());
                     parsed.timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 120)));
                 }
                 "timeout" => {
@@ -180,49 +170,21 @@ impl Args {
                         .map(|s| Duration::from_secs(s.clamp(1, 36000)));
                 }
                 "tl" => {
-                    let ms = Self::parse_u64(v_opt, parsed.max_delay.as_millis() as u64);
+                    let ms = Self::parse_or::<u64>(v_opt, parsed.max_delay.as_millis().try_into().unwrap());
                     parsed.max_delay = Duration::from_millis(ms.clamp(0, 2000));
                 }
                 "tll" => {
-                    let ms = Self::parse_u64(v_opt, parsed.min_delay.as_millis() as u64);
-                    parsed.min_delay = Duration::from_millis(ms.clamp(0, parsed.max_delay.as_millis() as u64));
+                    let max_allowed = parsed.max_delay.as_millis().try_into().unwrap();
+                    parsed.min_delay = Duration::from_millis(Self::parse_or::<u64>(v_opt, parsed.min_delay.as_millis().try_into().unwrap()).clamp(0, max_allowed));
                 }
                 // 字符串参数
-                "url" => {
-                    if let Some(v) = v_opt {
-                        parsed.url = v;
-                    }
-                }
-                "urlist" => {
-                    if let Some(v) = v_opt {
-                        parsed.urlist = v;
-                    }
-                }
-                "hc" => {
-                    if let Some(v) = v_opt {
-                        parsed.httping_code = v;
-                    }
-                }
-                "colo" => {
-                    if let Some(v) = v_opt {
-                        parsed.httping_cf_colo = v;
-                    }
-                }
-                "f" => {
-                    if let Some(v) = v_opt {
-                        parsed.ip_file = v;
-                    }
-                }
-                "ip" => {
-                    if let Some(v) = v_opt {
-                        parsed.ip_text = v;
-                    }
-                }
-                "ipurl" => {
-                    if let Some(v) = v_opt {
-                        parsed.ip_url = v;
-                    }
-                }
+                "url" => Self::assign_string(&mut parsed.url, v_opt),
+                "urlist" => Self::assign_string(&mut parsed.urlist, v_opt),
+                "hc" => Self::assign_string(&mut parsed.httping_code, v_opt),
+                "colo" => Self::assign_string(&mut parsed.httping_cf_colo, v_opt),
+                "f" => Self::assign_string(&mut parsed.ip_file, v_opt),
+                "ip" => Self::assign_string(&mut parsed.ip_text, v_opt),
+                "ipurl" => Self::assign_string(&mut parsed.ip_url, v_opt),
                 "o" => parsed.output = v_opt,
                 "intf" => {
                     parsed.interface = v_opt;

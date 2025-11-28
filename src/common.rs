@@ -158,7 +158,7 @@ pub async fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> Bas
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
         Arc::new(ip_buffer),                                    // IP 缓冲区
-        Arc::new(Bar::new(total_expected as u64, "可用:", "")), // 创建进度条
+        Arc::new(Bar::new(total_expected, "可用:", "")), // 创建进度条
         Arc::new(args.clone()),                                 // 参数包装
         Arc::new(AtomicUsize::new(0)),                          // 成功计数器
         timeout_flag,                                           // 提前中止标记
@@ -245,10 +245,6 @@ pub async fn run_ping_test(
     // 并发限制器最大并发数量
     let pool_concurrency = GLOBAL_LIMITER.get().unwrap().max_concurrent;
     
-    // 创建异步任务管理器和结果收集器
-    let mut tasks = JoinSet::new();
-    let mut results = Vec::new();
-
     // 缓存常用值
     let target_num = base.args.target_num;
     let timeout_flag = &base.timeout_flag;
@@ -256,6 +252,11 @@ pub async fn run_ping_test(
     let bar = &base.bar;
     let args = &base.args;
     let total_ips = base.ip_buffer.total_expected();
+    
+    // 创建异步任务管理器和结果收集器
+    let mut tasks = JoinSet::new();
+    // 使用 -tn 参数时预分配结果向量容量，否则使用默认容量
+    let mut results = target_num.map_or(Vec::new(), |tn| Vec::with_capacity(tn));
 
     // 初始启动任务直到达到并发限制或没有更多 IP
     for _ in 0..pool_concurrency {
@@ -271,7 +272,7 @@ pub async fn run_ping_test(
         // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
         let current_success = success_count.load(Ordering::Relaxed);
         if check_timeout_signal(timeout_flag) 
-            || target_num.is_some_and(|tn| current_success >= tn as usize) {
+            || target_num.is_some_and(|tn| current_success >= tn) {
             tasks.abort_all();
             break;
         }
