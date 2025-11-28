@@ -81,7 +81,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: 安装 Zig
-        uses: mlugg/setup-zig@v2.0.5
+        uses: mlugg/setup-zig@v2.1.0
         with:
           version: master
 
