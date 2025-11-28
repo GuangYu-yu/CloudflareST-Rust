@@ -256,7 +256,9 @@ pub async fn run_ping_test(
     // 创建异步任务管理器和结果收集器
     let mut tasks = JoinSet::new();
     // 使用 -tn 参数时预分配结果向量容量，否则使用默认容量
-    let mut results = target_num.map_or(Vec::new(), |tn| Vec::with_capacity(tn));
+    let mut results = target_num
+        .filter(|&tn| total_ips >= tn)
+        .map_or_else(Vec::new, |tn| Vec::with_capacity(tn));
 
     // 初始启动任务直到达到并发限制或没有更多 IP
     for _ in 0..pool_concurrency {
