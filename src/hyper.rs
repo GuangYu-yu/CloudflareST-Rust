@@ -124,7 +124,7 @@ pub async fn send_get_response(
         .method(Method::GET)
         .header("User-Agent", USER_AGENT)
         .header("Host", host)
-        .body(Full::new(Bytes::from(vec![])))?;
+        .body(Full::new(Bytes::new()))?;
 
     let resp = timeout(Duration::from_millis(timeout_ms), client.request(req)).await??;
     Ok(resp)
@@ -150,7 +150,7 @@ pub async fn send_head_request(
     }
 
     let req = req_builder
-        .body(Full::new(Bytes::from(vec![])))?;
+        .body(Full::new(Bytes::new()))?;
 
     let resp = timeout(Duration::from_millis(timeout_ms), client.request(req)).await??;
     Ok(resp)

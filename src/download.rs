@@ -211,11 +211,7 @@ impl<'a> DownloadTest<'a> {
             };
 
             // 检查数据中心是否符合要求
-            let colo_match = if !colo_filters.is_empty() {
-                common::is_colo_matched(&ping_result.data_center, &colo_filters)
-            } else {
-                true // 没有过滤条件时视为匹配
-            };
+            let colo_match = colo_filters.is_empty() || common::is_colo_matched(&ping_result.data_center, &colo_filters);
 
             // 更新已测试计数
             tested_count += 1;

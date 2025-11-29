@@ -369,7 +369,7 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
 pub fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
     colo_filter
         .split(',')
-        .map(|s| s.trim().to_uppercase())
+        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
 }
