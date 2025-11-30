@@ -220,25 +220,25 @@ impl Args {
 
     // 解析命令行
     fn parse_args_to_vec(args: &[String]) -> Vec<(String, Option<String>)> {
-        let mut vec = Vec::new();
         let mut iter = args.iter().skip(1).peekable();
+        let mut result = Vec::new();
 
         while let Some(arg) = iter.next() {
             if arg.starts_with('-') {
                 let key = arg.trim_start_matches('-').to_string();
-                let value = if let Some(next) = iter.peek() {
-                    if !next.starts_with('-') {
-                        Some(iter.next().unwrap().to_string())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                vec.push((key, value));
+                let value = iter.peek()
+                    .filter(|next| !next.starts_with('-'))
+                    .map(|next| next.to_string());
+                
+                if value.is_some() {
+                    iter.next(); // 消耗掉值
+                }
+                
+                result.push((key, value));
             }
         }
-        vec
+        
+        result
     }
 }
 
@@ -326,8 +326,7 @@ fn approximate_display_width_no_color(s: &str) -> usize {
         if c == '\x1b' {
             in_escape = true;
             continue;
-        }
-        if in_escape {
+        } else if in_escape {
             if c == 'm' || c.is_alphabetic() {
                 in_escape = false;
             }
