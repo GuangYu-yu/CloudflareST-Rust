@@ -198,11 +198,7 @@ where
 
     // 计算平均延迟
     let avg_delay_ms = calculate_precise_delay(total_delay_ms, recv);
-    if recv > 0 {
-        Some(avg_delay_ms)
-    } else {
-        None
-    }
+    (recv > 0).then(|| avg_delay_ms)
 }
 
 pub trait PingMode: Send + Sync + 'static {
@@ -246,51 +242,50 @@ pub async fn run_ping_test(
     let pool_concurrency = GLOBAL_LIMITER.get().unwrap().max_concurrent;
     
     // 缓存常用值
-    let target_num = base.args.target_num;
     let timeout_flag = &base.timeout_flag;
     let success_count = &base.success_count;
     let bar = &base.bar;
     let args = &base.args;
     let total_ips = base.ip_buffer.total_expected();
+    let tn = args.target_num.map(|t| t.min(total_ips)); // 目标数量，不超过总IP数
     
     // 创建异步任务管理器和结果收集器
     let mut tasks = JoinSet::new();
     // 使用 -tn 参数时预分配结果向量容量，否则使用默认容量
-    let mut results = target_num
-        .filter(|&tn| total_ips >= tn)
-        .map_or_else(Vec::new, |tn| Vec::with_capacity(tn));
+    let mut results = tn.map(Vec::with_capacity).unwrap_or_default();
 
     // 初始启动任务直到达到并发限制或没有更多 IP
-    for _ in 0..pool_concurrency {
-        if let Some(addr) = base.ip_buffer.pop() {
-            tasks.spawn(handler_factory.create_handler(addr));
-        } else {
-            break;
-        }
-    }
+    (0..pool_concurrency)
+        .map_while(|_| base.ip_buffer.pop())
+        .for_each(|addr| {
+            let _ = tasks.spawn(handler_factory.create_handler(addr));
+        });
     
     // 动态循环处理任务，直到超时或任务耗尽
     while let Some(join_result) = tasks.join_next().await {
         // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
         let current_success = success_count.load(Ordering::Relaxed);
         if check_timeout_signal(timeout_flag) 
-            || target_num.is_some_and(|tn| current_success >= tn) {
+            || tn.is_some_and(|tn| current_success >= tn) {
             tasks.abort_all();
             break;
         }
 
         // 处理结果
+        let mut success_increment = 0;
         if let Ok(result) = join_result
             && let Some(ping_data) = result.filter(|d| should_keep_result(d, args))
         {
-            success_count.fetch_add(1, Ordering::Relaxed);
+            success_increment = 1;
             results.push(ping_data);
         }
 
         // 更新测试计数和进度条
         let current_tested = base.tested_count.fetch_add(1, Ordering::Relaxed) + 1;
-        let current_success = success_count.load(Ordering::Relaxed);
-        update_progress_bar(bar, current_tested, current_success, total_ips);
+        if success_increment > 0 {
+            success_count.fetch_add(success_increment, Ordering::Relaxed);
+        }
+        update_progress_bar(bar, current_tested, current_success + success_increment, total_ips);
 
         // 继续添加新任务
         if let Some(addr) = base.ip_buffer.pop() {
@@ -357,12 +352,8 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
         }
     }
 
-    // 使用单一URL作为默认值
-    if !url.is_empty() {
-        vec![url.to_string()]
-    } else {
-        Vec::new()
-    }
+    // 使用单一URL作为默认值或返回空列表
+    url.is_empty().then(|| Vec::new()).unwrap_or_else(|| vec![url.to_string()])
 }
 
 /// 解析数据中心过滤条件字符串为向量
