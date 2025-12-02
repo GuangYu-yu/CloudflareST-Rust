@@ -38,49 +38,56 @@ impl DownloadHandler {
         }
     }
 
-    fn update_data_received(&mut self, size: u64) {
+    // 添加数据点
+    fn add_data_point(&mut self, size: u64) {
         self.data_received += size;
-        let now = Instant::now();
+        self.speed_samples.push_back((Instant::now(), self.data_received));
+    }
 
-        // 将当前数据点添加到队列
-        self.speed_samples.push_back((now, self.data_received));
+    // 清理超出时间窗口的数据点
+    fn cleanup_old_samples(&mut self, window_start: Instant) {
+        self.speed_samples.retain(|&(time, _)| time >= window_start);
+    }
 
-        // 检查是否需要更新显示速度
-        let elapsed_since_last_update = now.duration_since(self.last_update);
-        if elapsed_since_last_update.as_millis() >= SPEED_UPDATE_INTERVAL_MS as u128 {
-            // 只在需要更新速度时才移除超出窗口的数据点
-            let window_start = now - Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
-            while let Some(front) = self.speed_samples.front() {
-                if front.0 < window_start {
-                    self.speed_samples.pop_front();
+    // 纯函数计算速度
+    fn calculate_speed(&self) -> f32 {
+        self.speed_samples
+            .front()
+            .zip(self.speed_samples.back())
+            .and_then(|(first, last)| {
+                let bytes_diff = last.1 - first.1;
+                let time_diff = last.0.duration_since(first.0).as_secs_f32();
+                if bytes_diff == 0 || time_diff <= 0.0 {
+                    None
                 } else {
-                    break; // 队列中的数据都在窗口内了
+                    Some(bytes_diff as f32 / time_diff)
                 }
-            }
+            })
+            .unwrap_or(0.0)
+    }
 
-            // 通过取队列中第一个和最后一个数据点计算字节差和时间差
-            // 若没有数据或时间差无效，速度返回0
-            let speed = self
-                .speed_samples
-                .front()
-                .zip(self.speed_samples.back())
-                .and_then(|(first, last)| {
-                    let bytes_diff = last.1 - first.1;
-                    let time_diff = last.0.duration_since(first.0).as_secs_f32();
-                    if bytes_diff == 0 || time_diff <= 0.0 {
-                        None
-                    } else {
-                        Some(bytes_diff as f32 / time_diff)
-                    }
-                })
-                .unwrap_or(0.0);
+    // 检查是否需要更新显示
+    fn should_update_display(&self) -> bool {
+        let now = Instant::now();
+        now.duration_since(self.last_update).as_millis() >= SPEED_UPDATE_INTERVAL_MS as u128
+    }
 
-            // 更新当前速度显示
+    // 更新显示速度
+    fn update_display(&mut self) {
+        if self.should_update_display() {
+            let window_start = Instant::now() - Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
+            self.cleanup_old_samples(window_start);
+            
+            let speed = self.calculate_speed();
             *self.current_speed.lock().unwrap() = speed;
-
-            // 更新上次显示更新的时间
-            self.last_update = now;
+            self.last_update = Instant::now();
         }
+    }
+
+    // 更新接收到的数据
+    fn update_data_received(&mut self, size: u64) {
+        self.add_data_point(size);
+        self.update_display();
     }
 }
 
@@ -141,6 +148,8 @@ impl<'a> DownloadTest<'a> {
         let update_interval = Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
 
         let speed_update_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(update_interval);
+            
             loop {
                 if timeout_flag_clone.load(Ordering::SeqCst) {
                     break;
@@ -155,7 +164,7 @@ impl<'a> DownloadTest<'a> {
                         .set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
                 }
 
-                tokio::time::sleep(update_interval).await;
+                interval.tick().await; // 等待下一个间隔
             }
         });
 
@@ -326,42 +335,33 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
         let mut actual_start_time: Option<Instant> = None;
         let mut last_data_time: Option<Instant> = None; // 记录最后读取数据的时间
 
-        loop {
-            let current_time = Instant::now();
-            let elapsed = current_time.duration_since(time_start);
-
-            // 总时长检查 - 确保下载不会超过指定的时间
-            if elapsed >= extended_duration {
+        while let Some(result) = resp.frame().await {
+            // 检查是否应该继续下载
+            let elapsed = time_start.elapsed();
+            if elapsed >= extended_duration || params.timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
 
-            // 检查是否收到超时信号
-            if params.timeout_flag.load(Ordering::SeqCst) {
-                return (None, data_center); // 收到超时信号，直接返回None，丢弃当前未完成的下载
-            }
+            match result {
+                Ok(frame) => {
+                    if let Some(data) = frame.data_ref() {
+                        let size = data.len() as u64;
+                        handler.update_data_received(size);
 
-            // 读取数据块
-            {
-                match resp.frame().await {
-                    Some(Ok(frame)) => {
-                        if let Some(data) = frame.data_ref() {
-                            let size = data.len() as u64;
-                            handler.update_data_received(size);
+                        let current_time = Instant::now();
+                        let elapsed = current_time.duration_since(time_start);
 
-                            // 如果已经过了预热时间，开始记录实际下载数据
-                            if elapsed >= warm_up_duration {
-                                if actual_start_time.is_none() {
-                                    actual_start_time = Some(current_time);
-                                }
-                                actual_content_read += size;
-                                last_data_time = Some(current_time); // 更新最后数据时间
+                        // 如果已经过了预热时间，开始记录实际下载数据
+                        if elapsed >= warm_up_duration {
+                            if actual_start_time.is_none() {
+                                actual_start_time = Some(current_time);
                             }
+                            actual_content_read += size;
+                            last_data_time = Some(current_time); // 更新最后数据时间
                         }
                     }
-                    Some(Err(_)) => return (None, data_center), // 网络错误直接返回None
-                    None => break,
                 }
-                // frame在作用域结束时自动释放
+                Err(_) => return (None, data_center), // 网络错误直接返回None
             }
         }
 
