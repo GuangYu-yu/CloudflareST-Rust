@@ -62,25 +62,21 @@ impl HandlerFactory for HttpingHandlerFactory {
         let interface = self.interface.clone();
 
         Box::pin(async move {
-            // 根据模式选择URL
-            let url = if use_https {
-                // HTTPS模式：从URL列表中选择（轮询）
+            // 统一在这里构建 URL
+            let (scheme, host) = if use_https {
+                // HTTPS: 轮询获取域名
                 let current_index = url_index.fetch_add(1, Ordering::Relaxed) % urls.len();
-                Arc::clone(&urls[current_index])
+                ("https", urls[current_index].to_string())
             } else {
-                // 非HTTPS模式：直接使用IP构建URL
-                let mut host_str = addr.ip().to_string();
-                if addr.ip().is_ipv6() {
-                    host_str = format!("[{}]", addr.ip());
-                }
-                Arc::new(build_trace_url("http", &host_str))
+                // HTTP: 使用 IP 地址
+                ("http", addr.to_string())
             };
 
             let ping_times = args.ping_times;
             let should_continue = Arc::new(AtomicBool::new(true));
 
             // 创建客户端
-            let (uri, host) = match parse_url_to_uri(&url) {
+            let (uri, host_header) = match parse_url_to_uri(&format!("{scheme}://{host}/cdn-cgi/trace")) {
                 Some(result) => result,
                 None => return None,
             };
@@ -112,7 +108,7 @@ impl HandlerFactory for HttpingHandlerFactory {
             // 使用通用的ping循环函数
             let (avg_delay, final_data_center) = {
                 let local_data_center = Arc::new(std::sync::Mutex::new(None));
-                let host = host.clone();
+                let host_header = host_header.clone();
                 
                 let avg_delay = common::run_ping_loop(ping_times, 200, {
                     let client = client.clone();
@@ -130,7 +126,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                         let should_continue = should_continue.clone();
                         let args = args.clone();
                         let uri = uri.clone();
-                        let host = host.clone();
+                        let host_header = host_header.clone();
                         let local_data_center = local_data_center.clone();
                         
                         Box::pin(async move {
@@ -145,7 +141,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                                 let delay_result = {
                                     let result = {
                                         // 发送 HEAD 请求
-                                        send_head_request(&client, &host, uri.clone(), 1200, false)
+                                        send_head_request(&client, &host_header, uri.clone(), 1200, false)
                                             .await
                                             .ok()
                                     };
@@ -224,41 +220,38 @@ impl HandlerFactory for HttpingHandlerFactory {
     }
 }
 
-fn build_trace_url(scheme: &str, host: &str) -> String {
-    format!("{}://{}/cdn-cgi/trace", scheme, host)
-}
-
 pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 判断是否使用-hu参数（无论是否传值）
     let use_https = args.httping_urls.is_some();
 
     let urlist = if use_https {
-        let url_to_trace = |url: &str| -> String {
-            if let Some((_, host)) = parse_url_to_uri(url) {
-                return build_trace_url("https", &host);
-            }
-            build_trace_url("https", url)
+        let to_host = |url: &str| {
+            parse_url_to_uri(url)
+                .map(|(_, h)| h)
+                .unwrap_or_else(|| url.to_string())
         };
 
-        if let Some(ref urls) = args.httping_urls {
-            if !urls.is_empty() {
+        let raw_urls = match args.httping_urls {
+            Some(ref urls) if !urls.is_empty() => {
                 // -hu参数有值，使用指定的URL列表
-                urls.split(',')
-                    .map(|s| s.trim().to_string())
+                urls
+                    .split(',')
+                    .map(str::trim)
                     .filter(|s| !s.is_empty())
-                    .map(|url| Arc::new(url_to_trace(&url)))
-                    .collect()
-            } else {
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            },
+
+            _ => {
                 // -hu 未指定 URL，从 -url 或 -urlist 获取域名列表
-                let url_list = tokio::task::block_in_place(|| {
+                tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current()
                         .block_on(common::get_url_list(&args.url, &args.urlist))
-                });
-                url_list.iter().map(|url| Arc::new(url_to_trace(url))).collect()
-            }
-        } else {
-            Vec::new()
-        }
+                })
+            },
+        };
+
+        raw_urls.into_iter().map(|u| Arc::new(to_host(&u))).collect()
     } else {
         Vec::new()
     };
