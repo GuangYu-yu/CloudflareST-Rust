@@ -97,17 +97,16 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
 async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
     let ip = addr.ip();
     let payload = [0; 56];
-    // 使用原子计数器生成唯一标识符
-    let identifier = PingIdentifier(PING_IDENTIFIER_COUNTER.fetch_add(1, Ordering::Relaxed));
+    // 生成唯一标识符
+    let identifier = PingIdentifier(PING_IDENTIFIER_COUNTER.fetch_add(1, Ordering::SeqCst));
     let mut rtt = None;
 
     let mut pinger = client.pinger(ip, identifier).await;
     pinger.timeout(args.max_delay);
 
     match pinger.ping(PingSequence(0), &payload).await {
-        Ok((packet, dur)) => {
+        Ok((_, dur)) => {
             rtt = Some(dur.as_secs_f32() * 1000.0);
-            drop(packet);
         },
         Err(_) => {}
     }
