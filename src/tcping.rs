@@ -103,7 +103,6 @@ pub async fn tcping(
     // 连接
     match tokio::time::timeout(std::time::Duration::from_millis(1000), socket.connect(addr)).await {
         Ok(Ok(stream)) => {
-            let _ = stream.set_linger(None);
             drop(stream);
             Some(start_time.elapsed().as_secs_f32() * 1000.0)
         }
