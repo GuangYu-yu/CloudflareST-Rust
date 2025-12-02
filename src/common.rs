@@ -198,7 +198,7 @@ where
 
     // 计算平均延迟
     let avg_delay_ms = calculate_precise_delay(total_delay_ms, recv);
-    (recv > 0).then(|| avg_delay_ms)
+    (recv > 0).then_some(avg_delay_ms)
 }
 
 pub trait PingMode: Send + Sync + 'static {
@@ -252,7 +252,7 @@ pub async fn run_ping_test(
     // 创建异步任务管理器和结果收集器
     let mut tasks = JoinSet::new();
     // 使用 -tn 参数时预分配结果向量容量，否则使用默认容量
-    let mut results = tn.map(Vec::with_capacity).unwrap_or_default();
+    let mut results = tn.map_or(Vec::new(), Vec::with_capacity);
 
     // 初始启动任务直到达到并发限制或没有更多 IP
     (0..pool_concurrency)
@@ -353,7 +353,7 @@ pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
     }
 
     // 使用单一URL作为默认值或返回空列表
-    url.is_empty().then(|| Vec::new()).unwrap_or_else(|| vec![url.to_string()])
+    if url.is_empty() {Vec::new()} else {vec![url.to_string()]}
 }
 
 /// 解析数据中心过滤条件字符串为向量
