@@ -104,11 +104,8 @@ async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> 
     let mut pinger = client.pinger(ip, identifier).await;
     pinger.timeout(args.max_delay);
 
-    match pinger.ping(PingSequence(0), &payload).await {
-        Ok((_, dur)) => {
-            rtt = Some(dur.as_secs_f32() * 1000.0);
-        },
-        Err(_) => {}
+    if let Ok((_, dur)) = pinger.ping(PingSequence(0), &payload).await {
+        rtt = Some(dur.as_secs_f32() * 1000.0);
     }
     rtt
 }
