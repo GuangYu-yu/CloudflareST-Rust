@@ -64,7 +64,7 @@ impl Args {
             #[cfg(feature = "icmp")]
             icmp_ping: false,
             ping_times: 4,
-            tcp_port: 443,
+            tcp_port: 80,
             url: String::new(),
             urlist: String::new(),
             httping: false,
@@ -210,9 +210,9 @@ impl Args {
             }
         }
 
-        // 若启用 httping 且未使用 -hu 或 -tp，则默认端口为 80
-        if parsed.httping && parsed.httping_urls.is_none() && !use_tp {
-        parsed.tcp_port = 80;
+        // 若使用 -hu 参数且未使用 -tp，则默认端口为 443
+        if parsed.httping_urls.is_some() && !use_tp {
+            parsed.tcp_port = 443;
         }
 
         parsed

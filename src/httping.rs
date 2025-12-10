@@ -18,6 +18,7 @@ pub struct HttpingFactoryData {
     urlist: Arc<Vec<Arc<String>>>,
     use_https: bool,
     interface: Option<String>,
+    allowed_codes: Option<Arc<Vec<u16>>>,
 }
 
 // 实现 PingMode Trait
@@ -30,6 +31,7 @@ impl common::PingMode for HttpingFactoryData {
             url_index: Arc::new(AtomicUsize::new(0)),
             use_https: self.use_https,
             interface: self.interface.clone(),
+            allowed_codes: self.allowed_codes.clone(),
         })
     }
     
@@ -45,6 +47,7 @@ pub struct HttpingHandlerFactory {
     url_index: Arc<AtomicUsize>,
     use_https: bool,
     interface: Option<String>,
+    allowed_codes: Option<Arc<Vec<u16>>>,
 }
 
 impl HandlerFactory for HttpingHandlerFactory {
@@ -60,6 +63,7 @@ impl HandlerFactory for HttpingHandlerFactory {
         let url_index = self.url_index.clone();
         let use_https = self.use_https;
         let interface = self.interface.clone();
+        let allowed_codes = self.allowed_codes.clone();
 
         Box::pin(async move {
             // 统一在这里构建 URL
@@ -91,18 +95,6 @@ impl HandlerFactory for HttpingHandlerFactory {
             ) {
                 Some(client) => Arc::new(client),
                 None => return None,
-            };
-
-            // 预解析一次允许的 HTTP 状态码列表
-            let allowed_codes = if !args.httping_code.is_empty() {
-                Some(Arc::new(
-                    args.httping_code
-                        .split(',')
-                        .filter_map(|s| s.trim().parse::<u16>().ok())
-                        .collect::<Vec<u16>>()
-                ))
-            } else {
-                None
             };
 
             // 使用通用的ping循环函数
@@ -269,6 +261,18 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
         Vec::new()
     };
 
+    // 预解析状态码列表
+    let allowed_codes = if !args.httping_code.is_empty() {
+        Some(Arc::new(
+            args.httping_code
+                .split(',')
+                .filter_map(|s| s.trim().parse::<u16>().ok())
+                .collect::<Vec<u16>>()
+        ))
+    } else {
+        None
+    };
+
     // 打印开始延迟测试的信息
     let mode_name = if use_https { "HTTPSing" } else { "HTTPing" };
     common::print_speed_test_info(mode_name, args);
@@ -283,6 +287,7 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
         urlist: Arc::new(urlist),
         use_https,
         interface: args.interface.clone(),
+        allowed_codes,
     };
 
     Ok(CommonPing::new(base, factory_data))

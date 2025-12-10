@@ -215,6 +215,40 @@ fn parse_ip_range(ip_range: &str) -> (String, Option<u128>) {
     (ip_part.to_string(), count)
 }
 
+/// IP地址解析结果枚举
+enum IpParseResult {
+    /// 单个IP地址（带端口）
+    SocketAddr(SocketAddr),
+    /// 单个IP地址（不带端口）
+    IpAddr(IpAddr),
+    /// CIDR网络
+    Network(IpNet),
+    /// 解析失败
+    Invalid,
+}
+
+/// 解析IP地址字符串
+/// 返回解析结果，包括单个IP地址（带/不带端口）或CIDR网络
+fn parse_ip_with_port(ip_str: &str) -> IpParseResult {
+    // 尝试解析为带端口的IP地址
+    if let Ok(socket_addr) = SocketAddr::from_str(ip_str) {
+        return IpParseResult::SocketAddr(socket_addr);
+    }
+
+    // 尝试解析为不带端口的IP地址
+    if let Ok(ip_addr) = IpAddr::from_str(ip_str) {
+        return IpParseResult::IpAddr(ip_addr);
+    }
+
+    // 尝试解析为CIDR网络
+    if let Ok(network) = ip_str.parse::<IpNet>() {
+        return IpParseResult::Network(network);
+    }
+
+    // 解析失败
+    IpParseResult::Invalid
+}
+
 /// 根据配置参数收集所有IP地址并创建IP缓冲区
 pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     // 收集所有IP地址来源
@@ -234,70 +268,68 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
         for ip_range in &ip_sources {
             let (ip_range_str, custom_count) = parse_ip_range(ip_range);
 
-            // 处理单个IP地址（带端口）
-            if let Ok(socket_addr) = SocketAddr::from_str(&ip_range_str) {
-                single_ips.push(socket_addr);
-                total_expected += 1;
-                continue;
-            }
+            // 使用统一的IP解析函数
+            match parse_ip_with_port(&ip_range_str) {
+                IpParseResult::SocketAddr(socket_addr) => {
+                    single_ips.push(socket_addr);
+                    total_expected += 1;
+                }
+                IpParseResult::IpAddr(ip_addr) => {
+                    single_ips.push(SocketAddr::new(ip_addr, config.tcp_port));
+                    total_expected += 1;
+                }
+                IpParseResult::Network(network) => {
+                    // 处理单个IP的CIDR块（/32或/128）
+                    match &network {
+                        IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
+                            single_ips.push(SocketAddr::new(
+                                IpAddr::V4(ipv4_net.addr()),
+                                config.tcp_port,
+                            ));
+                            total_expected += 1;
+                        }
+                        IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
+                            single_ips.push(SocketAddr::new(
+                                IpAddr::V6(ipv6_net.addr()),
+                                config.tcp_port,
+                            ));
+                            total_expected += 1;
+                        }
+                        _ => {
+                            // 计算需要测试的IP数量
+                            let count = calculate_ip_count(&ip_range_str, custom_count, config.test_all_ipv4);
+                            let (start, end) = match &network {
+                                IpNet::V4(ipv4_net) => {
+                                    let start = u32::from_be_bytes(ipv4_net.network().octets()) as u128;
+                                    let end = u32::from_be_bytes(ipv4_net.broadcast().octets()) as u128;
+                                    (start, end)
+                                }
+                                IpNet::V6(ipv6_net) => {
+                                    let start = u128::from_be_bytes(ipv6_net.network().octets());
+                                    let end = u128::from_be_bytes(ipv6_net.broadcast().octets());
+                                    (start, end)
+                                }
+                            };
 
-            // 处理单个IP地址（不带端口，使用默认端口）
-            if let Ok(ip_addr) = IpAddr::from_str(&ip_range_str) {
-                single_ips.push(SocketAddr::new(ip_addr, config.tcp_port));
-                total_expected += 1;
-                continue;
-            }
+                            // 如果溢出，就用 u128::MAX
+                            let range_size = (end - start).saturating_add(1);
 
-            // 处理CIDR块
-            if let Ok(network) = ip_range_str.parse::<IpNet>() {
-                // 处理单个IP的CIDR块（/32或/128）
-                match &network {
-                    IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
-                        single_ips.push(SocketAddr::new(
-                            IpAddr::V4(ipv4_net.addr()),
-                            config.tcp_port,
-                        ));
-                        total_expected += 1;
+                            let adjusted_count = count.min(range_size) as usize;
+
+                            // 计算每个区间的间隔大小
+                            let interval_size = if adjusted_count > 0 {
+                                (range_size / adjusted_count as u128).max(1)
+                            } else {
+                                1
+                            };
+
+                            total_expected += adjusted_count;
+                            cidr_info.push((network, adjusted_count, start, end, interval_size));
+                        }
                     }
-                    IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
-                        single_ips.push(SocketAddr::new(
-                            IpAddr::V6(ipv6_net.addr()),
-                            config.tcp_port,
-                        ));
-                        total_expected += 1;
-                    }
-                    _ => {
-                        // 计算需要测试的IP数量
-                        let count =
-                            calculate_ip_count(&ip_range_str, custom_count, config.test_all_ipv4);
-                        let (start, end) = match &network {
-                            IpNet::V4(ipv4_net) => {
-                                let start = u32::from_be_bytes(ipv4_net.network().octets()) as u128;
-                                let end = u32::from_be_bytes(ipv4_net.broadcast().octets()) as u128;
-                                (start, end)
-                            }
-                            IpNet::V6(ipv6_net) => {
-                                let start = u128::from_be_bytes(ipv6_net.network().octets());
-                                let end = u128::from_be_bytes(ipv6_net.broadcast().octets());
-                                (start, end)
-                            }
-                        };
-
-                        // 如果溢出，就用 u128::MAX
-                        let range_size = (end - start).saturating_add(1);
-
-                        let adjusted_count = count.min(range_size) as usize;
-
-                        // 计算每个区间的间隔大小
-                        let interval_size = if adjusted_count > 0 {
-                            (range_size / adjusted_count as u128).max(1)
-                        } else {
-                            1
-                        };
-
-                        total_expected += adjusted_count;
-                        cidr_info.push((network, adjusted_count, start, end, interval_size));
-                    }
+                }
+                IpParseResult::Invalid => {
+                    // 忽略无效的IP地址
                 }
             }
         }
@@ -318,37 +350,40 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
 /// 计算需要测试的IP地址数量
 /// 根据IP范围、自定义数量和测试模式计算实际要测试的IP数量
 fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all_ipv4: bool) -> u128 {
-    // 如果是单个IP地址，直接返回1
-    if SocketAddr::from_str(ip_range).is_ok() || IpAddr::from_str(ip_range).is_ok() {
-        return 1;
-    }
-
-    // 处理CIDR网络
-    if let Ok(network) = ip_range.parse::<IpNet>() {
-        let (prefix, is_ipv4) = match network {
-            IpNet::V4(ipv4_net) => (ipv4_net.prefix_len(), true),
-            IpNet::V6(ipv6_net) => (ipv6_net.prefix_len(), false),
-        };
-
-        // 如果有自定义数量，优先使用
-        if let Some(count) = custom_count {
-            return count;
+    // 使用统一的IP解析函数
+    match parse_ip_with_port(ip_range) {
+        IpParseResult::SocketAddr(_) | IpParseResult::IpAddr(_) => {
+            // 单个IP地址，直接返回1
+            1
         }
-
-        // 如果是IPv4且启用全量测试，计算所有IP
-        if is_ipv4 && test_all_ipv4 {
-            return if prefix < 32 {
-                2u128.pow((32 - prefix) as u32)
-            } else {
-                1
+        IpParseResult::Network(network) => {
+            let (prefix, is_ipv4) = match network {
+                IpNet::V4(ipv4_net) => (ipv4_net.prefix_len(), true),
+                IpNet::V6(ipv6_net) => (ipv6_net.prefix_len(), false),
             };
+
+            // 如果有自定义数量，优先使用
+            if let Some(count) = custom_count {
+                return count;
+            }
+
+            // 如果是IPv4且启用全量测试，计算所有IP
+            if is_ipv4 && test_all_ipv4 {
+                return if prefix < 32 {
+                    2u128.pow((32 - prefix) as u32)
+                } else {
+                    1
+                };
+            }
+
+            // 否则使用采样算法计算数量
+            calculate_sample_count(prefix, is_ipv4)
         }
-
-        // 否则使用采样算法计算数量
-        return calculate_sample_count(prefix, is_ipv4);
+        IpParseResult::Invalid => {
+            // 无效的IP地址，返回0
+            0
+        }
     }
-
-    0
 }
 
 /// 计算采样数量
