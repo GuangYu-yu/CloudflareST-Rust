@@ -67,20 +67,31 @@ impl HandlerFactory for HttpingHandlerFactory {
 
         Box::pin(async move {
             // 统一在这里构建 URL
-            let (scheme, host) = if use_https {
+            const DEFAULT_TRACE_PATH: &str = "/cdn-cgi/trace";
+            let (scheme, host_header, path) = if use_https {
                 // HTTPS: 轮询获取域名
-                let current_index = url_index.fetch_add(1, Ordering::Relaxed) % urls.len();
-                ("https", urls[current_index].to_string())
+                let idx = url_index.fetch_add(1, Ordering::Relaxed) % urls.len();
+                let raw = &urls[idx];
+                
+                let (host, path) = parse_url_to_uri(raw)
+                    .map(|(uri, host)| { 
+                        let path = if !uri.path().is_empty() {uri.path()} else {DEFAULT_TRACE_PATH};
+                        (host, path.to_string()) 
+                    }) 
+                    .unwrap_or_else(|| { 
+                        (raw.to_string(), DEFAULT_TRACE_PATH.to_string()) 
+                    });
+                ("https", host, path)
             } else {
                 // HTTP: 使用 IP 地址
-                ("http", addr.to_string())
+                ("http", addr.to_string(), DEFAULT_TRACE_PATH.to_string())
             };
 
             let ping_times = args.ping_times;
             let should_continue = Arc::new(AtomicBool::new(true));
 
             // 创建客户端
-            let (uri, host_header) = match parse_url_to_uri(&format!("{scheme}://{host}/cdn-cgi/trace")) {
+            let (uri, host_header) = match parse_url_to_uri(&format!("{scheme}://{host_header}{path}")) {
                 Some(result) => result,
                 None => return None,
             };
@@ -217,12 +228,6 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
     let use_https = args.httping_urls.is_some();
 
     let urlist = if use_https {
-        let to_host = |url: &str| {
-            parse_url_to_uri(url)
-                .map(|(_, h)| h)
-                .unwrap_or_else(|| url.to_string())
-        };
-
         let raw_urls = match args.httping_urls {
             Some(ref urls) if !urls.is_empty() => {
                 // -hu参数有值，使用指定的URL列表
@@ -243,7 +248,7 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
             },
         };
 
-        raw_urls.into_iter().map(|u| Arc::new(to_host(&u))).collect()
+        raw_urls.into_iter().map(Arc::new).collect()
     } else {
         Vec::new()
     };

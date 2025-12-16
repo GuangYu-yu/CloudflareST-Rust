@@ -64,7 +64,7 @@ impl Args {
             #[cfg(feature = "icmp")]
             icmp_ping: false,
             ping_times: 4,
-            tcp_port: 80,
+            tcp_port: 443,
             url: String::new(),
             urlist: String::new(),
             httping: false,
@@ -131,7 +131,6 @@ impl Args {
 
                 // hu 可以有值也可以没有值
                 "hu" => {
-                    parsed.httping = true;
                     parsed.httping_urls = Some(v_opt.unwrap_or_default());
                 }
 
@@ -210,9 +209,9 @@ impl Args {
             }
         }
 
-        // 若使用 -hu 参数且未使用 -tp，则默认端口为 443
-        if parsed.httping_urls.is_some() && !use_tp {
-            parsed.tcp_port = 443;
+        // 若启用 httping 且未使用 -hu 或 -tp，则设置默认端口为 80
+        if !use_tp && parsed.httping && parsed.httping_urls.is_none() {
+            parsed.tcp_port = 80;
         }
 
         parsed
@@ -272,6 +271,11 @@ pub fn parse_args() -> Args {
 
     if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
         error_and_exit(format_args!("必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)"));
+    }
+
+    // 检查是否同时使用了 -httping 和 -hu 参数
+    if args.httping && args.httping_urls.is_some() {
+        error_and_exit(format_args!("不应同时用 -httping 和 -hu 参数"));
     }
 
     // 先检查 -hu 参数的特殊情况
