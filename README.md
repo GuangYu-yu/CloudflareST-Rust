@@ -38,7 +38,7 @@
 ## 🚀 示例命令
 
 ```bash
--ipurl https://www.cloudflare-cn.com/ips-v4 -tn 3000 -dn 10 -sl 15 -tlr 0 -hu cp.cloudflare.com -url https://speed.cloudflare.com/__down?bytes=524288000
+-ipurl https://www.cloudflare-cn.com/ips-v4 -tn 3000 -dn 10 -sl 15 -tlr 0 -hu cdnjs.cloudflare.com -url https://speed.cloudflare.com/__down?bytes=524288000
 ```
 
 > [!IMPORTANT]
