@@ -24,6 +24,12 @@
   - 含义是：对 2606:4700::/48 最多测速 1000 个随机 IP，并在延迟测速到 300 个可用 IP 后直接进行下一步
 - 因为采取了流式处理，每个 IP 都实时生成、测速并过滤，内存中始终只有符合要求的结果
 
+## 📊 测速结果示例
+
+<img width="780" height="380" alt="演示图" src="https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/演示.png" />
+
+> 这里 `x|y` 的含义是已进行下载测速 y 个，获取到 x 个符合要求的结果
+
 ## ✨ 功能特点
 
 - 📊 下载测速期间，显示实时速度
@@ -31,9 +37,8 @@
 - 🔌 优先使用指定端口测速，例如：`-ip [2606:4700::]:8080,104.16.0.0:80`
 - 🔗 支持从指定 URL 中获取测速 CIDR/IP 列表（`-ipurl`）
 - 📋 支持从指定 URL 中获取测速地址列表（`-urlist`）
-- 🌐 支持绑定到指定 IP 或接口名进行测速
-- ⏱️ 支持给程序限制运行时间，超时后立即结算结果并退出
-- 🔄 使用 -httping 参数时，通过 `http://<IP>/cdn-cgi/trace` 进行测速
+- 🌐 支持绑定到指定 IP 或接口名进行测速（`-intf`）
+- ⏱️ 支持给程序限制运行时间，超时后立即结算结果并退出（`-timeout`）
 
 ## 🚀 示例命令
 
@@ -42,7 +47,7 @@
 ```
 
 > [!IMPORTANT]
->- `speed.cloudflare.com` 不允许非 TLS 的 HTTP 下载测速，需[自建](https://github.com/GuangYu-yu/CF-Workers-SpeedTestURL)测速地址
+>- `speed.cloudflare.com` 不允许非 TLS 的 HTTP 下载测速，需自建测速地址
 >- -hu 参数指定 HTTPS 延迟测速的 URL 地址，如果不带值则与下载测速共用地址
 >- 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
 >- 多网卡情况下，使用 -intf 参数会被策略路由影响效果
@@ -97,12 +102,6 @@
 | `-p` | 终端显示结果数量 | 10 |
 | `-sp` | 结果中带端口号 | 否 |
 | `-o` | 输出结果文件（文件名或文件路径） | result.csv |
-
-## 📊 测速结果示例
-
-<img width="780" height="380" alt="演示图" src="https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/%E6%BC%94%E7%A4%BA.png" />
-
-> 这里 `x|y` 的含义是已进行下载测速 y 个，获取到 x 个符合要求的结果
 
 ## 📥 下载链接
 
