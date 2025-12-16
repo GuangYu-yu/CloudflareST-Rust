@@ -32,6 +32,14 @@ on:
         description: '编译 Linux ARM64 版本'
         type: boolean
         default: true
+      build_linux_amd64_gnu:
+        description: '编译 Linux AMD64 动态链接版本'
+        type: boolean
+        default: true
+      build_linux_arm64_gnu:
+        description: '编译 Linux ARM64 动态链接版本'
+        type: boolean
+        default: true
       build_macos_amd64:
         description: '编译 MacOS AMD64 版本'
         type: boolean
@@ -57,6 +65,8 @@ jobs:
           [[ "${{ inputs.build_windows_arm64 }}" == true ]] && arr+=('{"os":"Windows","arch":"ARM64","target":"aarch64-pc-windows-msvc","runner":"windows-latest","bin":"${{ inputs.project_name }}.exe"}')
           [[ "${{ inputs.build_linux_amd64 }}"   == true ]] && arr+=('{"os":"Linux","arch":"AMD64","target":"x86_64-unknown-linux-musl","runner":"ubuntu-latest","bin":"${{ inputs.project_name }}"}')
           [[ "${{ inputs.build_linux_arm64 }}"   == true ]] && arr+=('{"os":"Linux","arch":"ARM64","target":"aarch64-unknown-linux-musl","runner":"ubuntu-latest","bin":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_linux_amd64_gnu }}" == true ]] && arr+=('{"os":"Linux","arch":"AMD64_GNU","target":"x86_64-unknown-linux-gnu","runner":"ubuntu-latest","bin":"${{ inputs.project_name }}"}')
+          [[ "${{ inputs.build_linux_arm64_gnu }}" == true ]] && arr+=('{"os":"Linux","arch":"ARM64_GNU","target":"aarch64-unknown-linux-gnu","runner":"ubuntu-latest","bin":"${{ inputs.project_name }}"}')
           [[ "${{ inputs.build_macos_amd64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"AMD64","target":"x86_64-apple-darwin","runner":"macos-latest","bin":"${{ inputs.project_name }}"}')
           [[ "${{ inputs.build_macos_arm64 }}"   == true ]] && arr+=('{"os":"MacOS","arch":"ARM64","target":"aarch64-apple-darwin","runner":"macos-latest","bin":"${{ inputs.project_name }}"}')
           echo "include=[$(IFS=,; echo "${arr[*]}")]" >> $GITHUB_OUTPUT
@@ -86,10 +96,17 @@ jobs:
           version: master
 
       - name: 安装 MUSL (Linux)
-        if: startsWith(matrix.os, 'Linux')
+        if: startsWith(matrix.os, 'Linux') && contains(matrix.target, 'musl')
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
+          rustup target add ${{ matrix.target }}
+
+      - name: 安装 GNU 依赖 (Linux)
+        if: startsWith(matrix.os, 'Linux') && contains(matrix.target, 'gnu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu
           rustup target add ${{ matrix.target }}
 
       - name: 构建二进制
@@ -174,14 +191,20 @@ jobs:
               platform=$(basename "$dir")
               os=$(echo "$platform" | cut -d'_' -f1 | tr '[:upper:]' '[:lower:]')
               arch=$(echo "$platform" | cut -d'_' -f2 | tr '[:upper:]' '[:lower:]')
+              # 处理 GNU 版本的后缀
+              if [[ "$platform" == *"GNU"* ]]; then
+                suffix="_gnu"
+              else
+                suffix=""
+              fi
               mkdir -p tmp_$platform
               cp "$dir"/* tmp_$platform/ 2>/dev/null || echo "警告: $dir 中没有文件"
               cd tmp_$platform
               if [ -n "$(ls -A .)" ]; then
                 if [[ "$os" == "windows" ]]; then
-                  zip -r "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.zip" .
+                  zip -r "../release/${{ github.event.inputs.project_name }}_${os}_${arch}${suffix}.zip" .
                 else
-                  tar -czf "../release/${{ github.event.inputs.project_name }}_${os}_${arch}.tar.gz" .
+                  tar -czf "../release/${{ github.event.inputs.project_name }}_${os}_${arch}${suffix}.tar.gz" .
                 fi
               else
                 echo "跳过空目录: $dir"
