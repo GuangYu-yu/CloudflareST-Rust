@@ -43,7 +43,7 @@
 ## 🚀 示例命令
 
 ```bash
--ipurl https://www.cloudflare-cn.com/ips-v4 -tn 3000 -dn 10 -sl 15 -tlr 0 -hu cdnjs.cloudflare.com -url https://speed.cloudflare.com/__down?bytes=524288000
+-ipurl www.cloudflare-cn.com/ips-v4 -tn 3000 -dn 10 -sl 15 -tlr 0 -tls -url speed.cloudflare.com/__down?bytes=524288000
 ```
 
 > [!IMPORTANT]
@@ -62,7 +62,6 @@
 | 参数 | 说明 | 示例 | 默认值 |
 |:-----|:-----|:-------|:-------|
 | `-url` | TLS 模式的 Httping 或下载测速所使用的测速地址 | https://example.com/file | 未指定 |
-| `-urlist` | 从 URL 内读取测速地址列表 | https://example.com | 未指定 |
 | `-f` | 从文件或文件路径读取 IP 或 CIDR | ip.txt | 未指定 |
 | `-ip` | 直接指定 IP 或 CIDR（多个用逗号分隔） | 104.16.0.0/13=500,2606:4700::/36 | 未指定 |
 | `-ipurl` | 从URL读取 IP 或 CIDR | https://www.cloudflare.com/ips-v4 | 未指定 |
@@ -86,7 +85,7 @@
 | `-httping` | 使用非 TLS 模式的 Httping | N/A | 否 |
 | `-dd` | 禁用下载测速 | N/A | 否 |
 | `-hc` | 指定 HTTPing 的状态码 | 200,301,302 | 未指定 |
-| `-hu` | 使用 HTTPS 进行延迟测速，可指定测速地址 | None or https://cp.cloudflare.com | 否 |
+| `-tls` | 使用 HTTPS 进行延迟测速 | N/A | 否 |
 | `-colo` | 匹配指定地区 | HKG,sjc | 未指定 |
 | `-n` | 延迟测速的线程数量 | N/A | 256 |
 | `-intf` | 绑定到指定的网络接口或 IP 进行测速 | eth0 or pppoe-ct | 未指定 |
