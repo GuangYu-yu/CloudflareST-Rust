@@ -11,9 +11,20 @@ use std::os::fd::AsRawFd;
 #[cfg(target_os = "windows")]
 use {
     std::os::windows::io::AsRawSocket,
-    network_interface::{NetworkInterface, NetworkInterfaceConfig},
-    windows_sys::Win32::Networking::WinSock::{
-        setsockopt, IPPROTO_IP, IPPROTO_IPV6, IP_UNICAST_IF, IPV6_UNICAST_IF, SOCKET_ERROR,
+    windows_sys::Win32::{
+        Foundation::{
+            ERROR_BUFFER_OVERFLOW,
+            ERROR_SUCCESS,
+        },
+        Networking::WinSock::{
+            setsockopt, IPPROTO_IP, IPPROTO_IPV6, IP_UNICAST_IF, IPV6_UNICAST_IF, SOCKET_ERROR,
+            AF_UNSPEC,
+        },
+        NetworkManagement::IpHelper::{
+            GetAdaptersAddresses,
+            IP_ADAPTER_ADDRESSES_LH,
+            GAA_FLAG_INCLUDE_PREFIX,
+        },
     },
 };
 
@@ -222,10 +233,57 @@ fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> b
 /// Windows: 获取接口索引
 #[cfg(target_os = "windows")]
 pub fn get_interface_index(name: &str) -> Option<u32> {
-    NetworkInterface::show().ok()?
-        .into_iter()
-        .find(|iface| iface.name == name)
-        .map(|iface| iface.index)
+    unsafe {
+        let mut size: u32 = 0;
+
+        let ret = GetAdaptersAddresses(
+            AF_UNSPEC as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut size,
+        );
+
+        if ret != ERROR_BUFFER_OVERFLOW {
+            return None;
+        }
+
+        let mut buffer = vec![0u8; size as usize];
+        let adapters = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+
+        let ret = GetAdaptersAddresses(
+            AF_UNSPEC as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            std::ptr::null_mut(),
+            adapters,
+            &mut size,
+        );
+
+        if ret != ERROR_SUCCESS {
+            return None;
+        }
+
+        let mut current = adapters;
+        while !current.is_null() {
+            let friendly = (*current).FriendlyName;
+            if !friendly.is_null() {
+                let mut len = 0;
+                while *friendly.add(len) != 0 {
+                    len += 1;
+                }
+
+                let slice = std::slice::from_raw_parts(friendly, len);
+                let name_str = String::from_utf16_lossy(slice);
+
+                if name_str == name {
+                    return Some((*current).Anonymous1.Anonymous.IfIndex);
+                }
+            }
+
+            current = (*current).Next;
+        }
+    }
+    None
 }
 
 /// 绑定 TCP Socket
