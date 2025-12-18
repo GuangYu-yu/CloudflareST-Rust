@@ -277,7 +277,6 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
 
         // 处理URL链接中的IP地址列表
         if !ip_url.is_empty() {
-            // 内联 get_list 逻辑
             let test_url = if ip_url.contains("://") { ip_url.to_string() } else { format!("https://{}", ip_url) };
             
             // 解析URL获取URI和主机名
