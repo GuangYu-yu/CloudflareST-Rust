@@ -18,11 +18,10 @@ pub struct Args {
     pub ping_times: u16,                    // Ping测试次数
     pub tcp_port: u16,                      // 端口号
     pub url: String,                        // 测速URL
-    pub urlist: String,                     // 测速URL列表文件路径
     pub httping: bool,                      // 是否启用HTTPing测试
     pub httping_code: String,               // HTTPing要求的HTTP状态码
     pub httping_cf_colo: String,            // 指定数据中心
-    pub httping_urls: Option<String>,       // HTTPing使用的URL列表
+    pub httping_https: bool,                // 使用HTTPS进行HTTPing测速
     pub max_delay: Duration,                // 最大可接受延迟
     pub min_delay: Duration,                // 最小可接受延迟
     pub max_loss_rate: f32,                 // 最大丢包率阈值
@@ -66,11 +65,10 @@ impl Args {
             ping_times: 4,
             tcp_port: 443,
             url: String::new(),
-            urlist: String::new(),
             httping: false,
             httping_code: String::new(),
             httping_cf_colo: String::new(),
-            httping_urls: None,
+            httping_https: false,
             max_delay: Duration::from_millis(2000),
             min_delay: Duration::from_millis(0),
             max_loss_rate: 1.0,
@@ -123,16 +121,12 @@ impl Args {
                 // 布尔参数
                 "h" | "help" => parsed.help = true,
                 "httping" => parsed.httping = true,
+                "tls" => parsed.httping_https = true,
                 "dd" => parsed.disable_download = true,
                 "all4" => parsed.test_all_ipv4 = true,
                 "sp" => parsed.show_port = true,
                 #[cfg(feature = "icmp")]
                 "ping" => parsed.icmp_ping = true,
-
-                // hu 可以有值也可以没有值
-                "hu" => {
-                    parsed.httping_urls = Some(v_opt.unwrap_or_default());
-                }
 
                 // 数值参数
                 "t" => {
@@ -178,7 +172,6 @@ impl Args {
                 }
                 // 字符串参数
                 "url" => Self::assign_string(&mut parsed.url, v_opt),
-                "urlist" => Self::assign_string(&mut parsed.urlist, v_opt),
                 "hc" => Self::assign_string(&mut parsed.httping_code, v_opt),
                 "colo" => Self::assign_string(&mut parsed.httping_cf_colo, v_opt),
                 "f" => Self::assign_string(&mut parsed.ip_file, v_opt),
@@ -209,8 +202,8 @@ impl Args {
             }
         }
 
-        // 若启用 httping 且未使用 -hu 或 -tp，则设置默认端口为 80
-        if !use_tp && parsed.httping && parsed.httping_urls.is_none() {
+        // 若启用 httping 且未使用 -tls 或 -tp，则设置默认端口为 80
+        if !use_tp && parsed.httping && !parsed.httping_https {
             parsed.tcp_port = 80;
         }
 
@@ -273,29 +266,17 @@ pub fn parse_args() -> Args {
         error_and_exit(format_args!("必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)"));
     }
 
-    // 检查是否同时使用了 -httping 和 -hu 参数
-    if args.httping && args.httping_urls.is_some() {
-        error_and_exit(format_args!("不应同时用 -httping 和 -hu 参数"));
+    // 检查是否同时使用了 -httping 和 -tls 参数
+    if args.httping && args.httping_https {
+        error_and_exit(format_args!("不应同时用 -httping 和 -tls 参数"));
     }
 
-    // 先检查 -hu 参数的特殊情况
-    if args.httping_urls.is_some()
-        && args.httping_urls.as_ref().unwrap().is_empty()
-        && args.url.is_empty()
-        && args.urlist.is_empty()
-    {
-        error_and_exit(format_args!("使用 -hu 参数并且没有传入测速地址时，必须通过 -url 或 -urlist 参数指定测速地址"));
-    }
-    // 然后检查一般的下载测试情况，但排除已经被 -hu 检查过的情况
-    else if !args.disable_download && args.url.is_empty() && args.urlist.is_empty() {
-        error_and_exit(format_args!("未设置测速地址，在没有使用 -dd 参数时，请使用 -url 或 -urlist 参数指定下载测速的测速地址"));
+    if !args.disable_download && args.url.is_empty() {
+        error_and_exit(format_args!("必须设置 -url 参数，或使用 -dd 参数来禁用下载测速"));
     }
 
-    if args.disable_download
-        && (!args.url.is_empty() || !args.urlist.is_empty())
-        && !(args.httping_urls.is_some() && args.httping_urls.as_ref().unwrap().is_empty())
-    {
-        warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 或 -urlist，且未用于 -hu"));
+    if args.disable_download && !args.url.is_empty() {
+        warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 参数"));
     }
 
     // 检查端口与协议的匹配情况
@@ -303,8 +284,8 @@ pub fn parse_args() -> Args {
         // 场景1：使用-httping参数但指定了TLS端口
         (args.httping && TLS_PORTS.contains(&args.tcp_port)) ||
         
-        // 场景2：使用-hu参数但指定了非TLS端口
-        (args.httping_urls.is_some() && NON_TLS_PORTS.contains(&args.tcp_port)) ||
+        // 场景2：使用-tls参数但指定了非TLS端口
+        (args.httping_https && NON_TLS_PORTS.contains(&args.tcp_port)) ||
         
         // 场景3：下载测试中URL协议与端口不匹配
         (!args.disable_download && !args.url.is_empty() && {
@@ -348,9 +329,8 @@ pub fn print_help() {
         ("", "目标参数", ""), // 标记标题
         ("-f", "从指定文件名或文件路径获取 IP 或 CIDR", "未指定"),
         ("-ip", "直接指定 IP 或 CIDR（多个用逗号分隔）", "未指定"),
-        ("-ipurl", "从 URL 读取 IP 或 CIDR", "未指定"),
+        ("-ipurl", "从 URL 获取 IP 或 CIDR", "未指定"),
         ("-url", "TLS 模式的 Httping 或下载测速所使用的 URL", "未指定"),
-        ("-urlist", "从 URL 内读取测速地址列表", "未指定"),
         ("-tp", "测速端口", "80 / 443"),
         
         // 测试参数
@@ -364,8 +344,8 @@ pub fn print_help() {
 
         // 控制参数
         ("", "控制参数", ""), // 标记标题
-        ("-httping", "使用非 TLS 模式的 Httping", "否"),
-        ("-hu", "使用 HTTPS 进行延迟测速，可指定测速地址", "否"),
+        ("-httping", "使用非 TLS 模式的 HTTPing", "否"),
+        ("-tls", "使用 TLS 模式的 HTTPSing", "否"),
         #[cfg(feature = "icmp")]
         ("-ping", "使用 ICMP Ping 进行延迟测速", "否"),
         ("-dd", "禁用下载测速", "否"),

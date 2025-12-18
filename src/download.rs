@@ -93,7 +93,8 @@ impl DownloadHandler {
 
 pub struct DownloadTest<'a> {
     args: &'a Args,
-    urlist: Vec<String>,
+    uri: http::Uri,
+    host: String,
     bar: Arc<Bar>,
     current_speed: Arc<Mutex<f32>>,
     colo_filter: Arc<Vec<String>>,
@@ -107,8 +108,15 @@ impl<'a> DownloadTest<'a> {
         ping_results: Vec<PingData>,
         timeout_flag: Arc<AtomicBool>,
     ) -> Self {
-        // 使用 common 模块获取 URL 列表
-        let urlist_vec = common::get_url_list(&args.url, &args.urlist).await;
+        // 解析 URL
+        let trace_url = args.url
+            .find("://")
+            .map(|_| args.url.to_owned())
+            .unwrap_or_else(|| {
+                let protocol = if args.httping_https { "https" } else { "http" };
+                format!("{}://{}", protocol, args.url)
+            });
+        let (uri, host) = parse_url_to_uri(&trace_url).unwrap();
 
         // 计算实际需要测试的数量
         let test_num = min(args.test_count, ping_results.len());
@@ -127,7 +135,8 @@ impl<'a> DownloadTest<'a> {
 
         Self {
             args,
-            urlist: urlist_vec,
+            uri,
+            host,
             bar: Arc::new(Bar::new(test_num, "", "MB/s")),
             current_speed: Arc::new(Mutex::new(0.0)),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
@@ -172,6 +181,9 @@ impl<'a> DownloadTest<'a> {
         let mut qualified_results = Vec::with_capacity(self.args.test_count);
         let mut tested_count = 0;
 
+        let uri = self.uri.clone();
+        let host = &self.host;
+
         while let Some(mut ping_result) = ping_queue.pop_front() {
             // 检查是否收到超时信号或已经找到足够数量的合格结果
             if common::check_timeout_signal(&self.timeout_flag)
@@ -184,16 +196,10 @@ impl<'a> DownloadTest<'a> {
             let need_colo = ping_result.data_center.is_empty();
 
             // 执行下载测速
-            let test_url = if !self.urlist.is_empty() {
-                let url_index = tested_count % self.urlist.len();
-                &self.urlist[url_index]
-            } else {
-                &self.args.url
-            };
-
             let params = DownloadHandlerParams {
                 addr: ping_result.addr,
-                url: test_url,
+                uri: uri.clone(),
+                host,
                 download_duration: self.args.timeout_duration.unwrap(),
                 current_speed: Arc::clone(&self.current_speed),
                 need_colo,
@@ -264,7 +270,8 @@ impl<'a> DownloadTest<'a> {
 // 下载测速参数结构体
 struct DownloadHandlerParams<'a> {
     addr: SocketAddr,
-    url: &'a str,
+    uri: http::Uri,
+    host: &'a str,
     download_duration: Duration,
     current_speed: Arc<Mutex<f32>>,
     need_colo: bool,
@@ -278,12 +285,6 @@ struct DownloadHandlerParams<'a> {
 async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Option<String>) {
     // 在每次新的下载开始前重置速度为0
     *params.current_speed.lock().unwrap() = 0.0;
-
-    // 解析原始URL以获取主机名和路径
-    let (uri, host) = match parse_url_to_uri(params.url) {
-        Some(result) => result,
-        None => return (None, None),
-    };
 
     let mut data_center = None;
 
@@ -308,8 +309,8 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
     // 发送GET请求
     let response = hyper::send_get_response(
         &client, 
-        &host, 
-        uri, 
+        params.host, 
+        params.uri,
         TTFB_TIMEOUT_MS
     ).await.ok();
 

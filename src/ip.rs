@@ -11,7 +11,6 @@ use std::sync::{
 };
 
 use crate::args::Args;
-use crate::common::get_list;
 
 pub enum IpCidr {
     V4(Ipv4Addr, u8),
@@ -278,8 +277,43 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
 
         // 处理URL链接中的IP地址列表
         if !ip_url.is_empty() {
-            let url_list = get_list(ip_url, 5).await;
-            sources.extend(url_list);
+            // 内联 get_list 逻辑
+            let test_url = if ip_url.contains("://") { ip_url.to_string() } else { format!("https://{}", ip_url) };
+            
+            // 解析URL获取URI和主机名
+            if let Some((uri, host)) = crate::hyper::parse_url_to_uri(&test_url) {
+                let mut url_list = Vec::new();
+                // 最多尝试5次
+                for i in 1..=5 {
+                    // 创建客户端
+                    let mut client = match crate::hyper::client_builder() {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+
+                    // 发送 GET 请求
+                    if let Ok(body_bytes) = crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), 5000).await {
+                        let content = String::from_utf8_lossy(&body_bytes);
+                        url_list = content
+                            .lines()
+                            .map(|line| line.trim())
+                            .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                            .map(|line| line.to_string())
+                            .collect();
+                        break;
+                    }
+
+                    // 重试提示
+                    if i < 5 {
+                        crate::warning_println(format_args!("列表请求失败，正在第{}次重试..", i));
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    } else {
+                        crate::warning_println(format_args!("获取列表已达到最大重试次数"));
+                    }
+                }
+                
+                sources.extend(url_list);
+            }
         }
 
         // 处理文件中的IP地址

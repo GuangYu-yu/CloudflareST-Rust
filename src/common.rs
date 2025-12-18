@@ -1,7 +1,6 @@
 use crate::args::Args;
 use crate::ip::{IpBuffer, load_ip_to_buffer};
 use crate::progress::Bar;
-use crate::hyper::{client_builder, parse_url_to_uri};
 use crate::pool::GLOBAL_LIMITER;
 use tokio::task::JoinSet;
 use std::future::Future;
@@ -10,9 +9,6 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
-use crate::warning_println;
-use crate::hyper::send_get_request_simple;
 use hyper::Response as HyperResponse;
 
 // 定义通用的 PingData 结构体
@@ -298,62 +294,6 @@ pub async fn run_ping_test(
     sort_results(&mut results);
 
     Ok(results)
-}
-
-/// 从URL获取列表
-pub async fn get_list(url: &str, max_retries: u8) -> Vec<String> {
-    if url.is_empty() {
-        return Vec::new();
-    }
-
-    // 解析URL获取URI和主机名
-    let (uri, host) = match parse_url_to_uri(url) {
-        Some((u, h)) => (u, h),
-        None => return Vec::new(),
-    };
-
-    // 最多尝试指定次数
-    for i in 1..=max_retries {
-        // 创建客户端
-        let mut client = match client_builder() {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-
-        // 发送 GET 请求
-        if let Ok(body_bytes) = send_get_request_simple(&mut client, &host, uri.clone(), 5000).await {
-            let content = String::from_utf8_lossy(&body_bytes);
-            return content
-                .lines()
-                .map(|line| line.trim())
-                .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                .map(|line| line.to_string())
-                .collect();
-        }
-
-        // 重试提示
-        if i < max_retries {
-            warning_println(format_args!("列表请求失败，正在第{}次重试..", i));
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        } else {
-            warning_println(format_args!("获取列表已达到最大重试次数"));
-        }
-    }
-
-    Vec::new()
-}
-
-/// 从 URL 列表或单一 URL 获取测试 URL 列表
-pub async fn get_url_list(url: &str, urlist: &str) -> Vec<String> {
-    if !urlist.is_empty() {
-        let list = get_list(urlist, 5).await;
-        if !list.is_empty() {
-            return list;
-        }
-    }
-
-    // 使用单一URL作为默认值或返回空列表
-    if url.is_empty() {Vec::new()} else {vec![url.to_string()]}
 }
 
 /// 解析数据中心过滤条件字符串为向量

@@ -11,8 +11,7 @@ use hyper_util::rt::{TokioIo};
 use hyper_rustls::HttpsConnectorBuilder;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tower::Service;
-use url::Url;
+use tower_service::Service;
 
 use crate::interface::{InterfaceIps, bind_socket_to_interface};
 
@@ -156,26 +155,13 @@ pub async fn send_head_request(
     Ok(resp)
 }
 
-/// 统一的URI解析函数，将URL字符串解析为hyper::Uri
-/// 这个函数封装了URL解析和转换的通用逻辑，避免在多个模块中重复
+/// 统一的URI解析函数
 pub fn parse_url_to_uri(url_str: &str) -> Option<(Uri, String)> {
-    // 使用url库解析URL
-    let url_parts = match Url::parse(url_str) {
-        Ok(parts) => parts,
-        Err(_) => return None,
-    };
+    // 1. 尝试解析为 Uri
+    let uri = url_str.parse::<Uri>().ok()?;
 
-    // 提取主机名
-    let host = match url_parts.host_str() {
-        Some(host) => host.to_string(),
-        None => return None,
-    };
-
-    // 将URL转换为hyper::Uri
-    let uri = match Uri::try_from(url_parts.as_str()) {
-        Ok(uri) => uri,
-        Err(_) => return None,
-    };
+    // 2. 提取主机名 (host)
+    let host = uri.host()?.to_string();
 
     Some((uri, host))
 }
