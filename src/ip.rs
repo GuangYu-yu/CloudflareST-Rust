@@ -1,4 +1,3 @@
-use ipnet::IpNet;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -14,6 +13,91 @@ use std::sync::{
 use crate::args::Args;
 use crate::common::get_list;
 
+pub enum IpCidr {
+    V4(Ipv4Addr, u8),
+    V6(Ipv6Addr, u8),
+}
+
+impl IpCidr {
+    /// 获取前缀长度
+    pub fn prefix_len(&self) -> u8 {
+        match self {
+            IpCidr::V4(_, len) => *len,
+            IpCidr::V6(_, len) => *len,
+        }
+    }
+
+    /// 返回 (start, end)
+    pub fn range_u128(&self) -> (u128, u128) {
+        match self {
+            IpCidr::V4(ip, prefix) => {
+                let ip_u32: u32 = (*ip).into();
+                let len = *prefix;
+                // 处理特殊情况 /0 和 /32
+                let mask = if len == 0 {
+                    0
+                } else if len >= 32 {
+                    u32::MAX
+                } else {
+                    !((1 << (32 - len)) - 1)
+                };
+                
+                let start = ip_u32 & mask;
+                let end = start | (!mask);
+                (start as u128, end as u128)
+            }
+            IpCidr::V6(ip, prefix) => {
+                let ip_u128: u128 = (*ip).into();
+                let len = *prefix;
+                let mask = if len == 0 {
+                    0
+                } else if len >= 128 {
+                    u128::MAX
+                } else {
+                    !((1 << (128 - len)) - 1)
+                };
+                
+                let start = ip_u128 & mask;
+                let end = start | (!mask);
+                (start, end)
+            }
+        }
+    }
+}
+
+impl IpCidr {
+    /// 判断是否为单主机 CIDR（/32 或 /128）
+    pub fn is_single_host(&self) -> bool {
+        matches!(self, IpCidr::V4(_, 32) | IpCidr::V6(_, 128))
+    }
+
+    /// 解析 CIDR 字符串
+    pub fn parse(s: &str) -> Option<Self> {
+        let parts: Vec<&str> = s.split('/').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+
+        let ip = IpAddr::from_str(parts[0]).ok()?;
+        let prefix = parts[1].parse::<u8>().ok()?;
+
+        match ip {
+            IpAddr::V4(v4) => {
+                if prefix > 32 {
+                    return None;
+                }
+                Some(IpCidr::V4(v4, prefix))
+            }
+            IpAddr::V6(v6) => {
+                if prefix > 128 {
+                    return None;
+                }
+                Some(IpCidr::V6(v6, prefix))
+            }
+        }
+    }
+}
+
 /// IP地址获取结构体
 /// 用于管理和分发需要测试的IP地址
 pub struct IpBuffer {
@@ -28,7 +112,7 @@ pub struct IpBuffer {
 /// 用于管理CIDR网络中的IP地址生成
 struct CidrState {
     id: usize,                 // 唯一标识符
-    network: IpNet,             // 网络地址
+    network: IpCidr,             // 网络地址
     total_count: usize,         // 总数量
     interval_size: u128,        // 间隔大小
     start: u128,                // 起始地址
@@ -53,7 +137,7 @@ impl CidrState {
     }
 
     /// 创建新的CIDR状态实例
-    fn new(id: usize, network: IpNet, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
+    fn new(id: usize, network: IpCidr, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
         Self {
             id,
             network,
@@ -95,11 +179,11 @@ impl CidrState {
         let random_ip = interval_start + random_offset;
 
         match self.network {
-            IpNet::V4(_) => Some(SocketAddr::new(
+            IpCidr::V4(_, _) => Some(SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::from(random_ip as u32)),
                 tcp_port,
             )),
-            IpNet::V6(_) => Some(SocketAddr::new(
+            IpCidr::V6(_, _) => Some(SocketAddr::new(
                 IpAddr::V6(Ipv6Addr::from(random_ip)),
                 tcp_port,
             )),
@@ -248,7 +332,7 @@ enum IpParseResult {
     /// 单个IP地址（不带端口）
     IpAddr(IpAddr),
     /// CIDR网络
-    Network(IpNet),
+    Network(IpCidr),
     /// 解析失败
     Invalid,
 }
@@ -267,7 +351,7 @@ fn parse_ip_with_port(ip_str: &str) -> IpParseResult {
     }
 
     // 尝试解析为CIDR网络
-    if let Ok(network) = ip_str.parse::<IpNet>() {
+    if let Some(network) = IpCidr::parse(ip_str) {
         return IpParseResult::Network(network);
     }
 
@@ -306,52 +390,34 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
                 }
                 IpParseResult::Network(network) => {
                     // 处理单个IP的CIDR块（/32或/128）
-                    match &network {
-                        IpNet::V4(ipv4_net) if ipv4_net.prefix_len() == 32 => {
-                            single_ips.push(SocketAddr::new(
-                                IpAddr::V4(ipv4_net.addr()),
-                                config.tcp_port,
-                            ));
-                            total_expected += 1;
-                        }
-                        IpNet::V6(ipv6_net) if ipv6_net.prefix_len() == 128 => {
-                            single_ips.push(SocketAddr::new(
-                                IpAddr::V6(ipv6_net.addr()),
-                                config.tcp_port,
-                            ));
-                            total_expected += 1;
-                        }
-                        _ => {
-                            // 计算需要测试的IP数量
-                            let count = calculate_ip_count(&ip_range_str, custom_count, config.test_all_ipv4);
-                            let (start, end) = match &network {
-                                IpNet::V4(ipv4_net) => {
-                                    let start = u32::from_be_bytes(ipv4_net.network().octets()) as u128;
-                                    let end = u32::from_be_bytes(ipv4_net.broadcast().octets()) as u128;
-                                    (start, end)
-                                }
-                                IpNet::V6(ipv6_net) => {
-                                    let start = u128::from_be_bytes(ipv6_net.network().octets());
-                                    let end = u128::from_be_bytes(ipv6_net.broadcast().octets());
-                                    (start, end)
-                                }
-                            };
+                    if network.is_single_host() {
+                        // 如果是单IP掩码，直接取起始地址当作单IP
+                        let (start, _) = network.range_u128();
+                        let ip = match network {
+                            IpCidr::V4(_, _) => IpAddr::V4(Ipv4Addr::from(start as u32)),
+                            IpCidr::V6(_, _) => IpAddr::V6(Ipv6Addr::from(start)),
+                        };
+                        single_ips.push(SocketAddr::new(ip, config.tcp_port));
+                        total_expected += 1;
+                    } else {
+                        // 计算需要测试的IP数量
+                        let count = calculate_ip_count(&ip_range_str, custom_count, config.test_all_ipv4);
+                        let (start, end) = network.range_u128();
 
-                            // 如果溢出，就用 u128::MAX
-                            let range_size = (end - start).saturating_add(1);
+                        // 如果溢出，就用 u128::MAX
+                        let range_size = (end - start).saturating_add(1);
 
-                            let adjusted_count = count.min(range_size) as usize;
+                        let adjusted_count = count.min(range_size) as usize;
 
-                            // 计算每个区间的间隔大小
-                            let interval_size = if adjusted_count > 0 {
-                                (range_size / adjusted_count as u128).max(1)
-                            } else {
-                                1
-                            };
+                        // 计算每个区间的间隔大小
+                        let interval_size = if adjusted_count > 0 {
+                            (range_size / adjusted_count as u128).max(1)
+                        } else {
+                            1
+                        };
 
-                            total_expected += adjusted_count;
-                            cidr_info.push((network, adjusted_count, start, end, interval_size));
-                        }
+                        total_expected += adjusted_count;
+                        cidr_info.push((network, adjusted_count, start, end, interval_size));
                     }
                 }
                 IpParseResult::Invalid => {
@@ -383,10 +449,8 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all_ipv4:
             1
         }
         IpParseResult::Network(network) => {
-            let (prefix, is_ipv4) = match network {
-                IpNet::V4(ipv4_net) => (ipv4_net.prefix_len(), true),
-                IpNet::V6(ipv6_net) => (ipv6_net.prefix_len(), false),
-            };
+            let prefix = network.prefix_len();
+            let is_ipv4 = matches!(network, IpCidr::V4(_, _));
 
             // 如果有自定义数量，优先使用
             if let Some(count) = custom_count {
@@ -417,8 +481,8 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all_ipv4:
 pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
     let base: u8 = if is_ipv4 { 31 } else { 127 };
     let exp = base.saturating_sub(prefix);
-    let clamped_exp = exp.min(16);
-    1u128 << clamped_exp
+    let clamped_exp = exp.min(18);
+    1u128 << clamped_exp.saturating_sub(3)
 }
 
 /// 读取文件的所有行
