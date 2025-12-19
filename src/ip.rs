@@ -274,37 +274,30 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
             
             // 解析URL获取URI和主机名
             if let Some((uri, host)) = crate::hyper::parse_url_to_uri(&test_url) {
-                let mut url_list = Vec::new();
-                // 最多尝试5次
-                for i in 1..=5 {
-                    // 创建客户端
-                    let mut client = match crate::hyper::client_builder() {
-                        Ok(c) => c,
-                        Err(_) => continue,
-                    };
-
-                    // 发送 GET 请求
-                    if let Ok(body_bytes) = crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), 5000).await {
-                        let content = String::from_utf8_lossy(&body_bytes);
-                        url_list = content
-                            .lines()
-                            .map(|line| line.trim())
-                            .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                            .map(|line| line.to_string())
-                            .collect();
-                        break;
+                const MAX_RETRY_ATTEMPTS: usize = 5;
+                const REQUEST_TIMEOUT_MS: u64 = 2000;
+                
+                for attempt in 1..=MAX_RETRY_ATTEMPTS {
+                    if let Ok(mut client) = crate::hyper::client_builder() {
+                        if let Ok(body_bytes) = crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), REQUEST_TIMEOUT_MS).await {
+                            sources.extend(
+                                String::from_utf8_lossy(&body_bytes)
+                                    .lines()
+                                    .map(str::trim)
+                                    .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                                    .map(str::to_string)
+                            );
+                            break;
+                        }
                     }
 
-                    // 重试提示
-                    if i < 5 {
-                        crate::warning_println(format_args!("列表请求失败，正在第{}次重试..", i));
+                    if attempt < MAX_RETRY_ATTEMPTS {
+                        crate::warning_println(format_args!("列表请求失败，正在第{}次重试..", attempt));
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     } else {
                         crate::warning_println(format_args!("获取列表已达到最大重试次数"));
                     }
                 }
-                
-                sources.extend(url_list);
             }
         }
 
