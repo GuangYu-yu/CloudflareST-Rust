@@ -314,6 +314,11 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
         sources
     };
 
+    if ip_sources.is_empty() {
+        crate::error_println(format_args!("未获取到任何 IP 或 CIDR"));
+        return Vec::new();
+    }
+    
     // 排序并去重
     let mut sorted_sources = ip_sources;
     sorted_sources.sort();
@@ -381,11 +386,6 @@ fn parse_ip_with_port(ip_str: &str) -> IpParseResult {
 pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
     // 收集所有IP地址来源
     let ip_sources = collect_ip_sources(&config.ip_text, &config.ip_url, &config.ip_file).await;
-
-    // 如果没有IP地址，直接返回空
-    if ip_sources.is_empty() {
-        return IpBuffer::new(Vec::new(), Vec::new(), 0, config.tcp_port);
-    }
 
     let (single_ips, cidr_info, total_expected) = {
         let mut single_ips = Vec::new();
