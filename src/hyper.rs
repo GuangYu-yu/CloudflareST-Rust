@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use std::sync::Arc;
 
 use http_body_util::{Full, BodyExt};
 use hyper::{body::Bytes, Method, Request, Response, Uri, body::Incoming};
@@ -23,7 +24,7 @@ pub(crate) const USER_AGENT: &str =
 #[derive(Clone)]
 pub(crate) struct InterfaceConnector {
     addr: SocketAddr,
-    interface_config: InterfaceParamResult,
+    interface_config: Arc<InterfaceParamResult>,
     timeout: Duration,
 }
 
@@ -37,7 +38,7 @@ impl Service<Uri> for InterfaceConnector {
     }
 
     fn call(&mut self, _uri: Uri) -> Self::Future {
-        let interface_config = self.interface_config.clone();
+        let interface_config = Arc::clone(&self.interface_config);
         let timeout_duration = self.timeout;
         let addr = self.addr;
 
@@ -68,12 +69,12 @@ pub(crate) fn client_builder() -> Result<Client<hyper_rustls::HttpsConnector<Htt
 /// 构建 hyper 客户端
 pub(crate) fn build_hyper_client(
     addr: SocketAddr,
-    interface_config: &InterfaceParamResult,
+    interface_config: &Arc<InterfaceParamResult>,
     timeout_ms: u64,
 ) -> Option<Client<hyper_rustls::HttpsConnector<InterfaceConnector>, Full<Bytes>>> {
     let connector = InterfaceConnector {
         addr,
-        interface_config: interface_config.clone(),
+        interface_config: Arc::clone(interface_config),
         timeout: Duration::from_millis(timeout_ms),
     };
 

@@ -90,7 +90,6 @@ pub(crate) fn print_speed_test_info(mode: &str, args: &Args) {
 }
 
 /// 基础Ping结构体，包含所有公共字段
-#[derive(Clone)]
 pub(crate) struct BasePing {
     pub(crate) ip_buffer: Arc<IpBuffer>,
     pub(crate) bar: Arc<Bar>,
@@ -144,16 +143,16 @@ pub(crate) fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -
 }
 
 /// Ping 初始化
-pub(crate) async fn create_base_ping(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> BasePing {
+pub(crate) async fn create_base_ping(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> BasePing {
     // 处理 IP 源并创建缓冲区
-    let (single_ips, cidr_states, total_expected) = crate::ip::process_ip_sources(sources, args).await;
+    let (single_ips, cidr_states, total_expected) = crate::ip::process_ip_sources(sources, &args).await;
     let ip_buffer = IpBuffer::new(cidr_states, single_ips, total_expected, args.tcp_port);
 
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
         Arc::new(ip_buffer),                                    // IP 缓冲区
         Arc::new(Bar::new(total_expected, "可用:", "")), // 创建进度条
-        Arc::new(args.clone()),                                 // 参数包装
+        args,                                                     // 参数包装
         Arc::new(AtomicUsize::new(0)),                          // 成功计数器
         timeout_flag,                                           // 提前中止标记
         Arc::new(AtomicUsize::new(0)),                          // 已测试计数器
@@ -378,7 +377,7 @@ pub(crate) fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
 /// 统一的进度条更新函数
 #[inline]
 pub(crate) fn update_progress_bar(
-    bar: &Arc<Bar>,
+    bar: &Bar,
     current_tested: usize,
     success_count: usize,
     total_ips: usize,

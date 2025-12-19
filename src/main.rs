@@ -46,7 +46,7 @@ async fn main() {
     println!("\x1b[34;1m# CloudflareST-Rust\x1b[0m");
 
     // 解析命令行参数
-    let args = args::parse_args();
+    let args = Arc::new(args::parse_args());
 
     // 收集并验证
     let sources = ip::collect_ip_sources(&args.ip_text, &args.ip_url, &args.ip_file).await;
@@ -73,16 +73,16 @@ async fn main() {
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingData> = match args.httping || args.httping_https {
         true => {
-            let ping = httping::new(&args, sources, Arc::clone(&timeout_flag)).unwrap();
+            let ping = httping::new(Arc::clone(&args), sources, Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         },
         #[cfg(feature = "icmp")]
         false if args.icmp_ping => {
-            let ping = icmp::new(&args, sources, Arc::clone(&timeout_flag)).unwrap();
+            let ping = icmp::new(Arc::clone(&args), sources, Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         },
         _ => {
-            let ping = tcping::new(&args, sources, Arc::clone(&timeout_flag)).unwrap();
+            let ping = tcping::new(Arc::clone(&args), sources, Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         }
     };

@@ -13,14 +13,21 @@ use crate::interface::{InterfaceParamResult, bind_socket_to_interface};
 
 #[derive(Clone)]
 pub(crate) struct TcpingFactoryData {
-    interface_config: InterfaceParamResult,
+    interface_config: Arc<InterfaceParamResult>,
 }
 
 impl PingMode for TcpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(TcpingHandlerFactory {
-            base: Arc::new(base.clone()),
-            interface_config: self.interface_config.clone(),
+            base: Arc::new(BasePing {
+                ip_buffer: base.ip_buffer.clone(),
+                bar: Arc::clone(&base.bar),
+                args: base.args.clone(),
+                success_count: base.success_count.clone(),
+                timeout_flag: base.timeout_flag.clone(),
+                tested_count: base.tested_count.clone(),
+            }),
+            interface_config: Arc::clone(&self.interface_config),
         })
     }
     
@@ -31,7 +38,7 @@ impl PingMode for TcpingFactoryData {
 
 pub(crate) struct TcpingHandlerFactory {
     base: Arc<BasePing>,
-    interface_config: InterfaceParamResult,
+    interface_config: Arc<InterfaceParamResult>,
 }
 
 impl HandlerFactory for TcpingHandlerFactory {
@@ -40,14 +47,14 @@ impl HandlerFactory for TcpingHandlerFactory {
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
         let args = Arc::clone(&self.base.args);
-        let interface_config = self.interface_config.clone();
+        let interface_config = Arc::clone(&self.interface_config);
 
         Box::pin(async move {
             let ping_times = args.ping_times;
             
             // 使用通用的ping循环函数
             let avg_delay = common::run_ping_loop(ping_times, 200, || {
-                let interface_config = interface_config.clone();
+                let interface_config = Arc::clone(&interface_config);
                 async move {
                     (execute_with_rate_limit(|| async move {
                         Ok::<Option<f32>, io::Error>(
@@ -68,17 +75,17 @@ impl HandlerFactory for TcpingHandlerFactory {
     }
 }
 
-pub(crate) fn new(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
+pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 打印开始延迟测试的信息
-    common::print_speed_test_info("Tcping", args);
+    common::print_speed_test_info("Tcping", &args);
 
     // 初始化测试环境
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, sources, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
     });
 
     let factory_data = TcpingFactoryData {
-        interface_config: args.interface_config.clone(),
+        interface_config: Arc::clone(&args.interface_config),
     };
 
     Ok(CommonPing::new(base, factory_data))
@@ -87,7 +94,7 @@ pub(crate) fn new(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBoo
 // TCP连接测试函数
 pub(crate) async fn tcping(
     addr: SocketAddr,
-    interface_config: &InterfaceParamResult,
+    interface_config: &Arc<InterfaceParamResult>,
 ) -> Option<f32> {
     let start_time = Instant::now();
 

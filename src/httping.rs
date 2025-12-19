@@ -20,7 +20,7 @@ use crate::interface::InterfaceParamResult;
 pub(crate) struct HttpingFactoryData {
     colo_filters: Arc<Vec<String>>,
     use_https: bool,
-    interface_config: InterfaceParamResult,
+    interface_config: Arc<InterfaceParamResult>,
     allowed_codes: Option<Arc<Vec<u16>>>,
 }
 
@@ -32,12 +32,19 @@ impl common::PingMode for HttpingFactoryData {
         let (uri, host_header) = parse_url_to_uri(&trace_url).unwrap();
 
         Arc::new(HttpingHandlerFactory {
-            base: Arc::new(base.clone()),
+            base: Arc::new(BasePing {
+                ip_buffer: base.ip_buffer.clone(),
+                bar: Arc::clone(&base.bar),
+                args: base.args.clone(),
+                success_count: base.success_count.clone(),
+                timeout_flag: base.timeout_flag.clone(),
+                tested_count: base.tested_count.clone(),
+            }),
             colo_filters: Arc::clone(&self.colo_filters),
-            interface_config: self.interface_config.clone(),
+            interface_config: Arc::clone(&self.interface_config),
             allowed_codes: self.allowed_codes.clone(),
             uri,
-            host_header,
+            host_header: host_header.into(),
         })
     }
     
@@ -49,7 +56,7 @@ impl common::PingMode for HttpingFactoryData {
 struct PingTask {
     client: Arc<Client<hyper_rustls::HttpsConnector<crate::hyper::InterfaceConnector>, Full<Bytes>>>,
     args: Arc<Args>,
-    host_header: String,
+    host_header: Arc<str>,
     uri: http::Uri,
     colo_filters: Arc<Vec<String>>,
     allowed_codes: Option<Arc<Vec<u16>>>,
@@ -69,7 +76,7 @@ impl PingTask {
             let start = Instant::now();
             
             // 发送 HEAD 请求
-            let resp = match send_head_request(&self.client, &self.host_header, self.uri.clone(), 1200, false).await {
+            let resp = match send_head_request(&self.client, self.host_header.as_ref(), self.uri.clone(), 1200, false).await {
                 Ok(resp) => resp,
                 Err(_) => return Ok::<Option<(f32, String)>, io::Error>(None),
             };
@@ -112,10 +119,10 @@ impl PingTask {
 pub(crate) struct HttpingHandlerFactory {
     base: Arc<BasePing>,
     colo_filters: Arc<Vec<String>>,
-    interface_config: InterfaceParamResult,
+    interface_config: Arc<InterfaceParamResult>,
     allowed_codes: Option<Arc<Vec<u16>>>,
     uri: http::Uri,
-    host_header: String,
+    host_header: Arc<str>,
 }
 
 impl HandlerFactory for HttpingHandlerFactory {
@@ -125,12 +132,12 @@ impl HandlerFactory for HttpingHandlerFactory {
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
         // 克隆所需的引用
         let base = self.base.clone();
-        let args = base.args.clone();
-        let colo_filters = self.colo_filters.clone();
-        let interface_config = self.interface_config.clone();
+        let args = Arc::clone(&base.args);
+        let colo_filters = Arc::clone(&self.colo_filters);
+        let interface_config = Arc::clone(&self.interface_config);
         let allowed_codes = self.allowed_codes.clone();
         let uri = self.uri.clone();
-        let host_header = self.host_header.clone();
+        let host_header = Arc::clone(&self.host_header);
 
         Box::pin(async move {
             let ping_times = args.ping_times;
@@ -149,11 +156,11 @@ impl HandlerFactory for HttpingHandlerFactory {
 
             let task = Arc::new(PingTask {
                 client,
-                args: args.clone(),
-                host_header: host_header.clone(),
-                uri: uri.clone(),
-                colo_filters: colo_filters.clone(),
-                allowed_codes: allowed_codes.clone(),
+                args,
+                host_header: Arc::clone(&host_header),
+                uri,
+                colo_filters,
+                allowed_codes,
                 local_data_center: local_data_center.clone(),
                 should_continue: should_continue.clone(),
             });
@@ -185,7 +192,7 @@ impl HandlerFactory for HttpingHandlerFactory {
     }
 }
 
-pub(crate) fn new(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
+pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 判断是否使用HTTPS协议
     let use_https = args.httping_https;
 
@@ -210,17 +217,17 @@ pub(crate) fn new(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBoo
 
     // 打印开始延迟测试的信息
     let mode_name = if use_https { "HTTPSing" } else { "HTTPing" };
-    common::print_speed_test_info(mode_name, args);
+    common::print_speed_test_info(mode_name, &args);
 
     // 初始化测试环境
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, sources, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
     });
 
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),
         use_https,
-        interface_config: args.interface_config.clone(),
+        interface_config: Arc::clone(&args.interface_config),
         allowed_codes,
     };
 

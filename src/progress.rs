@@ -88,6 +88,7 @@ unsafe impl Send for LockFreeString {}
 unsafe impl Sync for LockFreeString {}
 
 // 进度条
+#[derive(Clone)]
 pub(crate) struct Bar {
     pos: Arc<AtomicUsize>,
     msg: Arc<LockFreeString>,

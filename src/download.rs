@@ -150,7 +150,7 @@ impl<'a> DownloadTest<'a> {
         let colo_filters = Arc::clone(&self.colo_filter);
 
         let current_speed_arc: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
-        let bar_arc: Arc<Bar> = Arc::clone(&self.bar);
+        let bar_arc = self.bar.clone();
         let timeout_flag_clone = Arc::clone(&self.timeout_flag);
         
         // 使用统一的速度更新间隔
@@ -169,8 +169,7 @@ impl<'a> DownloadTest<'a> {
                 
                 if speed >= 0.0 {
                     // 更新进度条的速率后缀 (MB/s)
-                    bar_arc.as_ref()
-                        .set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
+                    bar_arc.set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
                 }
 
                 interval.tick().await; // 等待下一个间隔
@@ -181,7 +180,7 @@ impl<'a> DownloadTest<'a> {
         let mut qualified_results = Vec::with_capacity(self.args.test_count);
         let mut tested_count = 0;
 
-        let uri = self.uri.clone();
+        let uri = &self.uri;
         let host = &self.host;
 
         while let Some(mut ping_result) = ping_queue.pop_front() {
@@ -276,7 +275,7 @@ struct DownloadHandlerParams<'a> {
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
-    interface_config: &'a crate::interface::InterfaceParamResult,
+    interface_config: &'a Arc<crate::interface::InterfaceParamResult>,
 }
 
 // 下载测速处理函数
@@ -301,7 +300,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
     };
 
     // 创建下载处理器
-    let mut handler = DownloadHandler::new(Arc::clone(&params.current_speed));
+    let mut handler = DownloadHandler::new(params.current_speed.clone());
 
     // 发送GET请求
     let response = hyper::send_get_response(

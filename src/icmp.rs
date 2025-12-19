@@ -22,7 +22,14 @@ pub(crate) struct IcmpingFactoryData {
 impl PingMode for IcmpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(IcmpingHandlerFactory {
-            base: Arc::new(base.clone()),
+            base: Arc::new(BasePing {
+                ip_buffer: base.ip_buffer.clone(),
+                bar: Arc::clone(&base.bar),
+                args: base.args.clone(),
+                success_count: base.success_count.clone(),
+                timeout_flag: base.timeout_flag.clone(),
+                tested_count: base.tested_count.clone(),
+            }),
             client_v4: Arc::clone(&self.client_v4),
             client_v6: Arc::clone(&self.client_v6),
         })
@@ -73,13 +80,13 @@ impl HandlerFactory for IcmpingHandlerFactory {
     }
 }
 
-pub(crate) fn new(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
+pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 打印开始延迟测试的信息
-    common::print_speed_test_info("ICMP-Ping", args);
+    common::print_speed_test_info("ICMP-Ping", &args);
     
     // 初始化测试环境
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, sources, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
     });
 
     let client_v4 = Arc::new(Client::new(&Config::default())?);

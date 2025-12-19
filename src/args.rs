@@ -1,5 +1,6 @@
 use std::env;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use crate::{error_and_exit, warning_println};
 use crate::interface::{InterfaceParamResult, process_interface_param};
@@ -46,7 +47,7 @@ pub(crate) struct Args {
     // 高级设置
     pub(crate) global_timeout_duration: Option<Duration>, // 全局超时设置
     pub(crate) max_threads: usize,                        // 最大线程数
-    pub(crate) interface_config: InterfaceParamResult,  // 接口配置
+    pub(crate) interface_config: Arc<InterfaceParamResult>,  // 接口配置
 }
 
 impl Args {
@@ -80,7 +81,7 @@ impl Args {
             show_port: false,
             global_timeout_duration: None,
             max_threads: 256,
-            interface_config: InterfaceParamResult::default(),
+            interface_config: Arc::new(InterfaceParamResult::default()),
         }
     }
 
@@ -173,7 +174,7 @@ impl Args {
                 "intf" => {
                     if let Some(ref interface) = v_opt {
                         // 调用 interface.rs 中的函数处理接口参数
-                        parsed.interface_config = process_interface_param(interface);
+                        parsed.interface_config = Arc::new(process_interface_param(interface));
 
                         // 检查参数是否有效（既不是IP也不是有效的接口名）
                         if !parsed.interface_config.is_valid_interface {
