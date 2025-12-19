@@ -120,19 +120,12 @@ struct CidrState {
 }
 
 impl CidrState {
-    // SplitMix64 混淆常数 
-    const MIX_GAMMA: u64 = 0x9E3779B97F4A7C15; 
-    const MIX_A: u64 = 0xbf58476d1ce4e5b9;
-    const MIX_B: u64 = 0x94d049bb133111eb;
-
+    // XOR-Shift
     #[inline(always)] 
     fn splitmix_u64(index: u64, seed_offset: u64) -> u64 { 
-        let mut z = index.wrapping_add(seed_offset).wrapping_mul(Self::MIX_GAMMA); 
-        
-        z = (z ^ (z >> 30)).wrapping_mul(Self::MIX_A); 
-        z = (z ^ (z >> 27)).wrapping_mul(Self::MIX_B); 
-        
-        z ^ (z >> 31) 
+        let mut z = index ^ seed_offset;
+        z ^= z >> 33;
+        z.wrapping_mul(0x9E3779B97F4A7C15)
     }
 
     /// 创建新的CIDR状态实例
@@ -169,7 +162,7 @@ impl CidrState {
         } else {
             let mixed_val = Self::splitmix_u64(
                 current_index as u64,
-                self.id as u64
+                self.id as u64 ^ (&self.id as *const usize as u64)
             );
             
             (mixed_val as u128) % actual_interval_size
