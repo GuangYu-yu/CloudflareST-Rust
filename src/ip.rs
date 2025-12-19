@@ -278,17 +278,16 @@ async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<S
                 const REQUEST_TIMEOUT_MS: u64 = 2000;
                 
                 for attempt in 1..=MAX_RETRY_ATTEMPTS {
-                    if let Ok(mut client) = crate::hyper::client_builder() {
-                        if let Ok(body_bytes) = crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), REQUEST_TIMEOUT_MS).await {
-                            sources.extend(
-                                String::from_utf8_lossy(&body_bytes)
-                                    .lines()
-                                    .map(str::trim)
-                                    .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                                    .map(str::to_string)
-                            );
-                            break;
-                        }
+                    if let Ok(mut client) = crate::hyper::client_builder()
+                        && let Ok(body_bytes) = crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), REQUEST_TIMEOUT_MS).await {
+                        sources.extend(
+                            String::from_utf8_lossy(&body_bytes)
+                                .lines()
+                                .map(str::trim)
+                                .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
+                                .map(str::to_string)
+                        );
+                        break;
                     }
 
                     if attempt < MAX_RETRY_ATTEMPTS {
