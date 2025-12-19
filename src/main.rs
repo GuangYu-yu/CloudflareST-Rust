@@ -73,16 +73,16 @@ async fn main() {
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingData> = match args.httping || args.httping_https {
         true => {
-            let ping = httping::new(&args, sources.clone(), Arc::clone(&timeout_flag)).unwrap();
+            let ping = httping::new(&args, sources, Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         },
         #[cfg(feature = "icmp")]
         false if args.icmp_ping => {
-            let ping = icmp::new(&args, sources.clone(), Arc::clone(&timeout_flag)).unwrap();
+            let ping = icmp::new(&args, sources, Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         },
         _ => {
-            let ping = tcping::new(&args, sources.clone(), Arc::clone(&timeout_flag)).unwrap();
+            let ping = tcping::new(&args, sources, Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         }
     };
