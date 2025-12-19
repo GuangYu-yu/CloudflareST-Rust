@@ -14,7 +14,7 @@ use crate::common::{self, PingData, HandlerFactory, BasePing, Ping as CommonPing
 static PING_IDENTIFIER_COUNTER: AtomicU16 = AtomicU16::new(0);
 
 #[derive(Clone)]
-pub struct IcmpingFactoryData {
+pub(crate) struct IcmpingFactoryData {
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
 }
@@ -33,7 +33,7 @@ impl PingMode for IcmpingFactoryData {
     }
 }
 
-pub struct IcmpingHandlerFactory {
+pub(crate) struct IcmpingHandlerFactory {
     base: Arc<BasePing>,
     client_v4: Arc<Client>,
     client_v6: Arc<Client>,
@@ -73,13 +73,13 @@ impl HandlerFactory for IcmpingHandlerFactory {
     }
 }
 
-pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
+pub(crate) fn new(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 打印开始延迟测试的信息
     common::print_speed_test_info("ICMP-Ping", args);
     
     // 初始化测试环境
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, sources, timeout_flag))
     });
 
     let client_v4 = Arc::new(Client::new(&Config::default())?);

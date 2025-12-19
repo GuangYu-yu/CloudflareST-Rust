@@ -1,5 +1,5 @@
 use crate::args::Args;
-use crate::ip::{IpBuffer, load_ip_to_buffer};
+use crate::ip::IpBuffer;
 use crate::progress::Bar;
 use crate::pool::GLOBAL_LIMITER;
 use tokio::task::JoinSet;
@@ -12,22 +12,22 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use hyper::Response as HyperResponse;
 
 // 定义通用的 PingData 结构体
-pub struct PingData {
-    pub addr: SocketAddr,
-    pub sent: u16,
-    pub received: u16,
-    pub delay: f32,
-    pub download_speed: Option<f32>,
-    pub data_center: String,
+pub(crate) struct PingData {
+    pub(crate) addr: SocketAddr,
+    pub(crate) sent: u16,
+    pub(crate) received: u16,
+    pub(crate) delay: f32,
+    pub(crate) download_speed: Option<f32>,
+    pub(crate) data_center: String,
 }
 
-pub struct PingDataRef<'a> {
-    pub addr: &'a SocketAddr,
-    pub sent: u16,
-    pub received: u16,
-    pub delay: f32,
-    pub download_speed: Option<f32>,
-    pub data_center: &'a str,
+pub(crate) struct PingDataRef<'a> {
+    pub(crate) addr: &'a SocketAddr,
+    pub(crate) sent: u16,
+    pub(crate) received: u16,
+    pub(crate) delay: f32,
+    pub(crate) download_speed: Option<f32>,
+    pub(crate) data_center: &'a str,
 }
 
 impl<'a> From<&'a PingData> for PingDataRef<'a> {
@@ -44,7 +44,7 @@ impl<'a> From<&'a PingData> for PingDataRef<'a> {
 }
 
 impl PingData {
-    pub fn new(addr: SocketAddr, sent: u16, received: u16, delay: f32) -> Self {
+    pub(crate) fn new(addr: SocketAddr, sent: u16, received: u16, delay: f32) -> Self {
         Self {
             addr,
             sent,
@@ -55,20 +55,20 @@ impl PingData {
         }
     }
 
-    pub fn as_ref(&self) -> PingDataRef<'_> {
+    pub(crate) fn as_ref(&self) -> PingDataRef<'_> {
         PingDataRef::from(self)
     }
 }
 
 impl<'a> PingDataRef<'a> {
-    pub fn loss_rate(&self) -> f32 {
+    pub(crate) fn loss_rate(&self) -> f32 {
         if self.sent == 0 {
             return 0.0;
         }
         1.0 - (self.received as f32 / self.sent as f32)
     }
 
-    pub fn display_addr(&self, show_port: bool) -> String {
+    pub(crate) fn display_addr(&self, show_port: bool) -> String {
         if show_port {
             self.addr.to_string()
         } else {
@@ -78,7 +78,7 @@ impl<'a> PingDataRef<'a> {
 }
 
 // 打印测速信息的通用函数
-pub fn print_speed_test_info(mode: &str, args: &Args) {
+pub(crate) fn print_speed_test_info(mode: &str, args: &Args) {
     println!(
         "开始延迟测速（模式：{}, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2})",
         mode,
@@ -91,17 +91,17 @@ pub fn print_speed_test_info(mode: &str, args: &Args) {
 
 /// 基础Ping结构体，包含所有公共字段
 #[derive(Clone)]
-pub struct BasePing {
-    pub ip_buffer: Arc<IpBuffer>,
-    pub bar: Arc<Bar>,
-    pub args: Arc<Args>,
-    pub success_count: Arc<AtomicUsize>,
-    pub timeout_flag: Arc<AtomicBool>,
-    pub tested_count: Arc<AtomicUsize>,
+pub(crate) struct BasePing {
+    pub(crate) ip_buffer: Arc<IpBuffer>,
+    pub(crate) bar: Arc<Bar>,
+    pub(crate) args: Arc<Args>,
+    pub(crate) success_count: Arc<AtomicUsize>,
+    pub(crate) timeout_flag: Arc<AtomicBool>,
+    pub(crate) tested_count: Arc<AtomicUsize>,
 }
 
 impl BasePing {
-    pub fn new(
+    pub(crate) fn new(
         ip_buffer: Arc<IpBuffer>,
         bar: Arc<Bar>,
         args: Arc<Args>,
@@ -121,7 +121,7 @@ impl BasePing {
 }
 
 /// 计算平均延迟，精确到两位小数
-pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
+pub(crate) fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     if success_count == 0 {
         return 0.0;
     }
@@ -133,7 +133,7 @@ pub fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
 }
 
 /// 从响应中提取数据中心信息
-pub fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -> Option<String> {
+pub(crate) fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -> Option<String> {
     resp.headers()
         .get("cf-ray")?
         .to_str()
@@ -144,12 +144,10 @@ pub fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -> Optio
 }
 
 /// Ping 初始化
-pub async fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> BasePing {
-    // 加载 IP 缓冲区
-    let ip_buffer = load_ip_to_buffer(args).await;
-
-    // 获取预计总 IP 数量用于进度条
-    let total_expected = ip_buffer.total_expected();
+pub(crate) async fn create_base_ping(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> BasePing {
+    // 处理 IP 源并创建缓冲区
+    let (single_ips, cidr_states, total_expected) = crate::ip::process_ip_sources(sources, args).await;
+    let ip_buffer = IpBuffer::new(cidr_states, single_ips, total_expected, args.tcp_port);
 
     // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
@@ -162,7 +160,7 @@ pub async fn create_base_ping(args: &Args, timeout_flag: Arc<AtomicBool>) -> Bas
     )
 }
 
-pub trait HandlerFactory: Send + Sync + 'static {
+pub(crate) trait HandlerFactory: Send + Sync + 'static {
     fn create_handler(
         &self,
         addr: SocketAddr,
@@ -170,7 +168,7 @@ pub trait HandlerFactory: Send + Sync + 'static {
 }
 
 /// 通用的ping测试循环函数
-pub async fn run_ping_loop<F, Fut>(
+pub(crate) async fn run_ping_loop<F, Fut>(
     ping_times: u16,
     wait_ms: u64,
     mut test_fn: F,
@@ -197,7 +195,7 @@ where
     (recv > 0).then_some(avg_delay_ms)
 }
 
-pub trait PingMode: Send + Sync + 'static {
+pub(crate) trait PingMode: Send + Sync + 'static {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory>;
     fn clone_box(&self) -> Box<dyn PingMode>;
 }
@@ -208,13 +206,13 @@ impl Clone for Box<dyn PingMode> {
     }
 }
 
-pub struct Ping {
-    pub base: BasePing,
-    pub factory_data: Box<dyn PingMode>,
+pub(crate) struct Ping {
+    pub(crate) base: BasePing,
+    pub(crate) factory_data: Box<dyn PingMode>,
 }
 
 impl Ping {
-    pub fn new<T: PingMode + Clone + 'static>(base: BasePing, factory_data: T) -> Self {
+    pub(crate) fn new<T: PingMode + Clone + 'static>(base: BasePing, factory_data: T) -> Self {
         Self { 
             base, 
             factory_data: Box::new(factory_data) 
@@ -222,14 +220,14 @@ impl Ping {
     }
 
     // 通用的 run 方法
-    pub async fn run(self) -> Result<Vec<PingData>, io::Error> {
+    pub(crate) async fn run(self) -> Result<Vec<PingData>, io::Error> {
         let handler_factory = self.factory_data.create_handler_factory(&self.base);
         run_ping_test(self.base, handler_factory).await
     }
 }
 
 /// 运行 ping 测试
-pub async fn run_ping_test(
+pub(crate) async fn run_ping_test(
     base: BasePing,
     handler_factory: Arc<dyn HandlerFactory>,
 ) -> Result<Vec<PingData>, io::Error>
@@ -297,7 +295,7 @@ pub async fn run_ping_test(
 }
 
 /// 解析数据中心过滤条件字符串为向量
-pub fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
+pub(crate) fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
     colo_filter
         .split(',')
         .map(|s| s.trim().to_string())
@@ -306,7 +304,7 @@ pub fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
 }
 
 // 检查数据中心是否匹配过滤条件
-pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
+pub(crate) fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
     !data_center.is_empty()
         && (colo_filters.is_empty()
             || colo_filters
@@ -316,7 +314,7 @@ pub fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
 
 /// 判断测试结果是否符合筛选条件
 #[inline]
-pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
+pub(crate) fn should_keep_result(data: &PingData, args: &Args) -> bool {
     let data_ref = data.as_ref();
     
     // 检查丢包率和延迟上下限
@@ -326,7 +324,7 @@ pub fn should_keep_result(data: &PingData, args: &Args) -> bool {
 }
 
 /// 排序结果
-pub fn sort_results(results: &mut [PingData]) {
+pub(crate) fn sort_results(results: &mut [PingData]) {
     if results.is_empty() {
         return;
     }
@@ -373,13 +371,13 @@ pub fn sort_results(results: &mut [PingData]) {
 
 /// 检查是否收到超时信号
 #[inline]
-pub fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
+pub(crate) fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
     timeout_flag.load(Ordering::Relaxed)
 }
 
 /// 统一的进度条更新函数
 #[inline]
-pub fn update_progress_bar(
+pub(crate) fn update_progress_bar(
     bar: &Arc<Bar>,
     current_tested: usize,
     success_count: usize,

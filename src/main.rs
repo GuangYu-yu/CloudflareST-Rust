@@ -5,17 +5,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 // 定义统一的错误、信息和警告输出函数
-pub fn error_println(args: std::fmt::Arguments<'_>) {
+pub(crate) fn error_println(args: std::fmt::Arguments<'_>) {
     // 红色加粗
     eprintln!("\x1b[31;1m[错误]\x1b[0m {}", args);
 }
 
-pub fn info_println(args: std::fmt::Arguments<'_>) {
+pub(crate) fn error_and_exit(args: std::fmt::Arguments<'_>) -> ! {
+    error_println(args);
+    std::process::exit(1);
+}
+
+pub(crate) fn info_println(args: std::fmt::Arguments<'_>) {
     // 青色加粗
     println!("\x1b[36;1m[信息]\x1b[0m {}", args);
 }
 
-pub fn warning_println(args: std::fmt::Arguments<'_>) {
+pub(crate) fn warning_println(args: std::fmt::Arguments<'_>) {
     // 黄色加粗
     println!("\x1b[33;1m[警告]\x1b[0m {}", args);
 }
@@ -43,6 +48,9 @@ async fn main() {
     // 解析命令行参数
     let args = args::parse_args();
 
+    // 收集并验证
+    let sources = ip::collect_ip_sources(&args.ip_text, &args.ip_url, &args.ip_file).await;
+
     // 初始化全局并发限制器
     pool::init_global_limiter(args.max_threads);
 
@@ -65,16 +73,16 @@ async fn main() {
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingData> = match args.httping || args.httping_https {
         true => {
-            let ping = httping::new(&args, Arc::clone(&timeout_flag)).unwrap();
+            let ping = httping::new(&args, sources.clone(), Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         },
         #[cfg(feature = "icmp")]
         false if args.icmp_ping => {
-            let ping = icmp::new(&args, Arc::clone(&timeout_flag)).unwrap();
+            let ping = icmp::new(&args, sources.clone(), Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         },
         _ => {
-            let ping = tcping::new(&args, Arc::clone(&timeout_flag)).unwrap();
+            let ping = tcping::new(&args, sources.clone(), Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()
         }
     };

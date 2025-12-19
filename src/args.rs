@@ -1,8 +1,8 @@
 use std::env;
 use std::path::Path;
 use std::time::Duration;
-use crate::{error_println, warning_println};
-use crate::interface::{InterfaceIps, process_interface_param};
+use crate::{error_and_exit, warning_println};
+use crate::interface::{InterfaceParamResult, process_interface_param};
 
 // 非TLS端口数组
 const NON_TLS_PORTS: [u16; 7] = [80, 8080, 8880, 2052, 2082, 2086, 2095];
@@ -11,54 +11,47 @@ const TLS_PORTS: [u16; 6] = [443, 2053, 2083, 2087, 2096, 8443];
 
 /// 命令行参数配置结构体
 #[derive(Clone)]
-pub struct Args {
+pub(crate) struct Args {
     // 网络测试参数
     #[cfg(feature = "icmp")]
-    pub icmp_ping: bool,                    // 是否使用ICMP Ping测速
-    pub ping_times: u16,                    // Ping测试次数
-    pub tcp_port: u16,                      // 端口号
-    pub url: String,                        // 测速URL
-    pub httping: bool,                      // 是否启用HTTPing测试
-    pub httping_code: String,               // HTTPing要求的HTTP状态码
-    pub httping_cf_colo: String,            // 指定数据中心
-    pub httping_https: bool,                // 使用HTTPS进行HTTPing测速
-    pub max_delay: Duration,                // 最大可接受延迟
-    pub min_delay: Duration,                // 最小可接受延迟
-    pub max_loss_rate: f32,                 // 最大丢包率阈值
-    pub test_count: usize,                  // 所需达到下载速度下限的IP数量
-    pub timeout_duration: Option<Duration>, // 单次下载测速的持续时间
-    pub min_speed: f32,                     // 最低下载速度要求(MB/s)
-    pub disable_download: bool,             // 是否禁用下载测试
+    pub(crate) icmp_ping: bool,                    // 是否使用ICMP Ping测速
+    pub(crate) ping_times: u16,                    // Ping测试次数
+    pub(crate) tcp_port: u16,                      // 端口号
+    pub(crate) url: String,                        // 测速URL
+    pub(crate) httping: bool,                      // 是否启用HTTPing测试
+    pub(crate) httping_code: String,               // HTTPing要求的HTTP状态码
+    pub(crate) httping_cf_colo: String,            // 指定数据中心
+    pub(crate) httping_https: bool,                // 使用HTTPS进行HTTPing测速
+    pub(crate) max_delay: Duration,                // 最大可接受延迟
+    pub(crate) min_delay: Duration,                // 最小可接受延迟
+    pub(crate) max_loss_rate: f32,                 // 最大丢包率阈值
+    pub(crate) test_count: usize,                  // 所需达到下载速度下限的IP数量
+    pub(crate) timeout_duration: Option<Duration>, // 单次下载测速的持续时间
+    pub(crate) min_speed: f32,                     // 最低下载速度要求(MB/s)
+    pub(crate) disable_download: bool,             // 是否禁用下载测试
 
     // 结果处理参数
-    pub target_num: Option<usize>, // Ping所需可用IP数量
-    pub print_num: u16,            // 显示结果数量
-    pub ip_file: String,           // IP列表文件路径
-    pub ip_text: String,           // 直接指定的IP
-    pub ip_url: String,            // 获取IP的URL地址
-    pub output: Option<String>,    // 结果输出文件
+    pub(crate) target_num: Option<usize>, // Ping所需可用IP数量
+    pub(crate) print_num: u16,            // 显示结果数量
+    pub(crate) ip_file: String,           // IP列表文件路径
+    pub(crate) ip_text: String,           // 直接指定的IP
+    pub(crate) ip_url: String,            // 获取IP的URL地址
+    pub(crate) output: Option<String>,    // 结果输出文件
 
     // 功能开关
-    pub test_all_ipv4: bool,  // 测试所有IPv4
-    pub help: bool,           // 打印帮助信息
-    pub show_port: bool,      // 在结果中显示端口
+    pub(crate) test_all_ipv4: bool,  // 测试所有IPv4
+    pub(crate) help: bool,           // 打印帮助信息
+    pub(crate) show_port: bool,      // 在结果中显示端口
 
     // 高级设置
-    pub global_timeout_duration: Option<Duration>, // 全局超时设置
-    pub max_threads: usize,                        // 最大线程数
-    pub interface: Option<String>,                 // 绑定网络接口名或 IP 地址
-    pub interface_ips: Option<InterfaceIps>,       // 绑定的 IPv4 或 IPv6 地址
-}
-
-// 错误处理
-pub fn error_and_exit(args: std::fmt::Arguments<'_>) -> ! {
-    error_println(args);
-    std::process::exit(1);
+    pub(crate) global_timeout_duration: Option<Duration>, // 全局超时设置
+    pub(crate) max_threads: usize,                        // 最大线程数
+    pub(crate) interface_config: InterfaceParamResult,  // 接口配置
 }
 
 impl Args {
     /// 创建默认参数配置
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             #[cfg(feature = "icmp")]
             icmp_ping: false,
@@ -87,8 +80,7 @@ impl Args {
             show_port: false,
             global_timeout_duration: None,
             max_threads: 256,
-            interface: None,
-            interface_ips: None,
+            interface_config: InterfaceParamResult::default(),
         }
     }
 
@@ -108,7 +100,7 @@ impl Args {
     }
 
     /// 解析命令行参数
-    pub fn parse() -> Self {
+    pub(crate) fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
         let mut parsed = Self::new();
         let vec = Self::parse_args_to_vec(&args);
@@ -179,16 +171,12 @@ impl Args {
                 "ipurl" => Self::assign_string(&mut parsed.ip_url, v_opt),
                 "o" => parsed.output = v_opt,
                 "intf" => {
-                    parsed.interface = v_opt;
-
-                    if let Some(ref interface) = parsed.interface {
+                    if let Some(ref interface) = v_opt {
                         // 调用 interface.rs 中的函数处理接口参数
-                        let result = process_interface_param(interface);
-
-                        parsed.interface_ips = result.interface_ips;
+                        parsed.interface_config = process_interface_param(interface);
 
                         // 检查参数是否有效（既不是IP也不是有效的接口名）
-                        if !result.is_valid_interface {
+                        if !parsed.interface_config.is_valid_interface {
                             error_and_exit(format_args!("无效的绑定: {}", interface));
                         }
                     }
@@ -235,7 +223,7 @@ impl Args {
 }
 
 /// 解析并验证参数
-pub fn parse_args() -> Args {
+pub(crate) fn parse_args() -> Args {
     let args = Args::parse();
 
     if args.help {
@@ -323,7 +311,7 @@ fn approximate_display_width_no_color(s: &str) -> usize {
     width
 }
 
-pub fn print_help() {
+pub(crate) fn print_help() {
     const HELP_ARGS: &[(&str, &str, &str)] = &[
         // 目标参数
         ("", "目标参数", ""), // 标记标题

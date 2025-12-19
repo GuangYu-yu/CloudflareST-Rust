@@ -14,12 +14,12 @@ const TABLE_HEADERS: [&str; 7] = [
 ];
 
 /// 定义结果打印 trait
-pub trait PrintResult {
+pub(crate) trait PrintResult {
     fn print(&self, args: &Args);
 }
 
 /// 从 PingResult 导出 CSV 文件
-pub fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     /// 写入CSV行到文件
     fn write_csv_line(file: &mut std::fs::File, fields: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let line = fields.join(",");

@@ -14,12 +14,13 @@ use crate::hyper::{parse_url_to_uri, build_hyper_client, send_head_request};
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing};
 use crate::pool::execute_with_rate_limit;
+use crate::interface::InterfaceParamResult;
 
 #[derive(Clone)]
-pub struct HttpingFactoryData {
+pub(crate) struct HttpingFactoryData {
     colo_filters: Arc<Vec<String>>,
     use_https: bool,
-    interface: Option<String>,
+    interface_config: InterfaceParamResult,
     allowed_codes: Option<Arc<Vec<u16>>>,
 }
 
@@ -33,7 +34,7 @@ impl common::PingMode for HttpingFactoryData {
         Arc::new(HttpingHandlerFactory {
             base: Arc::new(base.clone()),
             colo_filters: Arc::clone(&self.colo_filters),
-            interface: self.interface.clone(),
+            interface_config: self.interface_config.clone(),
             allowed_codes: self.allowed_codes.clone(),
             uri,
             host_header,
@@ -108,10 +109,10 @@ impl PingTask {
     }
 }
 
-pub struct HttpingHandlerFactory {
+pub(crate) struct HttpingHandlerFactory {
     base: Arc<BasePing>,
     colo_filters: Arc<Vec<String>>,
-    interface: Option<String>,
+    interface_config: InterfaceParamResult,
     allowed_codes: Option<Arc<Vec<u16>>>,
     uri: http::Uri,
     host_header: String,
@@ -126,7 +127,7 @@ impl HandlerFactory for HttpingHandlerFactory {
         let base = self.base.clone();
         let args = base.args.clone();
         let colo_filters = self.colo_filters.clone();
-        let interface = self.interface.clone();
+        let interface_config = self.interface_config.clone();
         let allowed_codes = self.allowed_codes.clone();
         let uri = self.uri.clone();
         let host_header = self.host_header.clone();
@@ -137,11 +138,9 @@ impl HandlerFactory for HttpingHandlerFactory {
             let local_data_center = Arc::new(std::sync::Mutex::new(None));
 
             // 获取并使用绑定的网络接口信息
-            let interface_ref = interface.as_deref();
             let client = match build_hyper_client(
                 addr,
-                interface_ref,
-                args.interface_ips.as_ref(),
+                &interface_config,
                 1800,
             ) {
                 Some(client) => Arc::new(client),
@@ -186,7 +185,7 @@ impl HandlerFactory for HttpingHandlerFactory {
     }
 }
 
-pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
+pub(crate) fn new(args: &Args, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 判断是否使用HTTPS协议
     let use_https = args.httping_https;
 
@@ -215,13 +214,13 @@ pub fn new(args: &Args, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing>
 
     // 初始化测试环境
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(args, sources, timeout_flag))
     });
 
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),
         use_https,
-        interface: args.interface.clone(),
+        interface_config: args.interface_config.clone(),
         allowed_codes,
     };
 

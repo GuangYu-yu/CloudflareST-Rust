@@ -12,14 +12,14 @@ use std::sync::{
 
 use crate::args::Args;
 
-pub enum IpCidr {
+pub(crate) enum IpCidr {
     V4(Ipv4Addr, u8),
     V6(Ipv6Addr, u8),
 }
 
 impl IpCidr {
     /// 获取前缀长度
-    pub fn prefix_len(&self) -> u8 {
+    pub(crate) fn prefix_len(&self) -> u8 {
         match self {
             IpCidr::V4(_, len) => *len,
             IpCidr::V6(_, len) => *len,
@@ -27,7 +27,7 @@ impl IpCidr {
     }
 
     /// 返回 (start, end)
-    pub fn range_u128(&self) -> (u128, u128) {
+    pub(crate) fn range_u128(&self) -> (u128, u128) {
         match self {
             IpCidr::V4(ip, prefix) => {
                 let ip_u32: u32 = (*ip).into();
@@ -66,12 +66,12 @@ impl IpCidr {
 
 impl IpCidr {
     /// 判断是否为单主机 CIDR（/32 或 /128）
-    pub fn is_single_host(&self) -> bool {
+    pub(crate) fn is_single_host(&self) -> bool {
         matches!(self, IpCidr::V4(_, 32) | IpCidr::V6(_, 128))
     }
 
     /// 解析 CIDR 字符串
-    pub fn parse(s: &str) -> Option<Self> {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split('/').collect();
         if parts.len() != 2 {
             return None;
@@ -99,7 +99,7 @@ impl IpCidr {
 
 /// IP地址获取结构体
 /// 用于管理和分发需要测试的IP地址
-pub struct IpBuffer {
+pub(crate) struct IpBuffer {
     total_expected: usize,                           // 预期总IP数量
     cidr_states: Arc<RwLock<Vec<Arc<CidrState>>>>,   // 每个CIDR状态
     single_ips: Arc<Mutex<VecDeque<SocketAddr>>>,     // 单个IP地址列表
@@ -109,7 +109,7 @@ pub struct IpBuffer {
 
 /// CIDR网络状态结构体
 /// 用于管理CIDR网络中的IP地址生成
-struct CidrState {
+pub(crate) struct CidrState {
     id: usize,                 // 唯一标识符
     network: IpCidr,             // 网络地址
     total_count: usize,         // 总数量
@@ -129,7 +129,7 @@ impl CidrState {
     }
 
     /// 创建新的CIDR状态实例
-    fn new(id: usize, network: IpCidr, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
+    pub(crate) fn new(id: usize, network: IpCidr, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
         Self {
             id,
             network,
@@ -185,7 +185,7 @@ impl CidrState {
 
 impl IpBuffer {
     /// 创建新的IP获取实例
-    fn new(
+    pub(crate) fn new(
         cidr_states: Vec<CidrState>,
         single_ips: Vec<SocketAddr>,
         total_expected: usize,
@@ -211,7 +211,7 @@ impl IpBuffer {
 
     /// 获取一个IP地址
     /// 优先返回单个IP，再轮询CIDR
-    pub fn pop(&self) -> Option<SocketAddr> {
+    pub(crate) fn pop(&self) -> Option<SocketAddr> {
         // 1. 单 IP 列表
         if let Ok(mut ips) = self.single_ips.lock() 
             && let Some(ip) = ips.pop_front() 
@@ -246,84 +246,67 @@ impl IpBuffer {
     }
 
     /// 获取预期总IP数量
-    pub fn total_expected(&self) -> usize {
+    pub(crate) fn total_expected(&self) -> usize {
         self.total_expected
     }
 }
 
 /// 收集所有IP地址来源
 /// 包括文本参数、URL链接和文件中的IP地址
-async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<String> {
-    let ip_sources = {
-        let mut sources = Vec::new();
-
-        // 处理文本参数中的IP地址
-        if !ip_text.is_empty() {
-            sources.extend(
-                ip_text
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(ToString::to_string),
-            );
-        }
-
-        // 处理URL链接中的IP地址列表
-        if !ip_url.is_empty() {
-            let test_url = if ip_url.contains("://") { ip_url.to_string() } else { format!("https://{}", ip_url) };
-            
-            // 解析URL获取URI和主机名
-            if let Some((uri, host)) = crate::hyper::parse_url_to_uri(&test_url) {
-                const MAX_RETRY_ATTEMPTS: usize = 5;
-                const REQUEST_TIMEOUT_MS: u64 = 2000;
-                
-                for attempt in 1..=MAX_RETRY_ATTEMPTS {
-                    if let Ok(mut client) = crate::hyper::client_builder()
-                        && let Ok(body_bytes) = crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), REQUEST_TIMEOUT_MS).await {
-                        sources.extend(
-                            String::from_utf8_lossy(&body_bytes)
-                                .lines()
-                                .map(str::trim)
-                                .filter(|line| !line.is_empty() && !line.starts_with("//") && !line.starts_with('#'))
-                                .map(str::to_string)
-                        );
-                        break;
-                    }
-
-                    if attempt < MAX_RETRY_ATTEMPTS {
-                        crate::warning_println(format_args!("列表请求失败，正在第{}次重试..", attempt));
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    } else {
-                        crate::warning_println(format_args!("获取列表已达到最大重试次数"));
-                    }
-                }
-            }
-        }
-
-        // 处理文件中的IP地址
-        if !ip_file.is_empty() && std::path::Path::new(ip_file).exists()
-            && let Ok(lines) = read_lines(ip_file) {
-            for line in lines.map_while(Result::ok) {
-                let line = line.trim();
-                if !line.is_empty() {
-                    sources.push(line.to_string());
-                }
-            }
-        }
-
-        sources
+pub(crate) async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<String> {
+    // 统一清洗逻辑
+    let valid_line = |s: &str| -> Option<String> {
+        let s = s.trim();
+        (!s.is_empty() && !s.starts_with('#') && !s.starts_with("//")).then(|| s.to_string())
     };
 
-    if ip_sources.is_empty() {
-        crate::error_println(format_args!("未获取到任何 IP 或 CIDR"));
-        return Vec::new();
+    let mut sources = Vec::new();
+
+    // 1. 文本
+    sources.extend(ip_text.split(',').filter_map(valid_line));
+
+    // 2. URL
+    if !ip_url.is_empty() {
+        let url = if ip_url.contains("://") { ip_url.to_string() } else { format!("https://{}", ip_url) };
+        if let Some((uri, host)) = crate::hyper::parse_url_to_uri(&url) {
+            const MAX_RETRY: usize = 5;
+            const TIMEOUT_MS: u64 = 2000;
+
+            for attempt in 1..=MAX_RETRY {
+                let result = async {
+                    let mut client = crate::hyper::client_builder()?;
+                    crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), TIMEOUT_MS).await
+                }.await;
+
+                match result {
+                    Ok(body) => {
+                        let fetched: Vec<_> = String::from_utf8_lossy(&body).lines().filter_map(valid_line).collect();
+                        if !fetched.is_empty() {
+                            sources.extend(fetched);
+                            break;
+                        }
+                        crate::warning_println(format_args!("第 {} 次重试：URL 内容为空", attempt));
+                    }
+                    Err(e) => crate::warning_println(format_args!("第 {} 次重试：{}", attempt, e)),
+                }
+                if attempt < MAX_RETRY { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }
+            }
+        }
     }
-    
-    // 排序并去重
-    let mut sorted_sources = ip_sources;
-    sorted_sources.sort();
-    sorted_sources.dedup();
-    sorted_sources
+
+    // 3. 文件
+    if !ip_file.is_empty() && std::path::Path::new(ip_file).exists() && let Ok(lines) = read_lines(ip_file) {
+        sources.extend(lines.map_while(Result::ok).filter_map(|l| valid_line(&l)));
+    }
+
+    // 4. 最终校验
+    if sources.is_empty() {
+        crate::error_and_exit(format_args!("未获取到任何 IP 或 CIDR"));
+    }
+
+    sources.sort();
+    sources.dedup();
+    sources
 }
 
 /// 解析IP地址范围
@@ -382,19 +365,14 @@ fn parse_ip_with_port(ip_str: &str) -> IpParseResult {
     IpParseResult::Invalid
 }
 
-/// 根据配置参数收集所有IP地址并创建IP缓冲区
-pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
-    // 收集所有IP地址来源
-    let ip_sources = collect_ip_sources(&config.ip_text, &config.ip_url, &config.ip_file).await;
+pub(crate) async fn process_ip_sources(ip_sources: Vec<String>, config: &Args) -> (Vec<SocketAddr>, Vec<CidrState>, usize) {
+    let mut single_ips = Vec::new();
+    let mut cidr_info = Vec::new();
+    let mut total_expected = 0;
 
-    let (single_ips, cidr_info, total_expected) = {
-        let mut single_ips = Vec::new();
-        let mut cidr_info = Vec::new();
-        let mut total_expected = 0;
-
-        // 遍历所有IP地址来源并进行分类处理
-        for ip_range in &ip_sources {
-            let (ip_range_str, custom_count) = parse_ip_range(ip_range);
+    // 遍历所有IP地址来源并进行分类处理
+    for ip_range in ip_sources {
+            let (ip_range_str, custom_count) = parse_ip_range(&ip_range);
 
             // 使用统一的IP解析函数
             match parse_ip_with_port(&ip_range_str) {
@@ -444,9 +422,6 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
             }
         }
 
-        (single_ips, cidr_info, total_expected)
-    };
-
     // 创建CIDR状态列表
     let cidr_states: Vec<_> = cidr_info
         .into_iter()
@@ -454,7 +429,7 @@ pub async fn load_ip_to_buffer(config: &Args) -> IpBuffer {
         .map(|(id, (net, count, start, end, size))| CidrState::new(id, net, count, start, end, size))
         .collect();
 
-    IpBuffer::new(cidr_states, single_ips, total_expected, config.tcp_port)
+    (single_ips, cidr_states, total_expected)
 }
 
 /// 计算需要测试的IP地址数量
@@ -496,7 +471,7 @@ fn calculate_ip_count(ip_range: &str, custom_count: Option<u128>, test_all_ipv4:
 
 /// 计算采样数量
 /// 根据网络前缀长度和IP版本计算合理的采样数量
-pub fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
+pub(crate) fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
     let base: u8 = if is_ipv4 { 31 } else { 127 };
     let exp = base.saturating_sub(prefix);
     let clamped_exp = exp.min(18);

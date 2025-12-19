@@ -91,7 +91,7 @@ impl DownloadHandler {
     }
 }
 
-pub struct DownloadTest<'a> {
+pub(crate) struct DownloadTest<'a> {
     args: &'a Args,
     uri: http::Uri,
     host: String,
@@ -103,7 +103,7 @@ pub struct DownloadTest<'a> {
 }
 
 impl<'a> DownloadTest<'a> {
-    pub async fn new(
+    pub(crate) async fn new(
         args: &'a Args,
         ping_results: Vec<PingData>,
         timeout_flag: Arc<AtomicBool>,
@@ -145,7 +145,7 @@ impl<'a> DownloadTest<'a> {
         }
     }
 
-    pub async fn test_download_speed(&mut self) -> Vec<PingData> {
+    pub(crate) async fn test_download_speed(&mut self) -> Vec<PingData> {
         // 数据中心过滤条件
         let colo_filters = Arc::clone(&self.colo_filter);
 
@@ -205,8 +205,7 @@ impl<'a> DownloadTest<'a> {
                 need_colo,
                 timeout_flag: Arc::clone(&self.timeout_flag),
                 colo_filters: Arc::clone(&colo_filters),
-                interface: self.args.interface.as_deref(),
-                interface_ips: self.args.interface_ips.as_ref(),
+                interface_config: &self.args.interface_config,
             };
             
             let (speed, maybe_colo) = download_handler(params).await;
@@ -277,8 +276,7 @@ struct DownloadHandlerParams<'a> {
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
-    interface: Option<&'a str>,
-    interface_ips: Option<&'a crate::interface::InterfaceIps>,
+    interface_config: &'a crate::interface::InterfaceParamResult,
 }
 
 // 下载测速处理函数
@@ -295,8 +293,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
     // 创建客户端进行下载测速
     let client = match hyper::build_hyper_client(
         params.addr,
-        params.interface,
-        params.interface_ips,
+        params.interface_config,
         TTFB_TIMEOUT_MS,
     ) {
         Some(client) => client,

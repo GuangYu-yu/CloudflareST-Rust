@@ -13,18 +13,17 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tower_service::Service;
 
-use crate::interface::{InterfaceIps, bind_socket_to_interface};
+use crate::interface::{InterfaceParamResult, bind_socket_to_interface};
 
 /// 浏览器 User-Agent
-pub const USER_AGENT: &str =
+pub(crate) const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 /// 自定义 Connector，支持绑定网卡
 #[derive(Clone)]
-pub struct InterfaceConnector {
+pub(crate) struct InterfaceConnector {
     addr: SocketAddr,
-    interface: Option<String>,
-    interface_ips: Option<InterfaceIps>,
+    interface_config: InterfaceParamResult,
     timeout: Duration,
 }
 
@@ -38,14 +37,13 @@ impl Service<Uri> for InterfaceConnector {
     }
 
     fn call(&mut self, _uri: Uri) -> Self::Future {
-        let interface = self.interface.clone();
-        let interface_ips = self.interface_ips.clone();
+        let interface_config = self.interface_config.clone();
         let timeout_duration = self.timeout;
         let addr = self.addr;
 
         Box::pin(async move {
             // 尝试绑定到指定网卡
-            if let Some(socket) = bind_socket_to_interface(addr, interface.as_deref(), interface_ips.as_ref()).await {
+            if let Some(socket) = bind_socket_to_interface(addr, &interface_config).await {
                 let stream = timeout(timeout_duration, socket.connect(addr)).await??;
                 return Ok(TokioIo::new(stream));
             }
@@ -57,7 +55,7 @@ impl Service<Uri> for InterfaceConnector {
 }
 
 /// 创建基础的HTTP客户端构建器
-pub fn client_builder() -> Result<Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
+pub(crate) fn client_builder() -> Result<Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
     let https_connector = HttpsConnectorBuilder::new()
         .with_webpki_roots()
         .https_or_http()
@@ -68,16 +66,14 @@ pub fn client_builder() -> Result<Client<hyper_rustls::HttpsConnector<HttpConnec
 }
 
 /// 构建 hyper 客户端
-pub fn build_hyper_client(
+pub(crate) fn build_hyper_client(
     addr: SocketAddr,
-    interface: Option<&str>,
-    interface_ips: Option<&InterfaceIps>,
+    interface_config: &InterfaceParamResult,
     timeout_ms: u64,
 ) -> Option<Client<hyper_rustls::HttpsConnector<InterfaceConnector>, Full<Bytes>>> {
     let connector = InterfaceConnector {
         addr,
-        interface: interface.map(|s| s.to_string()),
-        interface_ips: interface_ips.cloned(),
+        interface_config: interface_config.clone(),
         timeout: Duration::from_millis(timeout_ms),
     };
 
@@ -91,7 +87,7 @@ pub fn build_hyper_client(
 }
 
 // 简单 GET 请求
-pub async fn send_get_request_simple(
+pub(crate) async fn send_get_request_simple(
     client: &mut Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>,
     host: &str,
     uri: Uri,
@@ -112,7 +108,7 @@ pub async fn send_get_request_simple(
 }
 
 /// 发送 GET 请求并返回流式响应
-pub async fn send_get_response(
+pub(crate) async fn send_get_response(
     client: &Client<hyper_rustls::HttpsConnector<InterfaceConnector>, Full<Bytes>>,
     host: &str,
     uri: Uri,
@@ -130,7 +126,7 @@ pub async fn send_get_response(
 }
 
 /// 发送 HEAD 请求
-pub async fn send_head_request(
+pub(crate) async fn send_head_request(
     client: &Client<hyper_rustls::HttpsConnector<InterfaceConnector>, Full<Bytes>>,
     host: &str,
     uri: Uri,
@@ -156,7 +152,7 @@ pub async fn send_head_request(
 }
 
 /// 统一的URI解析函数
-pub fn parse_url_to_uri(url_str: &str) -> Option<(Uri, String)> {
+pub(crate) fn parse_url_to_uri(url_str: &str) -> Option<(Uri, String)> {
     // 1. 尝试解析为 Uri
     let uri = url_str.parse::<Uri>().ok()?;
 

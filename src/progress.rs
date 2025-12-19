@@ -43,19 +43,19 @@ fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
 }
 
 // 无锁字符串
-pub struct LockFreeString {
+pub(crate) struct LockFreeString {
     ptr: AtomicPtr<Arc<str>>,
 }
 
 impl LockFreeString {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             // 使用 Box::into_raw 传递指针给 AtomicPtr
             ptr: AtomicPtr::new(Box::into_raw(Box::new(Arc::from("")))),
         }
     }
 
-    pub fn set(&self, s: &str) {
+    pub(crate) fn set(&self, s: &str) {
         // 创建新的 Arc<str>，封装在 Box 中
         let new_box = Box::new(Arc::from(s));
         let new_ptr = Box::into_raw(new_box);
@@ -67,7 +67,7 @@ impl LockFreeString {
         unsafe { drop(Box::from_raw(old_ptr)); }
     }
 
-    pub fn get(&self) -> Arc<str> {
+    pub(crate) fn get(&self) -> Arc<str> {
         let ptr = self.ptr.load(Ordering::SeqCst);
         // 克隆 Arc<str>，增加引用计数，保证数据存活
         unsafe { (*ptr).clone() } 
@@ -88,7 +88,7 @@ unsafe impl Send for LockFreeString {}
 unsafe impl Sync for LockFreeString {}
 
 // 进度条
-pub struct Bar {
+pub(crate) struct Bar {
     pos: Arc<AtomicUsize>,
     msg: Arc<LockFreeString>,
     prefix: Arc<LockFreeString>,
@@ -111,7 +111,7 @@ impl Bar {
         }
     }
 
-    pub fn new(count: usize, start_str: &str, end_str: &str) -> Self {
+    pub(crate) fn new(count: usize, start_str: &str, end_str: &str) -> Self {
         let pos = Arc::new(AtomicUsize::new(0));
         let msg = Arc::new(LockFreeString::new());
         let prefix = Arc::new(LockFreeString::new());
@@ -251,23 +251,23 @@ impl Bar {
         Self { pos, msg, prefix, is_done, thread_handle }
     }
 
-    pub fn grow(&self, num: usize, msg: impl Into<Cow<'static, str>>) {
+    pub(crate) fn grow(&self, num: usize, msg: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| {
             self.pos.fetch_add(num, Ordering::Relaxed);
             self.msg.set(msg.into().as_ref());
         });
     }
 
-    pub fn set_suffix(&self, suffix: impl Into<Cow<'static, str>>) {
+    pub(crate) fn set_suffix(&self, suffix: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| self.prefix.set(suffix.into().as_ref()));
     }
 
-    pub fn set_message(&self, message: impl Into<Cow<'static, str>>) {
+    pub(crate) fn set_message(&self, message: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| self.msg.set(message.into().as_ref()));
     }
 
     // 原子更新所有进度条数据，确保一致性
-    pub fn update_all(&self, num: usize, message: impl Into<Cow<'static, str>>, suffix: impl Into<Cow<'static, str>>) {
+    pub(crate) fn update_all(&self, num: usize, message: impl Into<Cow<'static, str>>, suffix: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| {
             self.pos.fetch_add(num, Ordering::Relaxed);
             self.msg.set(message.into().as_ref());
@@ -276,7 +276,7 @@ impl Bar {
     }
 
     // 完成进度条并清理
-    pub fn done(&self) {
+    pub(crate) fn done(&self) {
         // 原子设置完成标志
         self.is_done.store(true, Ordering::Release);
         
