@@ -4,11 +4,11 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use std::sync::Arc;
 
-use http_body_util::{Full, BodyExt};
+use http_body_util::Full;
 use hyper::{body::Bytes, Method, Request, Response, Uri, body::Incoming};
 use hyper::header::{HeaderValue, CONNECTION};
-use hyper_util::client::legacy::{Client, connect::HttpConnector};
-use hyper_util::rt::{TokioIo};
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::TokioIo;
 use hyper_rustls::HttpsConnectorBuilder;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -43,27 +43,11 @@ impl Service<Uri> for InterfaceConnector {
         let addr = self.addr;
 
         Box::pin(async move {
-            // 尝试绑定到指定网卡
-            if let Some(socket) = bind_socket_to_interface(addr, &interface_config).await {
-                let stream = timeout(timeout_duration, socket.connect(addr)).await??;
-                return Ok(TokioIo::new(stream));
-            }
-            
-            // 绑定失败，直接返回错误
-            Err("".into())
+            let socket = bind_socket_to_interface(addr, &interface_config).await.unwrap();
+            let stream = timeout(timeout_duration, socket.connect(addr)).await??;
+            Ok(TokioIo::new(stream))
         })
     }
-}
-
-/// 创建基础的HTTP客户端构建器
-pub(crate) fn client_builder() -> Result<Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
-    let https_connector = HttpsConnectorBuilder::new()
-        .with_webpki_roots()
-        .https_or_http()
-        .enable_http1()
-        .build();
-    
-    Ok(Client::builder(hyper_util::rt::TokioExecutor::new()).build(https_connector))
 }
 
 /// 构建 hyper 客户端
@@ -85,27 +69,6 @@ pub(crate) fn build_hyper_client(
         .wrap_connector(connector);
 
     Some(Client::builder(hyper_util::rt::TokioExecutor::new()).build(https_connector))
-}
-
-// 简单 GET 请求
-pub(crate) async fn send_get_request_simple(
-    client: &mut Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>,
-    host: &str,
-    uri: Uri,
-    timeout_ms: u64,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
-    let req = Request::builder()
-        .uri(uri)
-        .method(Method::GET)
-        .header("User-Agent", USER_AGENT)
-        .header("Host", host)
-        .body(Full::new(Bytes::new()))?;
-
-    let resp = timeout(Duration::from_millis(timeout_ms), client.call(req)).await??;
-    
-    let body_bytes = resp.into_body().collect().await?.to_bytes();
-    
-    Ok(body_bytes)
 }
 
 /// 发送 GET 请求并返回流式响应

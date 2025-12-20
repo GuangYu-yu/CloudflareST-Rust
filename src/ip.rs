@@ -253,7 +253,7 @@ impl IpBuffer {
 
 /// 收集所有IP地址来源
 /// 包括文本参数、URL链接和文件中的IP地址
-pub(crate) async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &str) -> Vec<String> {
+pub(crate) async fn collect_ip_sources(ip_text: &str, ip_file: &str) -> Vec<String> {
     // 统一清洗逻辑
     let valid_line = |s: &str| -> Option<String> {
         let s = s.trim();
@@ -265,41 +265,12 @@ pub(crate) async fn collect_ip_sources(ip_text: &str, ip_url: &str, ip_file: &st
     // 1. 文本
     sources.extend(ip_text.split(',').filter_map(valid_line));
 
-    // 2. URL
-    if !ip_url.is_empty() {
-        let url = if ip_url.contains("://") { ip_url.to_string() } else { format!("https://{}", ip_url) };
-        if let Some((uri, host)) = crate::hyper::parse_url_to_uri(&url) {
-            const MAX_RETRY: usize = 5;
-            const TIMEOUT_MS: u64 = 2000;
-
-            for attempt in 1..=MAX_RETRY {
-                let result = async {
-                    let mut client = crate::hyper::client_builder()?;
-                    crate::hyper::send_get_request_simple(&mut client, &host, uri.clone(), TIMEOUT_MS).await
-                }.await;
-
-                match result {
-                    Ok(body) => {
-                        let fetched: Vec<_> = String::from_utf8_lossy(&body).lines().filter_map(valid_line).collect();
-                        if !fetched.is_empty() {
-                            sources.extend(fetched);
-                            break;
-                        }
-                        crate::warning_println(format_args!("第 {} 次重试：URL 内容为空", attempt));
-                    }
-                    Err(e) => crate::warning_println(format_args!("第 {} 次重试：{}", attempt, e)),
-                }
-                if attempt < MAX_RETRY { tokio::time::sleep(std::time::Duration::from_secs(1)).await; }
-            }
-        }
-    }
-
-    // 3. 文件
+    // 2. 文件
     if !ip_file.is_empty() && std::path::Path::new(ip_file).exists() && let Ok(lines) = read_lines(ip_file) {
         sources.extend(lines.map_while(Result::ok).filter_map(|l| valid_line(&l)));
     }
 
-    // 4. 最终校验
+    // 3. 最终校验
     if sources.is_empty() {
         crate::error_and_exit(format_args!("未获取到任何 IP 或 CIDR"));
     }

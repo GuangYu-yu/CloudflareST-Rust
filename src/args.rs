@@ -36,7 +36,6 @@ pub(crate) struct Args {
     pub(crate) print_num: u16,            // 显示结果数量
     pub(crate) ip_file: String,           // IP列表文件路径
     pub(crate) ip_text: String,           // 直接指定的IP
-    pub(crate) ip_url: String,            // 获取IP的URL地址
     pub(crate) output: Option<String>,    // 结果输出文件
 
     // 功能开关
@@ -74,7 +73,6 @@ impl Args {
             print_num: 10,
             ip_file: String::new(),
             ip_text: String::new(),
-            ip_url: String::new(),
             output: Some("result.csv".to_string()),
             test_all_ipv4: false,
             help: false,
@@ -169,7 +167,6 @@ impl Args {
                 "colo" => Self::assign_string(&mut parsed.httping_cf_colo, v_opt),
                 "f" => Self::assign_string(&mut parsed.ip_file, v_opt),
                 "ip" => Self::assign_string(&mut parsed.ip_text, v_opt),
-                "ipurl" => Self::assign_string(&mut parsed.ip_url, v_opt),
                 "o" => parsed.output = v_opt,
                 "intf" => {
                     if let Some(ref interface) = v_opt {
@@ -251,8 +248,8 @@ pub(crate) fn parse_args() -> Args {
         }
     }
 
-    if args.ip_file.is_empty() && args.ip_url.is_empty() && args.ip_text.is_empty() {
-        error_and_exit(format_args!("必须指定一个或多个 IP 来源参数 (-f, -ipurl 或 -ip)"));
+    if args.ip_file.is_empty() && args.ip_text.is_empty() {
+        error_and_exit(format_args!("必须指定一个或多个 IP 来源参数 (-f 或 -ip)"));
     }
 
     // 检查是否同时使用了 -httping 和 -tls 参数
@@ -318,7 +315,6 @@ pub(crate) fn print_help() {
         ("", "目标参数", ""), // 标记标题
         ("-f", "从指定文件名或文件路径获取 IP 或 CIDR", "未指定"),
         ("-ip", "直接指定 IP 或 CIDR（多个用逗号分隔）", "未指定"),
-        ("-ipurl", "从 URL 获取 IP 或 CIDR", "未指定"),
         ("-url", "TLS 模式的 Httping 或下载测速所使用的 URL", "未指定"),
         ("-tp", "测速端口", "80 / 443"),
         
