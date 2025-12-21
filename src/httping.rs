@@ -6,10 +6,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use http_body_util::Full;
-use hyper::body::Bytes;
-use hyper_util::client::legacy::Client;
-
 use crate::hyper::{parse_url_to_uri, build_hyper_client, send_head_request};
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing};
@@ -54,7 +50,7 @@ impl common::PingMode for HttpingFactoryData {
 }
 
 struct PingTask {
-    client: Arc<Client<hyper_rustls::HttpsConnector<crate::hyper::InterfaceConnector>, Full<Bytes>>>,
+    client: Arc<crate::hyper::MyHyperClient>,
     args: Arc<Args>,
     host_header: Arc<str>,
     uri: http::Uri,

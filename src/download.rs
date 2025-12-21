@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use http_body_util::BodyExt;
+use http_body::Body;
 
 // 统一的速度更新间隔（毫秒）
 const SPEED_UPDATE_INTERVAL_MS: u64 = 500;
@@ -311,7 +311,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
     ).await.ok();
 
     // 如果获取到响应，开始下载
-    let avg_speed = if let Some(mut resp) = response {
+    let avg_speed = if let Some(resp) = response {
         // 如果需要获取数据中心信息，从响应头中提取
         if params.need_colo {
             data_center = common::extract_data_center(&resp);
@@ -331,16 +331,20 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
         let mut actual_content_read: u64 = 0;
         let mut actual_start_time: Option<Instant> = None;
         let mut last_data_time: Option<Instant> = None; // 记录最后读取数据的时间
-
-        while let Some(result) = resp.frame().await {
+        
+        let mut body = resp.into_body();
+        let mut body_pin = std::pin::Pin::new(&mut body);
+        
+        loop {
             // 检查是否应该继续下载
             let elapsed = time_start.elapsed();
             if elapsed >= extended_duration || params.timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
 
-            match result {
-                Ok(frame) => {
+            // 异步读取下一帧数据
+            match std::future::poll_fn(|cx| body_pin.as_mut().poll_frame(cx)).await {
+                Some(Ok(frame)) => {
                     if let Some(data) = frame.data_ref() {
                         let size = data.len() as u64;
                         handler.update_data_received(size);
@@ -358,7 +362,8 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
                         }
                     }
                 }
-                Err(_) => return (None, data_center), // 网络错误直接返回None
+                Some(Err(_)) => return (None, data_center), // 网络错误直接返回None
+                None => break, // 没有更多数据
             }
         }
 
