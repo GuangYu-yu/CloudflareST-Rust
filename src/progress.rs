@@ -9,7 +9,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use terminal_size::{terminal_size, Width};
 
 // 进度条颜色配置
 const PROGRESS_BAR_BRIGHTNESS: [f64; 2] = [
@@ -99,9 +98,35 @@ pub(crate) struct Bar {
 
 // 获取终端宽度，返回usize类型
 fn get_terminal_width() -> usize {
-    terminal_size()
-        .map(|(Width(w), _)| w as usize)
-        .unwrap_or(80)
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::System::Console::{GetConsoleScreenBufferInfo, GetStdHandle, STD_OUTPUT_HANDLE, CONSOLE_SCREEN_BUFFER_INFO};
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        unsafe {
+            let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+            if handle == 0 as _ || handle == INVALID_HANDLE_VALUE { 
+                return 80;
+            }
+            let mut csbi: CONSOLE_SCREEN_BUFFER_INFO = std::mem::zeroed();
+            if GetConsoleScreenBufferInfo(handle, &mut csbi) != 0 {
+                let w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+                return w as usize;
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use libc::{ioctl, winsize, TIOCGWINSZ, STDOUT_FILENO};
+        unsafe {
+            let mut ws: winsize = std::mem::zeroed();
+            if ioctl(STDOUT_FILENO, TIOCGWINSZ, &mut ws) == 0 {
+                return ws.ws_col as usize;
+            }
+        }
+    }
+
+    80
 }
 
 impl Bar {
