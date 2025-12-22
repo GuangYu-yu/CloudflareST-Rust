@@ -16,12 +16,11 @@ http = { version = "1", default-features = false }
 http-body = { version = "1", default-features = false }
 bytes = { version = "1", default-features = false }
 tower-service = { version = "0.3", default-features = false }
-terminal_size = { version = "0.4", default-features = false }
 surge-ping = { version = "0.8", optional = true, default-features = false }
 
 # --- Windows ---
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis"], default-features = false }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_System_Console"], default-features = false }
 
 # --- Linux ---
 [target.'cfg(target_os = "linux")'.dependencies]
