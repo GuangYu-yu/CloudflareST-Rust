@@ -23,7 +23,7 @@ pub(crate) struct HttpingFactoryData {
 // 实现 PingMode Trait
 impl common::PingMode for HttpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
-        const TRACE_URL_PATH: &str = "cdnjs.cloudflare.com/cdn-cgi/trace";
+        const TRACE_URL_PATH: &str = "cp.cloudflare.com/cdn-cgi/trace";
         let trace_url = format!("{}://{}", if self.use_https { "https" } else { "http" }, TRACE_URL_PATH);
         let (uri, host_header) = parse_url_to_uri(&trace_url).unwrap();
 
