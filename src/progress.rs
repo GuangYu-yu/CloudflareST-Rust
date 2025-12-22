@@ -4,7 +4,7 @@ use std::{
     io::{self, stdout, Write},
     sync::{
         atomic::{AtomicBool, AtomicUsize, AtomicPtr, Ordering},
-        Arc, Mutex,
+        Arc
     },
     thread,
     time::{Duration, Instant},
@@ -93,7 +93,6 @@ pub(crate) struct Bar {
     msg: Arc<LockFreeString>,
     prefix: Arc<LockFreeString>,
     is_done: Arc<AtomicBool>,
-    thread_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
 }
 
 // 获取终端宽度，返回usize类型
@@ -152,7 +151,7 @@ impl Bar {
         let start_str_arc: Arc<str> = start_str.into();
         let end_str_arc: Arc<str> = end_str.into();
 
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             // 定义未填充区域的亮灰色背景色 (RGB: 70, 70, 70)
             const UNFILLED_BG: (u8, u8, u8) = (70, 70, 70);
             
@@ -272,16 +271,7 @@ impl Bar {
             }
         });
 
-        let thread_handle = Arc::new(Mutex::new(Some(handle)));
-
-        Self { pos, msg, prefix, is_done, thread_handle }
-    }
-
-    pub(crate) fn grow(&self, num: usize, msg: impl Into<Cow<'static, str>>) {
-        self.update_if_not_done(|| {
-            self.pos.fetch_add(num, Ordering::Relaxed);
-            self.msg.set(msg.into().as_ref());
-        });
+        Self { pos, msg, prefix, is_done }
     }
 
     pub(crate) fn set_suffix(&self, suffix: impl Into<Cow<'static, str>>) {
@@ -290,6 +280,13 @@ impl Bar {
 
     pub(crate) fn set_message(&self, message: impl Into<Cow<'static, str>>) {
         self.update_if_not_done(|| self.msg.set(message.into().as_ref()));
+    }
+
+    pub(crate) fn grow(&self, num: usize, message: impl Into<Cow<'static, str>>) {
+        self.update_if_not_done(|| {
+            self.pos.fetch_add(num, Ordering::Relaxed);
+            self.msg.set(message.into().as_ref());
+        });
     }
 
     // 原子更新所有进度条数据，确保一致性
@@ -303,14 +300,11 @@ impl Bar {
 
     // 完成进度条并清理
     pub(crate) fn done(&self) {
-        // 原子设置完成标志
         self.is_done.store(true, Ordering::Release);
+                
+        // 给渲染线程一个刷新周期的时间来绘制最终帧（含换行）
+        thread::sleep(Duration::from_millis(REFRESH_INTERVAL_MS + 200));
         
-        // 尝试获取锁并 join 渲染线程
-        if let Ok(mut guard) = self.thread_handle.lock() && let Some(handle) = guard.take() {
-            // 忽略 join 错误
-            handle.join().ok(); 
-        }
         let _ = stdout().flush();
     }
 }
