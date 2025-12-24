@@ -213,31 +213,23 @@ fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
 #[cfg(target_os = "windows")]
 fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> bool {
     let raw = sock.as_raw_socket();
-    
-    let res = if is_ipv6 {
-        let idx_bytes = iface_idx.to_ne_bytes();
-        unsafe {
-            setsockopt(
-                raw as _,
-                IPPROTO_IPV6,
-                IPV6_UNICAST_IF,
-                idx_bytes.as_ptr() as *const _,
-                idx_bytes.len() as i32,
-            )
-        }
+
+    let (level, optname, idx_bytes) = if is_ipv6 {
+        (IPPROTO_IPV6, IPV6_UNICAST_IF, iface_idx.to_ne_bytes())
     } else {
-        let idx_bytes = iface_idx.to_be_bytes();
-        unsafe {
-            setsockopt(
-                raw as _,
-                IPPROTO_IP,
-                IP_UNICAST_IF,
-                idx_bytes.as_ptr() as *const _,
-                idx_bytes.len() as i32,
-            )
-        }
+        (IPPROTO_IP, IP_UNICAST_IF, iface_idx.to_be_bytes())
     };
-    
+
+    let res = unsafe {
+        setsockopt(
+            raw as _,
+            level,
+            optname,
+            idx_bytes.as_ptr() as *const _,
+            idx_bytes.len() as i32,
+        )
+    };
+
     res != SOCKET_ERROR
 }
 
