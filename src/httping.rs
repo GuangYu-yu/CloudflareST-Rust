@@ -163,7 +163,7 @@ impl HandlerFactory for HttpingHandlerFactory {
                 return None;
             }
 
-            let data_center = local_data_center.get().map(|s: &String| s.clone());
+            let data_center = local_data_center.get().cloned();
             common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), data_center)
         })
     }
