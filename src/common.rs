@@ -117,6 +117,17 @@ impl BasePing {
             tested_count,
         }
     }
+
+    pub(crate) fn clone_to_arc(&self) -> Arc<Self> {
+        Arc::new(Self {
+            ip_buffer: Arc::clone(&self.ip_buffer),
+            bar: Arc::clone(&self.bar),
+            args: Arc::clone(&self.args),
+            success_count: Arc::clone(&self.success_count),
+            timeout_flag: Arc::clone(&self.timeout_flag),
+            tested_count: Arc::clone(&self.tested_count),
+        })
+    }
 }
 
 /// 计算平均延迟，精确到两位小数
@@ -145,7 +156,7 @@ pub(crate) fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -
 /// Ping 初始化
 pub(crate) async fn create_base_ping(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> BasePing {
     // 处理 IP 源并创建缓冲区
-    let (single_ips, cidr_states, total_expected) = crate::ip::process_ip_sources(sources, &args).await;
+    let (single_ips, cidr_states, total_expected) = crate::ip::process_ip_sources(sources, &args);
     let ip_buffer = IpBuffer::new(cidr_states, single_ips, total_expected, args.tcp_port);
 
     // 创建 BasePing 所需各项资源并初始化
@@ -202,6 +213,24 @@ pub(crate) trait PingMode: Send + Sync + 'static {
 impl Clone for Box<dyn PingMode> {
     fn clone(&self) -> Box<dyn PingMode> {
         (**self).clone_box()
+    }
+}
+
+pub(crate) fn create_base_ping_blocking(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> BasePing {
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(create_base_ping(Arc::clone(&args), sources, timeout_flag))
+    })
+}
+
+pub(crate) fn build_ping_data_result(addr: SocketAddr, ping_times: u16, avg_delay_ms: f32, data_center: Option<String>) -> Option<PingData> {
+    if avg_delay_ms > 0.0 {
+        let mut data = PingData::new(addr, ping_times, ping_times, avg_delay_ms);
+        if let Some(dc) = data_center {
+            data.data_center = dc;
+        }
+        Some(data)
+    } else {
+        None
     }
 }
 
@@ -312,7 +341,6 @@ pub(crate) fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> boo
 }
 
 /// 判断测试结果是否符合筛选条件
-#[inline]
 pub(crate) fn should_keep_result(data: &PingData, args: &Args) -> bool {
     let data_ref = data.as_ref();
     
@@ -369,13 +397,11 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
 }
 
 /// 检查是否收到超时信号
-#[inline]
 pub(crate) fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
     timeout_flag.load(Ordering::Relaxed)
 }
 
 /// 统一的进度条更新函数
-#[inline]
 pub(crate) fn update_progress_bar(
     bar: &Bar,
     current_tested: usize,

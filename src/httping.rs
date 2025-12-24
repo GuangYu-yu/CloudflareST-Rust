@@ -20,7 +20,6 @@ pub(crate) struct HttpingFactoryData {
     allowed_codes: Option<Arc<Vec<u16>>>,
 }
 
-// 实现 PingMode Trait
 impl common::PingMode for HttpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         const TRACE_URL_PATH: &str = "cp.cloudflare.com/cdn-cgi/trace";
@@ -28,14 +27,7 @@ impl common::PingMode for HttpingFactoryData {
         let (uri, host_header) = parse_url_to_uri(&trace_url).unwrap();
 
         Arc::new(HttpingHandlerFactory {
-            base: Arc::new(BasePing {
-                ip_buffer: base.ip_buffer.clone(),
-                bar: Arc::clone(&base.bar),
-                args: base.args.clone(),
-                success_count: base.success_count.clone(),
-                timeout_flag: base.timeout_flag.clone(),
-                tested_count: base.tested_count.clone(),
-            }),
+            base: base.clone_to_arc(),
             colo_filters: Arc::clone(&self.colo_filters),
             interface_config: Arc::clone(&self.interface_config),
             allowed_codes: self.allowed_codes.clone(),
@@ -43,7 +35,7 @@ impl common::PingMode for HttpingFactoryData {
             host_header: host_header.into(),
         })
     }
-    
+
     fn clone_box(&self) -> Box<dyn common::PingMode> {
         Box::new(self.clone())
     }
@@ -171,19 +163,8 @@ impl HandlerFactory for HttpingHandlerFactory {
                 return None;
             }
 
-            if let Some(avg_delay_ms) = avg_delay {
-                // 构造 PingData 结构体
-                let mut data = PingData::new(addr, ping_times, ping_times, avg_delay_ms);
-                if let Some(dc) = local_data_center.lock().unwrap().take() {
-                    data.data_center = dc;
-                }
-
-                // 返回 Ping 结果
-                Some(data)
-            } else {
-                // 没有成功连接或响应，返回 None
-                None
-            }
+            let data_center = local_data_center.lock().unwrap().take();
+            common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), data_center)
         })
     }
 }
@@ -215,10 +196,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     let mode_name = if use_https { "HTTPSing" } else { "HTTPing" };
     common::print_speed_test_info(mode_name, &args);
 
-    // 初始化测试环境
-    let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
-    });
+    let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
 
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),

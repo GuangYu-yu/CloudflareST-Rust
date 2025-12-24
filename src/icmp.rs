@@ -5,12 +5,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
-use crate::pool::execute_with_rate_limit;
 
 use crate::args::Args;
 use crate::common::{self, PingData, HandlerFactory, BasePing, Ping as CommonPing, PingMode};
+use crate::pool::execute_with_rate_limit;
 
-// 全局原子计数器，用于生成唯一的ping标识符
+// 标识符计数器
 static PING_IDENTIFIER_COUNTER: AtomicU16 = AtomicU16::new(0);
 
 #[derive(Clone)]
@@ -22,19 +22,12 @@ pub(crate) struct IcmpingFactoryData {
 impl PingMode for IcmpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(IcmpingHandlerFactory {
-            base: Arc::new(BasePing {
-                ip_buffer: base.ip_buffer.clone(),
-                bar: Arc::clone(&base.bar),
-                args: base.args.clone(),
-                success_count: base.success_count.clone(),
-                timeout_flag: base.timeout_flag.clone(),
-                tested_count: base.tested_count.clone(),
-            }),
+            base: base.clone_to_arc(),
             client_v4: Arc::clone(&self.client_v4),
             client_v6: Arc::clone(&self.client_v6),
         })
     }
-    
+
     fn clone_box(&self) -> Box<dyn PingMode> {
         Box::new(self.clone())
     }
@@ -70,12 +63,7 @@ impl HandlerFactory for IcmpingHandlerFactory {
                 .await).unwrap_or_default()
             }).await;
 
-            if let Some(avg_delay_ms) = avg_delay {
-                let data = PingData::new(addr, ping_times, ping_times, avg_delay_ms);
-                Some(data)
-            } else {
-                None
-            }
+            common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), None)
         })
     }
 }
@@ -83,11 +71,8 @@ impl HandlerFactory for IcmpingHandlerFactory {
 pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 打印开始延迟测试的信息
     common::print_speed_test_info("ICMP-Ping", &args);
-    
-    // 初始化测试环境
-    let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
-    });
+
+    let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
 
     let client_v4 = Arc::new(Client::new(&Config::default())?);
     let client_v6 = Arc::new(Client::new(&Config::builder().kind(ICMP::V6).build())?);

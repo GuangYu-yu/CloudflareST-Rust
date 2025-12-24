@@ -49,7 +49,7 @@ async fn main() {
     let args = Arc::new(args::parse_args());
 
     // 收集并验证
-    let sources = ip::collect_ip_sources(&args.ip_text, &args.ip_file).await;
+    let sources = ip::collect_ip_sources(&args.ip_text, &args.ip_file);
 
     // 初始化全局并发限制器
     pool::init_global_limiter(args.max_threads);

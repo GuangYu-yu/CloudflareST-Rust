@@ -19,18 +19,11 @@ pub(crate) struct TcpingFactoryData {
 impl PingMode for TcpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(TcpingHandlerFactory {
-            base: Arc::new(BasePing {
-                ip_buffer: base.ip_buffer.clone(),
-                bar: Arc::clone(&base.bar),
-                args: base.args.clone(),
-                success_count: base.success_count.clone(),
-                timeout_flag: base.timeout_flag.clone(),
-                tested_count: base.tested_count.clone(),
-            }),
+            base: base.clone_to_arc(),
             interface_config: Arc::clone(&self.interface_config),
         })
     }
-    
+
     fn clone_box(&self) -> Box<dyn PingMode> {
         Box::new(self.clone())
     }
@@ -65,12 +58,7 @@ impl HandlerFactory for TcpingHandlerFactory {
                 }
             }).await;
 
-            if let Some(avg_delay_ms) = avg_delay {
-                let data = PingData::new(addr, ping_times, ping_times, avg_delay_ms);
-                Some(data)
-            } else {
-                None
-            }
+            common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), None)
         })
     }
 }
@@ -79,10 +67,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     // 打印开始延迟测试的信息
     common::print_speed_test_info("Tcping", &args);
 
-    // 初始化测试环境
-    let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
-    });
+    let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
 
     let factory_data = TcpingFactoryData {
         interface_config: Arc::clone(&args.interface_config),
