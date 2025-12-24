@@ -90,7 +90,7 @@ async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> 
     let ip = addr.ip();
     let payload = [0; 56];
     // 生成唯一标识符
-    let identifier = PingIdentifier(PING_IDENTIFIER_COUNTER.fetch_add(1, Ordering::SeqCst));
+    let identifier = PingIdentifier(PING_IDENTIFIER_COUNTER.fetch_add(1, Ordering::Relaxed));
     let mut rtt = None;
 
     let mut pinger = client.pinger(ip, identifier).await;

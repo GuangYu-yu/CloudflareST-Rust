@@ -60,14 +60,14 @@ impl LockFreeString {
         let new_ptr = Box::into_raw(new_box);
 
         // 原子交换指针
-        let old_ptr = self.ptr.swap(new_ptr, Ordering::SeqCst);
+        let old_ptr = self.ptr.swap(new_ptr, Ordering::Release);
         
         // 释放旧的 Box<Arc<str>>
         unsafe { drop(Box::from_raw(old_ptr)); }
     }
 
     pub(crate) fn get(&self) -> Arc<str> {
-        let ptr = self.ptr.load(Ordering::SeqCst);
+        let ptr = self.ptr.load(Ordering::Acquire);
         // 克隆 Arc<str>，增加引用计数，保证数据存活
         unsafe { (*ptr).clone() } 
     }
@@ -75,7 +75,7 @@ impl LockFreeString {
 
 impl Drop for LockFreeString {
     fn drop(&mut self) {
-        let ptr = self.ptr.load(Ordering::SeqCst);
+        let ptr = self.ptr.load(Ordering::Acquire);
         if !ptr.is_null() {
             // 释放 Arc<str> 所在的 Box
             unsafe { drop(Box::from_raw(ptr)); }

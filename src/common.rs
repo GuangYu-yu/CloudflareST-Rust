@@ -398,7 +398,7 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
 
 /// 检查是否收到超时信号
 pub(crate) fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
-    timeout_flag.load(Ordering::Relaxed)
+    timeout_flag.load(Ordering::SeqCst)
 }
 
 /// 统一的进度条更新函数

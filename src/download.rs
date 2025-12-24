@@ -1,8 +1,8 @@
 use std::cmp::min;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use http_body::Body;
 
@@ -23,12 +23,12 @@ use crate::hyper::{self, parse_url_to_uri};
 struct DownloadHandler {
     data_received: u64,
     last_update: Instant,
-    current_speed: Arc<Mutex<f32>>,
+    current_speed: Arc<AtomicU32>,
     speed_samples: VecDeque<(Instant, u64)>,
 }
 
 impl DownloadHandler {
-    fn new(current_speed: Arc<Mutex<f32>>) -> Self {
+    fn new(current_speed: Arc<AtomicU32>) -> Self {
         let now = Instant::now();
         Self {
             data_received: 0,
@@ -79,7 +79,7 @@ impl DownloadHandler {
             self.cleanup_old_samples(window_start);
             
             let speed = self.calculate_speed();
-            *self.current_speed.lock().unwrap() = speed;
+            self.current_speed.store((speed * 100.0) as u32, Ordering::Relaxed);
             self.last_update = Instant::now();
         }
     }
@@ -96,7 +96,7 @@ pub(crate) struct DownloadTest<'a> {
     uri: http::Uri,
     host: String,
     bar: Arc<Bar>,
-    current_speed: Arc<Mutex<f32>>,
+    current_speed: Arc<AtomicU32>,
     colo_filter: Arc<Vec<String>>,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
@@ -138,7 +138,7 @@ impl<'a> DownloadTest<'a> {
             uri,
             host,
             bar: Arc::new(Bar::new(test_num, "", "MB/s")),
-            current_speed: Arc::new(Mutex::new(0.0)),
+            current_speed: Arc::new(AtomicU32::new(0)),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
@@ -149,7 +149,7 @@ impl<'a> DownloadTest<'a> {
         // 数据中心过滤条件
         let colo_filters = Arc::clone(&self.colo_filter);
 
-        let current_speed_arc: Arc<Mutex<f32>> = Arc::clone(&self.current_speed);
+        let current_speed_arc: Arc<AtomicU32> = Arc::clone(&self.current_speed);
         let bar_arc = self.bar.clone();
         let timeout_flag_clone = Arc::clone(&self.timeout_flag);
         
@@ -164,8 +164,8 @@ impl<'a> DownloadTest<'a> {
                     break;
                 }
                 
-                // 锁定并读取当前速度 (B/s)
-                let speed = *current_speed_arc.lock().unwrap();
+                // 读取当前速度 (B/s)
+                let speed = current_speed_arc.load(Ordering::Relaxed) as f32 / 100.0;
                 
                 if speed >= 0.0 {
                     // 更新进度条的速率后缀 (MB/s)
@@ -271,7 +271,7 @@ struct DownloadHandlerParams<'a> {
     uri: http::Uri,
     host: &'a str,
     download_duration: Duration,
-    current_speed: Arc<Mutex<f32>>,
+    current_speed: Arc<AtomicU32>,
     need_colo: bool,
     timeout_flag: Arc<AtomicBool>,
     colo_filters: Arc<Vec<String>>,
@@ -281,7 +281,7 @@ struct DownloadHandlerParams<'a> {
 // 下载测速处理函数
 async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Option<String>) {
     // 在每次新的下载开始前重置速度为0
-    *params.current_speed.lock().unwrap() = 0.0;
+    params.current_speed.store(0, Ordering::Relaxed);
 
     let mut data_center = None;
 

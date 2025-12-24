@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use crate::hyper::{parse_url_to_uri, build_hyper_client, send_head_request};
@@ -48,14 +49,14 @@ struct PingTask {
     uri: http::Uri,
     colo_filters: Arc<Vec<String>>,
     allowed_codes: Option<Arc<Vec<u16>>>,
-    local_data_center: Arc<std::sync::Mutex<Option<String>>>,
+    local_data_center: Arc<OnceLock<String>>,
     should_continue: Arc<AtomicBool>,
 }
 
 impl PingTask {
     async fn perform_ping(&self) -> Option<f32> {
         // 1. 快速检查退出标志
-        if !self.should_continue.load(Ordering::Relaxed) {
+        if !self.should_continue.load(Ordering::SeqCst) {
             return None;
         }
 
@@ -88,14 +89,13 @@ impl PingTask {
         // 3. 处理结果与 Colo 过滤
         match result {
             Ok(Some((delay, dc))) => {
-                let mut dc_guard = self.local_data_center.lock().unwrap();
-                if dc_guard.is_none() {
+                if self.local_data_center.get().is_none() {
                     // 检查数据中心（Colo）是否符合过滤要求
                     if !self.args.httping_cf_colo.is_empty() && !common::is_colo_matched(&dc, &self.colo_filters) {
-                        self.should_continue.store(false, Ordering::Relaxed);
+                        self.should_continue.store(false, Ordering::SeqCst);
                         return None;
                     }
-                    *dc_guard = Some(dc);
+                    let _ = self.local_data_center.set(dc);
                 }
                 Some(delay)
             }
@@ -130,7 +130,7 @@ impl HandlerFactory for HttpingHandlerFactory {
         Box::pin(async move {
             let ping_times = args.ping_times;
             let should_continue = Arc::new(AtomicBool::new(true));
-            let local_data_center = Arc::new(std::sync::Mutex::new(None));
+            let local_data_center = Arc::new(OnceLock::new());
 
             // 获取并使用绑定的网络接口信息
             let client = match build_hyper_client(
@@ -159,11 +159,11 @@ impl HandlerFactory for HttpingHandlerFactory {
             }).await;
 
             // 如果因 Colo 不匹配而终止，则不返回结果
-            if !should_continue.load(Ordering::Relaxed) {
+            if !should_continue.load(Ordering::SeqCst) {
                 return None;
             }
 
-            let data_center = local_data_center.lock().unwrap().take();
+            let data_center = local_data_center.get().map(|s: &String| s.clone());
             common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), data_center)
         })
     }
