@@ -239,12 +239,11 @@ impl<'a> DownloadTest<'a> {
             if is_qualified {
                 qualified_results.push(ping_result);
                 qualified_len += 1;
-                bar.grow(1, "");
             }
 
-            // 生成消息（合格数 已测数）
+            // 生成消息（合格数|已测数）
             let message = format!("{}|{}", qualified_len, tested_count);
-            bar.set_message(message);
+            bar.update(tested_count, message, "");
         }
 
         // 中止速度更新任务

@@ -408,5 +408,5 @@ pub(crate) fn update_progress_bar(
     success_count: usize,
     total_ips: usize,
 ) {
-    bar.update_all(1, format!("{}/{}", current_tested, total_ips), success_count.to_string());
+    bar.update(current_tested, format!("{}/{}", current_tested, total_ips), success_count.to_string());
 }
