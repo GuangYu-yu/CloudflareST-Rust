@@ -47,10 +47,6 @@ unsafe impl Send for BarInner {}
 unsafe impl Sync for BarInner {}
 
 impl BarInner {
-    // -------------------------------------------------------------------------
-    // 读接口：渲染逻辑（完全保留 log.txt 的视觉效果）
-    // -------------------------------------------------------------------------
-
     fn run_render_loop(&self) {
         let mut stdout_handle = stdout();
         let start_instant = Instant::now();
@@ -211,11 +207,6 @@ impl Bar {
         Self { inner }
     }
 
-    // -------------------------------------------------------------------------
-    // 写接口：无锁快照更新
-    // -------------------------------------------------------------------------
-
-    // 内部提交逻辑，保持代码 DRY
     fn commit(&self, new_snap: Arc<Snapshot>) {
         let new_ptr = Arc::into_raw(new_snap) as *mut Snapshot;
         let old_ptr = self.inner.state.swap(new_ptr, Ordering::AcqRel);
