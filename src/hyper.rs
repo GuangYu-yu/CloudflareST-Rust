@@ -6,7 +6,6 @@ use std::future::Future;
 use std::task::{Context, Poll};
 
 use hyper::{Method, Request, Response, Uri, body::Incoming};
-use hyper::header::{HeaderValue, CONNECTION};
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioIo;
 use hyper_rustls::HttpsConnectorBuilder;
@@ -107,43 +106,21 @@ pub(crate) fn build_hyper_client(
     Some(Client::builder(hyper_util::rt::TokioExecutor::new()).build(https_connector))
 }
 
-/// 发送 GET 请求并返回流式响应
-pub(crate) async fn send_get_response(
+/// 发送 HTTP 请求
+pub(crate) async fn send_request(
     client: &MyHyperClient,
     host: &str,
     uri: Uri,
+    method: Method,
     timeout_ms: u64,
 ) -> Result<Response<Incoming>, Box<dyn std::error::Error + Send + Sync>> {
     let req = Request::builder()
         .uri(uri)
-        .method(Method::GET)
+        .method(method)
         .header("User-Agent", USER_AGENT)
         .header("Host", host)
         .body(EmptyBody)?;
 
-    let resp = timeout(Duration::from_millis(timeout_ms), client.request(req)).await??;
-    Ok(resp)
-}
-
-/// 发送 HEAD 请求
-pub(crate) async fn send_head_request(
-    client: &MyHyperClient,
-    host: &str,
-    uri: Uri,
-    timeout_ms: u64,
-    close_connection: bool,
-) -> Result<Response<Incoming>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut req_builder = Request::builder()
-        .uri(uri)
-        .method(Method::HEAD)
-        .header("User-Agent", USER_AGENT)
-        .header("Host", host);
-
-    if close_connection {
-        req_builder = req_builder.header(CONNECTION, HeaderValue::from_static("close"));
-    }
-
-    let req = req_builder.body(EmptyBody)?;
     let resp = timeout(Duration::from_millis(timeout_ms), client.request(req)).await??;
     Ok(resp)
 }

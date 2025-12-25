@@ -6,8 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::Instant;
+use http::Method;
 
-use crate::hyper::{parse_url_to_uri, build_hyper_client, send_head_request};
+use crate::hyper::{parse_url_to_uri, build_hyper_client, send_request};
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing};
 use crate::pool::execute_with_rate_limit;
@@ -65,7 +66,7 @@ impl PingTask {
             let start = Instant::now();
             
             // 发送 HEAD 请求
-            let resp = match send_head_request(&self.client, self.host_header.as_ref(), self.uri.clone(), 1200, false).await {
+            let resp = match send_request(&self.client, self.host_header.as_ref(), self.uri.clone(), Method::HEAD, 1200).await {
                 Ok(resp) => resp,
                 Err(_) => return Ok::<Option<(f32, String)>, io::Error>(None),
             };

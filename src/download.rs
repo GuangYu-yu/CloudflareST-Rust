@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use http_body::Body;
+use http::Method;
 
 // 统一的速度更新间隔（毫秒）
 const SPEED_UPDATE_INTERVAL_MS: u64 = 500;
@@ -302,10 +303,11 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
     let mut handler = DownloadHandler::new(params.current_speed.clone());
 
     // 发送GET请求
-    let response = hyper::send_get_response(
+    let response = hyper::send_request(
         &client, 
         params.host, 
         params.uri,
+        Method::GET,
         TTFB_TIMEOUT_MS
     ).await.ok();
 
