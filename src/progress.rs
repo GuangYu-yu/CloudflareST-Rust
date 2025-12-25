@@ -310,7 +310,7 @@ fn get_terminal_width() -> usize {
         use libc::{ioctl, winsize, TIOCGWINSZ, STDOUT_FILENO};
         unsafe {
             let mut ws: winsize = std::mem::zeroed();
-            if ioctl(STD_FILENO, TIOCGWINSZ, &mut ws) == 0 {
+            if ioctl(STDOUT_FILENO, TIOCGWINSZ, &mut ws) == 0 {
                 return ws.ws_col as usize;
             }
         }
