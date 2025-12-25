@@ -497,6 +497,6 @@ fn calculate_ip_count(parsed_result: &IpParseResult, custom_count: Option<u128>,
 pub(crate) fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
     let max_bits: u8 = if is_ipv4 { 31 } else { 127 };
     let host_bits = max_bits.saturating_sub(prefix);
-    let sample_exp = host_bits.min(18).saturating_sub(3);
+    let sample_exp = host_bits.min(18).saturating_sub(2);
     1u128 << sample_exp
 }
