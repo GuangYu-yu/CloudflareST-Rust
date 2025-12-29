@@ -10,6 +10,7 @@ icmp = ["dep:surge-ping"]
 [dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"], default-features = false }
 hyper = { version = "1", features = ["client"], default-features = false }
+rustls-pki-types = { version = "1", default-features = false }
 hyper-util = { version = "0.1", features = ["client-legacy"], default-features = false }
 hyper-rustls = { version = "0.27", features = ["ring", "webpki-roots", "http1"], default-features = false }
 http = { version = "1", default-features = false }
