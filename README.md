@@ -63,7 +63,7 @@ curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
 
 | 参数 | 说明 | 示例 | 默认值 |
 |:-----|:-----|:-------|:-------|
-| `-url` | TLS 模式的 Httping 或下载测速所使用的测速地址 | https://example.com/file | 未指定 |
+| `-url` | 下载测速所使用的测速地址 | https://example.com/file | 未指定 |
 | `-f` | 从文件或文件路径读取 IP 或 CIDR | ip.txt | 未指定 |
 | `-ip` | 直接指定 IP 或 CIDR（多个用逗号分隔） | 104.16.0.0/13=500,2606:4700::/36 | 未指定 |
 | `-timeout` | 程序超时退出时间（秒） | 3600 | 不限制 |
