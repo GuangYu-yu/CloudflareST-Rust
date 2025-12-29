@@ -186,7 +186,7 @@ impl Args {
         }
 
         // 若启用 httping 且未使用 -tp，则根据HTTPing URL设置默认端口
-        if !use_tp && !parsed.httping.is_empty() && parsed.httping.starts_with("http://") {parsed.tcp_port = 80}
+        if !use_tp && !parsed.httping.is_empty() && parsed.httping.starts_with("http:") {parsed.tcp_port = 80}
 
         parsed
     }
@@ -255,9 +255,16 @@ pub(crate) fn parse_args() -> Args {
         warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 参数"));
     }
 
-    // 验证HTTPing URL格式
-    if !args.httping.is_empty() && !args.httping.starts_with("http://") && !args.httping.starts_with("https://") {
-        error_and_exit(format_args!("HTTPing URL必须以协议前缀开头"));
+    // 验证URL格式
+    let checks = [
+        (!args.httping.is_empty(), &args.httping, "延迟测速"),
+        (!args.disable_download, &args.url, "下载测速"),
+    ];
+    
+    for (enabled, url, scene) in checks {
+        if enabled && !url.starts_with("http:") && !url.starts_with("https:") {
+            error_and_exit(format_args!("{scene}使用的 URL 必须以协议前缀开头"));
+        }
     }
 
     // 检查端口与协议的匹配情况
@@ -265,9 +272,9 @@ pub(crate) fn parse_args() -> Args {
         // HTTPing相关检查
         (!args.httping.is_empty() && (
             // 场景1：使用 HTTP 但指定了TLS端口
-            (args.httping.starts_with("http://") && TLS_PORTS.contains(&args.tcp_port)) ||
+            (args.httping.starts_with("http:") && TLS_PORTS.contains(&args.tcp_port)) ||
             // 场景2：使用 HTTPS 但指定了非TLS端口
-            (args.httping.starts_with("https://") && NON_TLS_PORTS.contains(&args.tcp_port))
+            (args.httping.starts_with("https:") && NON_TLS_PORTS.contains(&args.tcp_port))
         )) ||
         
         // 场景3：下载测试中URL协议与端口不匹配
@@ -326,7 +333,7 @@ pub(crate) fn print_help() {
 
         // 控制参数
         ("", "控制参数", ""), // 标记标题
-        ("-httping", "使用 HTTPing 测速，并指定其地址", "否"),
+        ("-httping", "使用 HTTPing 测速并指定其地址", "未指定"),
         #[cfg(feature = "icmp")]
         ("-ping", "使用 ICMP Ping 进行延迟测速", "否"),
         ("-dd", "禁用下载测速", "否"),
