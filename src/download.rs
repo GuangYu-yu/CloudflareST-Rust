@@ -110,14 +110,7 @@ impl<'a> DownloadTest<'a> {
         timeout_flag: Arc<AtomicBool>,
     ) -> Self {
         // 解析 URL
-        let trace_url = args.url
-            .find("://")
-            .map(|_| args.url.to_owned())
-            .unwrap_or_else(|| {
-                let protocol = if args.httping_https { "https" } else { "http" };
-                format!("{}://{}", protocol, args.url)
-            });
-        let (uri, host) = parse_url_to_uri(&trace_url).unwrap();
+        let (uri, host) = parse_url_to_uri(&args.url).unwrap();
 
         // 计算实际需要测试的数量
         let test_num = min(args.test_count, ping_results.len());

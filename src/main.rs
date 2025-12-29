@@ -71,7 +71,7 @@ async fn main() {
     }
 
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
-    let ping_result: Vec<PingData> = match args.httping || args.httping_https {
+    let ping_result: Vec<PingData> = match !args.httping.is_empty() {
         true => {
             let ping = httping::new(Arc::clone(&args), sources, Arc::clone(&timeout_flag)).unwrap();
             ping.run().await.unwrap()

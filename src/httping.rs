@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use http::Method;
 
-use crate::hyper::send_request;
+use crate::hyper::{send_request, parse_url_to_uri};
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing};
 use crate::pool::execute_with_rate_limit;
@@ -15,7 +15,8 @@ use crate::pool::execute_with_rate_limit;
 #[derive(Clone)]
 pub(crate) struct HttpingFactoryData {
     colo_filters: Arc<Vec<String>>,
-    use_https: bool,
+    scheme: String,
+    path: String,
     allowed_codes: Option<Arc<Vec<u16>>>,
     host_header: String,
     global_client: Arc<crate::hyper::MyHyperClient>,
@@ -23,16 +24,13 @@ pub(crate) struct HttpingFactoryData {
 
 impl common::PingMode for HttpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
-        let scheme = if self.use_https { "https" } else { "http" };
-        let path = "/cdn-cgi/trace";
-
         Arc::new(HttpingHandlerFactory {
             base: base.clone_to_arc(),
             colo_filters: Arc::clone(&self.colo_filters),
             allowed_codes: self.allowed_codes.clone(),
-            scheme: scheme.to_string(),
+            scheme: self.scheme.clone(),
             host_header: self.host_header.clone().into(),
-            path: path.to_string(),
+            path: self.path.clone(),
             global_client: Arc::clone(&self.global_client),
         })
     }
@@ -56,7 +54,7 @@ struct PingTask {
 impl PingTask {
     async fn perform_ping(&self) -> Option<f32> {
         // 1. 快速检查退出标志
-        if !self.should_continue.load(Ordering::SeqCst) {
+        if !self.should_continue.load(Ordering::Relaxed) {
             return None;
         }
 
@@ -92,7 +90,7 @@ impl PingTask {
                 if self.local_data_center.get().is_none() {
                     // 检查数据中心（Colo）是否符合过滤要求
                     if !self.args.httping_cf_colo.is_empty() && !common::is_colo_matched(&dc, &self.colo_filters) {
-                        self.should_continue.store(false, Ordering::SeqCst);
+                        self.should_continue.store(false, Ordering::Relaxed);
                         return None;
                     }
                 let _ = self.local_data_center.set(dc);
@@ -159,7 +157,7 @@ impl HandlerFactory for HttpingHandlerFactory {
             }).await;
 
             // 如果因 Colo 不匹配而终止，则不返回结果
-            if !task.should_continue.load(Ordering::SeqCst) {
+            if !task.should_continue.load(Ordering::Relaxed) {
                 return None;
             }
 
@@ -170,8 +168,11 @@ impl HandlerFactory for HttpingHandlerFactory {
 }
 
 pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
-    // 判断是否使用HTTPS协议
-    let use_https = args.httping_https;
+    // 解析提供的HTTPing URL
+    let (uri, host_header) = parse_url_to_uri(&args.httping).unwrap();
+    
+    let scheme = uri.scheme_str().unwrap();
+    let path = uri.path();
 
     // 解析 Colo 过滤条件
     let colo_filters = if !args.httping_cf_colo.is_empty() {
@@ -193,12 +194,11 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     };
 
     // 打印开始延迟测试的信息
-    let mode_name = if use_https { "HTTPSing" } else { "HTTPing" };
+    let mode_name = "HTTPing";
     common::print_speed_test_info(mode_name, &args);
 
     let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
 
-    let host_header = "cp.cloudflare.com";
     let client = crate::hyper::build_hyper_client(
         &args.interface_config,
         1800,
@@ -207,9 +207,10 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
 
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),
-        use_https,
+        scheme: scheme.to_string(),
+        path: path.to_string(),
         allowed_codes,
-        host_header: host_header.to_string(),
+        host_header,
         global_client: Arc::new(client),
     };
 
