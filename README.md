@@ -45,7 +45,7 @@ curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
 ```
 
 ```bash
--f ip.txt -tn 3000 -dn 10 -sl 15 -tlr 0 -tls -url speed.cloudflare.com/__down?bytes=524288000
+-f ip.txt -tn 3000 -dn 10 -sl 15 -tlr 0 -httping https://cp.cloudflare.com/cdn-cgi/trace -url speed.cloudflare.com/__down?bytes=524288000
 ```
 
 > [!IMPORTANT]
@@ -83,10 +83,9 @@ curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
 
 | 参数 | 说明 | 示例 | 默认值 |
 |:-----|:-----|:-------|:-------|
-| `-httping` | 使用非 TLS 模式的 Httping | N/A | 否 |
+| `-httping` | 使用 HTTPing 测速并指定其地址 | N/A | 未指定 |
 | `-dd` | 禁用下载测速 | N/A | 否 |
 | `-hc` | 指定 HTTPing 的状态码 | 200,301,302 | 未指定 |
-| `-tls` | 使用 HTTPS 进行延迟测速 | N/A | 否 |
 | `-colo` | 匹配指定地区 | HKG,sjc | 未指定 |
 | `-n` | 延迟测速的线程数量 | N/A | 256 |
 | `-intf` | 绑定到指定的网络接口或 IP 进行测速 | eth0 or pppoe-ct | 未指定 |
