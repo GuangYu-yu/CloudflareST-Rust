@@ -1,12 +1,16 @@
-use std::net::SocketAddr;
-use std::time::Duration;
-use std::sync::Arc;
-use std::pin::Pin;
-use std::future::Future;
-use std::task::{Context, Poll};
+use std::{
+    future::Future,
+    net::SocketAddr,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
+use rustls_pki_types::ServerName;
 use hyper::{Method, Request, Response, Uri, body::Incoming};
-use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::Client as LegacyClient;
+use hyper_rustls::FixedServerNameResolver;
 use hyper_util::rt::TokioIo;
 use hyper_rustls::HttpsConnectorBuilder;
 use tokio::net::TcpStream;
@@ -36,15 +40,13 @@ impl hyper::body::Body for EmptyBody {
 
 #[derive(Clone)]
 pub(crate) struct ConnectorService {
-    addr: SocketAddr,
     interface_config: Arc<InterfaceParamResult>,
     timeout_duration: Duration,
 }
 
 impl ConnectorService {
-    fn new(addr: SocketAddr, interface_config: Arc<InterfaceParamResult>, timeout_ms: u64) -> Self {
+    pub(crate) fn new(interface_config: Arc<InterfaceParamResult>, timeout_ms: u64) -> Self {
         Self {
-            addr,
             interface_config,
             timeout_duration: Duration::from_millis(timeout_ms),
         }
@@ -60,12 +62,15 @@ impl Service<Uri> for ConnectorService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _uri: Uri) -> Self::Future {
-        let addr = self.addr;
+    fn call(&mut self, uri: Uri) -> Self::Future {
         let config = Arc::clone(&self.interface_config);
         let t_duration = self.timeout_duration;
 
         Box::pin(async move {
+            let addr: SocketAddr = format!("{}:{}", uri.host().unwrap(), uri.port_u16().unwrap())
+                .parse()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
             let socket = bind_socket_to_interface(addr, &config)
                 .await
                 .unwrap_or_else(|| {
@@ -77,13 +82,14 @@ impl Service<Uri> for ConnectorService {
                 .map_err(|_| "")? // 连接超时
                 .map_err(|_| "")?; // 连接失败
             
+            stream.set_nodelay(true).ok();
             Ok(TokioIo::new(stream))
         })
     }
 }
 
 pub(crate) type MyHttpsConnector = hyper_rustls::HttpsConnector<ConnectorService>;
-pub(crate) type MyHyperClient = Client<MyHttpsConnector, EmptyBody>;
+pub(crate) type MyHyperClient = LegacyClient<MyHttpsConnector, EmptyBody>;
 
 /// 浏览器 User-Agent
 pub(crate) const USER_AGENT: &str =
@@ -91,19 +97,29 @@ pub(crate) const USER_AGENT: &str =
 
 /// 构建 hyper 客户端
 pub(crate) fn build_hyper_client(
-    addr: SocketAddr,
     interface_config: &Arc<InterfaceParamResult>,
     timeout_ms: u64,
+    server_name: String,
 ) -> Option<MyHyperClient> {
-    let connector = ConnectorService::new(addr, Arc::clone(interface_config), timeout_ms);
+    let connector = ConnectorService::new(Arc::clone(interface_config), timeout_ms);
+
+    let resolver = FixedServerNameResolver::new(
+        ServerName::try_from(server_name).ok()?
+    );
 
     let https_connector = HttpsConnectorBuilder::new()
         .with_webpki_roots()
         .https_or_http()
+        .with_server_name_resolver(resolver)
         .enable_http1()
         .wrap_connector(connector);
 
-    Some(Client::builder(hyper_util::rt::TokioExecutor::new()).build(https_connector))
+    let client = LegacyClient::builder(hyper_util::rt::TokioExecutor::new())
+        .pool_max_idle_per_host(1)
+        .pool_idle_timeout(Duration::from_secs(1))
+        .build(https_connector);
+
+    Some(client)
 }
 
 /// 发送 HTTP 请求
@@ -125,7 +141,7 @@ pub(crate) async fn send_request(
     Ok(resp)
 }
 
-/// 统一的URI解析函数
+/// 统一的 URI 解析函数
 pub(crate) fn parse_url_to_uri(url_str: &str) -> Option<(Uri, String)> {
     let uri = url_str.parse::<Uri>().ok()?;
     let host = uri.host()?.to_string();

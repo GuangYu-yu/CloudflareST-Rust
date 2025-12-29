@@ -4,37 +4,36 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
 use std::time::Instant;
 use http::Method;
 
-use crate::hyper::{parse_url_to_uri, build_hyper_client, send_request};
+use crate::hyper::send_request;
 use crate::args::Args;
 use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing};
 use crate::pool::execute_with_rate_limit;
-use crate::interface::InterfaceParamResult;
 
 #[derive(Clone)]
 pub(crate) struct HttpingFactoryData {
     colo_filters: Arc<Vec<String>>,
     use_https: bool,
-    interface_config: Arc<InterfaceParamResult>,
     allowed_codes: Option<Arc<Vec<u16>>>,
+    host_header: String,
+    global_client: Arc<crate::hyper::MyHyperClient>,
 }
 
 impl common::PingMode for HttpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
-        const TRACE_URL_PATH: &str = "cp.cloudflare.com/cdn-cgi/trace";
-        let trace_url = format!("{}://{}", if self.use_https { "https" } else { "http" }, TRACE_URL_PATH);
-        let (uri, host_header) = parse_url_to_uri(&trace_url).unwrap();
+        let scheme = if self.use_https { "https" } else { "http" };
+        let path = "/cdn-cgi/trace";
 
         Arc::new(HttpingHandlerFactory {
             base: base.clone_to_arc(),
             colo_filters: Arc::clone(&self.colo_filters),
-            interface_config: Arc::clone(&self.interface_config),
             allowed_codes: self.allowed_codes.clone(),
-            uri,
-            host_header: host_header.into(),
+            scheme: scheme.to_string(),
+            host_header: self.host_header.clone().into(),
+            path: path.to_string(),
+            global_client: Arc::clone(&self.global_client),
         })
     }
 
@@ -50,8 +49,8 @@ struct PingTask {
     uri: http::Uri,
     colo_filters: Arc<Vec<String>>,
     allowed_codes: Option<Arc<Vec<u16>>>,
-    local_data_center: Arc<OnceLock<String>>,
-    should_continue: Arc<AtomicBool>,
+    should_continue: AtomicBool,
+    local_data_center: std::sync::OnceLock<String>,
 }
 
 impl PingTask {
@@ -96,8 +95,8 @@ impl PingTask {
                         self.should_continue.store(false, Ordering::SeqCst);
                         return None;
                     }
-                    let _ = self.local_data_center.set(dc);
-                }
+                let _ = self.local_data_center.set(dc);
+            }
                 Some(delay)
             }
             _ => None,
@@ -108,10 +107,11 @@ impl PingTask {
 pub(crate) struct HttpingHandlerFactory {
     base: Arc<BasePing>,
     colo_filters: Arc<Vec<String>>,
-    interface_config: Arc<InterfaceParamResult>,
     allowed_codes: Option<Arc<Vec<u16>>>,
-    uri: http::Uri,
+    scheme: String,
+    path: String,
     host_header: Arc<str>,
+    global_client: Arc<crate::hyper::MyHyperClient>,
 }
 
 impl HandlerFactory for HttpingHandlerFactory {
@@ -119,30 +119,24 @@ impl HandlerFactory for HttpingHandlerFactory {
         &self,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        // 克隆所需的引用
         let base = self.base.clone();
         let args = Arc::clone(&base.args);
         let colo_filters = Arc::clone(&self.colo_filters);
-        let interface_config = Arc::clone(&self.interface_config);
         let allowed_codes = self.allowed_codes.clone();
-        let uri = self.uri.clone();
+        
+        // 构造 URI
+        let uri: http::Uri = format!("{}://{}{}", self.scheme, addr, self.path).parse().unwrap();
+
         let host_header = Arc::clone(&self.host_header);
+        let global_client = Arc::clone(&self.global_client);
 
         Box::pin(async move {
             let ping_times = args.ping_times;
-            let should_continue = Arc::new(AtomicBool::new(true));
-            let local_data_center = Arc::new(OnceLock::new());
 
-            // 获取并使用绑定的网络接口信息
-            let client = match build_hyper_client(
-                addr,
-                &interface_config,
-                1800,
-            ) {
-                Some(client) => Arc::new(client),
-                None => return None,
-            };
+            // 克隆全局 Client
+            let client = Arc::clone(&global_client);
 
+            // 创建任务结构体（包含共享状态）
             let task = Arc::new(PingTask {
                 client,
                 args,
@@ -150,21 +144,26 @@ impl HandlerFactory for HttpingHandlerFactory {
                 uri,
                 colo_filters,
                 allowed_codes,
-                local_data_center: local_data_center.clone(),
-                should_continue: should_continue.clone(),
+                should_continue: AtomicBool::new(true),
+                local_data_center: std::sync::OnceLock::new(),
             });
 
-            let avg_delay = common::run_ping_loop(ping_times, 200, move || {
-                let task = task.clone();
-                Box::pin(async move { task.perform_ping().await })
+            let avg_delay = common::run_ping_loop(ping_times, 200, {
+                let task = Arc::clone(&task);
+                move || {
+                    let task = Arc::clone(&task);
+                    Box::pin(async move {
+                        task.perform_ping().await
+                    })
+                }
             }).await;
 
             // 如果因 Colo 不匹配而终止，则不返回结果
-            if !should_continue.load(Ordering::SeqCst) {
+            if !task.should_continue.load(Ordering::SeqCst) {
                 return None;
             }
 
-            let data_center = local_data_center.get().cloned();
+            let data_center = task.local_data_center.get().cloned();
             common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), data_center)
         })
     }
@@ -199,11 +198,19 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
 
     let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
 
+    let host_header = "cp.cloudflare.com";
+    let client = crate::hyper::build_hyper_client(
+        &args.interface_config,
+        1800,
+        host_header.to_string(),
+    ).unwrap();
+
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),
         use_https,
-        interface_config: Arc::clone(&args.interface_config),
         allowed_codes,
+        host_header: host_header.to_string(),
+        global_client: Arc::new(client),
     };
 
     Ok(CommonPing::new(base, factory_data))

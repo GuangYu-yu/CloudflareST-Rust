@@ -197,9 +197,9 @@ impl<'a> DownloadTest<'a> {
 
             // 执行下载测速
             let params = DownloadHandlerParams {
-                addr: ping_result.addr,
                 uri: uri.clone(),
                 host,
+                addr: ping_result.addr,
                 download_duration: self.args.timeout_duration.unwrap(),
                 current_speed: Arc::clone(&self.current_speed),
                 need_colo,
@@ -267,9 +267,9 @@ impl<'a> DownloadTest<'a> {
 
 // 下载测速参数结构体
 struct DownloadHandlerParams<'a> {
-    addr: SocketAddr,
     uri: http::Uri,
     host: &'a str,
+    addr: SocketAddr,
     download_duration: Duration,
     current_speed: Arc<AtomicU32>,
     need_colo: bool,
@@ -291,28 +291,33 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
 
     // 创建客户端进行下载测速
     let client = match hyper::build_hyper_client(
-        params.addr,
         params.interface_config,
         TTFB_TIMEOUT_MS,
+        params.host.to_string(),
     ) {
         Some(client) => client,
         None => return (None, None),
     };
 
+    // 构造使用 IP 的 URI
+    let uri = format!("{}://{}{}", params.uri.scheme_str().unwrap(), params.addr, params.uri.path()).parse().unwrap_or_else(|_| params.uri.clone());
+
     // 创建下载处理器
     let mut handler = DownloadHandler::new(params.current_speed.clone());
 
     // 发送GET请求
-    let response = hyper::send_request(
+    let Ok(resp) = hyper::send_request(
         &client, 
         params.host, 
-        params.uri,
+        uri,
         Method::GET,
         TTFB_TIMEOUT_MS
-    ).await.ok();
+    ).await else {
+        return (None, None);
+    };
 
-    // 如果获取到响应，开始下载
-    let avg_speed = if let Some(resp) = response {
+    // 获取到响应，开始下载
+    let avg_speed = {
         // 如果需要获取数据中心信息，从响应头中提取
         if params.need_colo {
             data_center = common::extract_data_center(&resp);
@@ -378,8 +383,6 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
                 None
             }
         })
-    } else {
-        None
     };
 
     (avg_speed, data_center)
