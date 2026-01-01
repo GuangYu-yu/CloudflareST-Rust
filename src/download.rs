@@ -189,19 +189,25 @@ impl<'a> DownloadTest<'a> {
             let need_colo = ping_result.data_center.is_empty();
 
             // 执行下载测速
-            let params = DownloadHandlerParams {
+            let conn = DownloadConnection {
                 uri: uri.clone(),
                 host,
                 addr: ping_result.addr,
-                download_duration: self.args.timeout_duration.unwrap(),
-                current_speed: Arc::clone(&self.current_speed),
-                need_colo,
-                timeout_flag: Arc::clone(&self.timeout_flag),
-                colo_filters: Arc::clone(&colo_filters),
                 interface_config: &self.args.interface_config,
             };
             
-            let (speed, maybe_colo) = download_handler(params).await;
+            let behavior = DownloadBehavior {
+                duration: self.args.timeout_duration.unwrap(),
+                need_colo,
+                colo_filters: Arc::clone(&colo_filters),
+            };
+            
+            let context = DownloadContext {
+                current_speed: Arc::clone(&self.current_speed),
+                timeout_flag: Arc::clone(&self.timeout_flag),
+            };
+            
+            let (speed, maybe_colo) = download_handler(conn, behavior, &context).await;
 
             // 更新下载速度和可能的数据中心信息
             ping_result.download_speed = speed;
@@ -258,50 +264,63 @@ impl<'a> DownloadTest<'a> {
     }
 }
 
-// 下载测速参数结构体
-struct DownloadHandlerParams<'a> {
-    uri: http::Uri,
-    host: &'a str,
-    addr: SocketAddr,
-    download_duration: Duration,
-    current_speed: Arc<AtomicU32>,
-    need_colo: bool,
-    timeout_flag: Arc<AtomicBool>,
-    colo_filters: Arc<Vec<String>>,
-    interface_config: &'a Arc<crate::interface::InterfaceParamResult>,
+pub(crate) struct DownloadConnection<'a> {
+    pub uri: http::Uri,
+    pub host: &'a str,
+    pub addr: SocketAddr,
+    pub interface_config: &'a Arc<crate::interface::InterfaceParamResult>,
+}
+
+pub(crate) struct DownloadBehavior {
+    pub duration: Duration,
+    pub need_colo: bool,
+    pub colo_filters: Arc<Vec<String>>,
+}
+
+pub(crate) struct DownloadContext {
+    pub current_speed: Arc<AtomicU32>,
+    pub timeout_flag: Arc<AtomicBool>,
 }
 
 // 下载测速处理函数
-async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Option<String>) {
+async fn download_handler(
+    conn: DownloadConnection<'_>,
+    behavior: DownloadBehavior,
+    context: &DownloadContext,
+) -> (Option<f32>, Option<String>) {
+    // 解构参数，提高代码可读性
+    let DownloadConnection { uri, host, addr, interface_config } = conn;
+    let DownloadBehavior { duration: download_duration, need_colo, colo_filters } = behavior;
+    
     // 在每次新的下载开始前重置速度为0
-    params.current_speed.store(0, Ordering::Relaxed);
+    context.current_speed.store(0, Ordering::Relaxed);
 
     let mut data_center = None;
 
     // 定义连接和TTFB的超时
     let warm_up_duration = Duration::from_secs(WARM_UP_DURATION_SECS);
-    let extended_duration = params.download_duration + warm_up_duration;
+    let extended_duration = download_duration + warm_up_duration;
 
     // 创建客户端进行下载测速
     let client = match hyper::build_hyper_client(
-        params.interface_config,
+        interface_config,
         TTFB_TIMEOUT_MS,
-        params.host.to_string(),
+        host.to_string(),
     ) {
         Some(client) => client,
         None => return (None, None),
     };
 
     // 构造使用 IP 的 URI
-    let uri = format!("{}://{}{}", params.uri.scheme_str().unwrap(), params.addr, params.uri.path()).parse().unwrap_or_else(|_| params.uri.clone());
+    let uri = format!("{}://{}{}", uri.scheme_str().unwrap(), addr, uri.path()).parse().unwrap_or_else(|_| uri.clone());
 
     // 创建下载处理器
-    let mut handler = DownloadHandler::new(params.current_speed.clone());
+    let mut handler = DownloadHandler::new(context.current_speed.clone());
 
     // 发送GET请求
     let Ok(resp) = hyper::send_request(
         &client, 
-        params.host, 
+        host, 
         uri,
         Method::GET,
         TTFB_TIMEOUT_MS
@@ -312,7 +331,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
     // 获取到响应，开始下载
     let avg_speed = {
         // 如果需要获取数据中心信息，从响应头中提取
-        if params.need_colo {
+        if need_colo {
             data_center = common::extract_data_center(&resp);
             // 如果没有提取到数据中心信息，直接返回None
             if data_center.is_none() {
@@ -320,7 +339,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
             }
             // 如果数据中心不符合要求，速度返回None，数据中心正常返回
             if let Some(dc) = &data_center
-                && !params.colo_filters.is_empty() && !common::is_colo_matched(dc, &params.colo_filters) {
+                && !colo_filters.is_empty() && !common::is_colo_matched(dc, &colo_filters) {
                 return (None, data_center);
             }
         }
@@ -337,7 +356,7 @@ async fn download_handler(params: DownloadHandlerParams<'_>) -> (Option<f32>, Op
         loop {
             // 检查是否应该继续下载
             let elapsed = time_start.elapsed();
-            if elapsed >= extended_duration || params.timeout_flag.load(Ordering::SeqCst) {
+            if elapsed >= extended_duration || context.timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
 

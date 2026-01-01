@@ -78,22 +78,27 @@ pub(crate) fn process_interface_param(interface: &str) -> InterfaceParamResult {
         .or_else(|_| interface.parse::<IpAddr>().map(ParsedInterface::Ip))
         .unwrap_or_else(|_| ParsedInterface::Name(interface.to_string()));
     
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let default_name = None;
+    #[cfg(target_os = "windows")] 
+    let default_interface_index = None;
+    
     match parsed { 
         ParsedInterface::SocketAddr(addr) => InterfaceParamResult { 
             interface_ips: Some(interface_ips_from_ip(addr.ip(), Some(addr.port()))), 
             is_valid_interface: true, 
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            name: None,
+            name: default_name,
             #[cfg(target_os = "windows")]
-            interface_index: None,
+            interface_index: default_interface_index,
         }, 
         ParsedInterface::Ip(ip) => InterfaceParamResult { 
             interface_ips: Some(interface_ips_from_ip(ip, None)), 
             is_valid_interface: true, 
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            name: None,
+            name: default_name,
             #[cfg(target_os = "windows")]
-            interface_index: None,
+            interface_index: default_interface_index,
         }, 
         ParsedInterface::Name(name) => {
             // 验证接口名是否有效

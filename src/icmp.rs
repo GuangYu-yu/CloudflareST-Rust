@@ -22,7 +22,7 @@ pub(crate) struct IcmpingFactoryData {
 impl PingMode for IcmpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(IcmpingHandlerFactory {
-            base: base.clone_to_arc(),
+            base: Arc::new(base.clone()),
             client_v4: Arc::clone(&self.client_v4),
             client_v6: Arc::clone(&self.client_v6),
         })
@@ -72,7 +72,9 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     // 打印开始延迟测试的信息
     common::print_speed_test_info("ICMP-Ping", &args);
 
-    let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
+    let base = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
+    });
 
     let client_v4 = Arc::new(Client::new(&Config::default())?);
     let client_v6 = Arc::new(Client::new(&Config::builder().kind(ICMP::V6).build())?);

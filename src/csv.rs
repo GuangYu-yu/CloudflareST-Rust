@@ -1,5 +1,5 @@
 use crate::args::Args;
-use crate::common::{PingData, PingDataRef};
+use crate::common::PingData;
 use crate::info_println;
 use std::io::Write as IoWrite;
 
@@ -40,8 +40,8 @@ pub(crate) fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dy
 
     // 写入数据
     for result in results {
-        let mut record = ping_data_to_fields(&result.as_ref());
-        record[0] = result.as_ref().display_addr(args.show_port);
+        let mut record = ping_data_to_fields(result);
+        record[0] = result.display_addr(args.show_port);
         write_csv_line(&mut file, &record)?;
     }
 
@@ -71,8 +71,7 @@ impl PrintResult for Vec<PingData> {
         let rows: Vec<Vec<String>> = self.iter()
             .take(print_num)
             .map(|r| {
-                let r = r.as_ref();
-                ping_data_to_fields(&r)
+                ping_data_to_fields(r)
                     .into_iter()
                     .enumerate()
                     .map(|(i, f)| {
@@ -122,8 +121,8 @@ impl PrintResult for Vec<PingData> {
     }
 }
 
-/// 将 PingDataRef 转换为通用数据格式
-fn ping_data_to_fields(data: &PingDataRef) -> Vec<String> {
+/// 将 PingData 转换为通用数据格式
+fn ping_data_to_fields(data: &PingData) -> Vec<String> {
     vec![
         data.addr.to_string(),
         data.sent.to_string(),

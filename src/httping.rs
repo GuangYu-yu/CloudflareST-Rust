@@ -25,7 +25,7 @@ pub(crate) struct HttpingFactoryData {
 impl common::PingMode for HttpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(HttpingHandlerFactory {
-            base: base.clone_to_arc(),
+            base: Arc::new(base.clone()),
             colo_filters: Arc::clone(&self.colo_filters),
             allowed_codes: self.allowed_codes.clone(),
             scheme: self.scheme.clone(),
@@ -197,7 +197,9 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     let mode_name = "HTTPing";
     common::print_speed_test_info(mode_name, &args);
 
-    let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
+    let base = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
+    });
 
     let client = crate::hyper::build_hyper_client(
         &args.interface_config,

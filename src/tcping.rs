@@ -19,7 +19,7 @@ pub(crate) struct TcpingFactoryData {
 impl PingMode for TcpingFactoryData {
     fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
         Arc::new(TcpingHandlerFactory {
-            base: base.clone_to_arc(),
+            base: Arc::new(base.clone()),
             interface_config: Arc::clone(&self.interface_config),
         })
     }
@@ -67,7 +67,9 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     // 打印开始延迟测试的信息
     common::print_speed_test_info("Tcping", &args);
 
-    let base = common::create_base_ping_blocking(Arc::clone(&args), sources, timeout_flag);
+    let base = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
+    });
 
     let factory_data = TcpingFactoryData {
         interface_config: Arc::clone(&args.interface_config),

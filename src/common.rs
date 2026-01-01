@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use hyper::Response as HyperResponse;
 
 // 定义通用的 PingData 结构体
+#[derive(Clone)]
 pub(crate) struct PingData {
     pub(crate) addr: SocketAddr,
     pub(crate) sent: u16,
@@ -19,28 +20,6 @@ pub(crate) struct PingData {
     pub(crate) delay: f32,
     pub(crate) download_speed: Option<f32>,
     pub(crate) data_center: String,
-}
-
-pub(crate) struct PingDataRef<'a> {
-    pub(crate) addr: &'a SocketAddr,
-    pub(crate) sent: u16,
-    pub(crate) received: u16,
-    pub(crate) delay: f32,
-    pub(crate) download_speed: Option<f32>,
-    pub(crate) data_center: &'a str,
-}
-
-impl<'a> From<&'a PingData> for PingDataRef<'a> {
-    fn from(data: &'a PingData) -> Self {
-        PingDataRef {
-            addr: &data.addr,
-            sent: data.sent,
-            received: data.received,
-            delay: data.delay,
-            download_speed: data.download_speed,
-            data_center: &data.data_center,
-        }
-    }
 }
 
 impl PingData {
@@ -55,12 +34,6 @@ impl PingData {
         }
     }
 
-    pub(crate) fn as_ref(&self) -> PingDataRef<'_> {
-        PingDataRef::from(self)
-    }
-}
-
-impl<'a> PingDataRef<'a> {
     pub(crate) fn loss_rate(&self) -> f32 {
         if self.sent == 0 {
             return 0.0;
@@ -117,16 +90,18 @@ impl BasePing {
             tested_count,
         }
     }
+}
 
-    pub(crate) fn clone_to_arc(&self) -> Arc<Self> {
-        Arc::new(Self {
+impl Clone for BasePing {
+    fn clone(&self) -> Self {
+        Self {
             ip_buffer: Arc::clone(&self.ip_buffer),
             bar: Arc::clone(&self.bar),
             args: Arc::clone(&self.args),
             success_count: Arc::clone(&self.success_count),
             timeout_flag: Arc::clone(&self.timeout_flag),
             tested_count: Arc::clone(&self.tested_count),
-        })
+        }
     }
 }
 
@@ -214,12 +189,6 @@ impl Clone for Box<dyn PingMode> {
     fn clone(&self) -> Box<dyn PingMode> {
         (**self).clone_box()
     }
-}
-
-pub(crate) fn create_base_ping_blocking(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> BasePing {
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(create_base_ping(Arc::clone(&args), sources, timeout_flag))
-    })
 }
 
 pub(crate) fn build_ping_data_result(addr: SocketAddr, ping_times: u16, avg_delay_ms: f32, data_center: Option<String>) -> Option<PingData> {
@@ -342,12 +311,10 @@ pub(crate) fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> boo
 
 /// 判断测试结果是否符合筛选条件
 pub(crate) fn should_keep_result(data: &PingData, args: &Args) -> bool {
-    let data_ref = data.as_ref();
-    
     // 检查丢包率和延迟上下限
-    data_ref.loss_rate() <= args.max_loss_rate
-        && data_ref.delay >= args.min_delay.as_millis() as f32
-        && data_ref.delay <= args.max_delay.as_millis() as f32
+    data.loss_rate() <= args.max_loss_rate
+        && data.delay >= args.min_delay.as_millis() as f32
+        && data.delay <= args.max_delay.as_millis() as f32
 }
 
 /// 排序结果
@@ -359,11 +326,10 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
     let (total_count, total_speed, total_loss, total_delay) = {
         let count = results.len() as f32;
         let (speed, loss, delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, d| {
-            let d_ref = d.as_ref();
             (
-                acc.0 + d_ref.download_speed.unwrap_or(0.0),
-                acc.1 + d_ref.loss_rate(),
-                acc.2 + d_ref.delay,
+                acc.0 + d.download_speed.unwrap_or(0.0),
+                acc.1 + d.loss_rate(),
+                acc.2 + d.delay,
             )
         });
         (count, speed, loss, delay)
@@ -377,10 +343,9 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
 
     // 计算分数
     let score = |d: &PingData| {
-        let d_ref = d.as_ref();
-        let speed = d_ref.download_speed.unwrap_or(0.0);
-        let loss = d_ref.loss_rate();
-        let delay = d_ref.delay;
+        let speed = d.download_speed.unwrap_or(0.0);
+        let loss = d.loss_rate();
+        let delay = d.delay;
 
         if has_speed {
             (speed - avg_speed) * 0.5 + (delay - avg_delay) * -0.2 + (loss - avg_loss) * -0.3
