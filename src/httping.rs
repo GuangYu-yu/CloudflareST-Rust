@@ -42,7 +42,7 @@ impl common::PingMode for HttpingFactoryData {
 
 struct PingTask {
     client: Arc<crate::hyper::MyHyperClient>,
-    args: Arc<Args>,
+    httping_cf_colo: Arc<str>,
     host_header: Arc<str>,
     uri: http::Uri,
     colo_filters: Arc<Vec<String>>,
@@ -89,7 +89,7 @@ impl PingTask {
             Ok(Some((delay, dc))) => {
                 if self.local_data_center.get().is_none() {
                     // 检查数据中心（Colo）是否符合过滤要求
-                    if !self.args.httping_cf_colo.is_empty() && !common::is_colo_matched(&dc, &self.colo_filters) {
+                    if !self.httping_cf_colo.is_empty() && !common::is_colo_matched(&dc, &self.colo_filters) {
                         self.should_continue.store(false, Ordering::Relaxed);
                         return None;
                     }
@@ -137,7 +137,7 @@ impl HandlerFactory for HttpingHandlerFactory {
             // 创建任务结构体（包含共享状态）
             let task = Arc::new(PingTask {
                 client,
-                args,
+                httping_cf_colo: Arc::from(args.httping_cf_colo.as_str()),
                 host_header: Arc::clone(&host_header),
                 uri,
                 colo_filters,
