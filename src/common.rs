@@ -53,8 +53,7 @@ impl PingData {
 // 打印测速信息的通用函数
 pub(crate) fn print_speed_test_info(mode: &str, args: &Args) {
     println!(
-        "开始延迟测速（模式：{}, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2})",
-        mode,
+        "开始延迟测速（模式：{mode}, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2})",
         args.tcp_port,
         args.min_delay.as_millis(),
         args.max_delay.as_millis(),
