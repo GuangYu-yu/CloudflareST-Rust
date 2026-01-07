@@ -6,8 +6,7 @@ use std::thread;
 
 // 定义统一的错误、信息和警告输出函数
 pub(crate) fn error_println(args: std::fmt::Arguments<'_>) {
-    // 红色加粗
-    eprintln!("\x1b[31;1m[错误]\x1b[0m {}", args);
+    eprintln!("\x1b[31;1m[错误]\x1b[0m {args}");
 }
 
 pub(crate) fn error_and_exit(args: std::fmt::Arguments<'_>) -> ! {
@@ -16,13 +15,11 @@ pub(crate) fn error_and_exit(args: std::fmt::Arguments<'_>) -> ! {
 }
 
 pub(crate) fn info_println(args: std::fmt::Arguments<'_>) {
-    // 青色加粗
-    println!("\x1b[36;1m[信息]\x1b[0m {}", args);
+    println!("\x1b[36;1m[信息]\x1b[0m {args}");
 }
 
 pub(crate) fn warning_println(args: std::fmt::Arguments<'_>) {
-    // 黄色加粗
-    println!("\x1b[33;1m[警告]\x1b[0m {}", args);
+    println!("\x1b[33;1m[警告]\x1b[0m {args}");
 }
 
 mod args;
@@ -60,8 +57,7 @@ async fn main() {
     // 设置全局超时
     if let Some(timeout) = args.global_timeout_duration {
         info_println(format_args!(
-            "程序执行时间超过 {:?} 后，将提前结算结果并退出",
-            timeout
+            "程序执行时间超过 {timeout:?} 后，将提前结算结果并退出"
         ));
         let timeout_flag_clone = Arc::clone(&timeout_flag);
         thread::spawn(move || {
@@ -99,7 +95,7 @@ async fn main() {
         } else {
             "延迟测速结果为空，跳过下载测速"
         };
-        info_println(format_args!("{}", reason));
+        info_println(format_args!("{reason}"));
         ping_result
     } else {
         // 创建可变下载测速实例
@@ -114,8 +110,8 @@ async fn main() {
     // 输出文件
     if let Some(output_file) = &args.output && !ping_data.is_empty() {
         match csv::export_csv(&ping_data, &args) {
-            Ok(_) => info_println(format_args!("测速结果已写入 {} 文件，可使用记事本/表格软件查看", output_file)),
-            Err(e) => info_println(format_args!("导出 CSV 失败: {:?}", e)),
+            Ok(_) => info_println(format_args!("测速结果已写入 {output_file} 文件，可使用记事本/表格软件查看")),
+            Err(e) => info_println(format_args!("导出 CSV 失败: {e:?}")),
         }
     }
 

@@ -242,7 +242,7 @@ impl<'a> DownloadTest<'a> {
             }
 
             // 生成消息（合格数|已测数）
-            let message = format!("{}|{}", qualified_len, tested_count);
+            let message = format!("{qualified_len}|{tested_count}");
             bar.update(tested_count, message, "");
         }
 

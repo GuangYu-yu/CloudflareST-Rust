@@ -172,7 +172,7 @@ impl Args {
 
                         // 检查参数是否有效（既不是IP也不是有效的接口名）
                         if !parsed.interface_config.is_valid_interface {
-                            error_and_exit(format_args!("无效的绑定: {}", interface));
+                            error_and_exit(format_args!("无效的绑定: {interface}"));
                         }
                     }
                 }
@@ -234,9 +234,9 @@ pub(crate) fn parse_args() -> Args {
             std::fs::OpenOptions::new().write(true).open(output_path).unwrap_or_else(|e| {
                 let msg = match e.raw_os_error() {
                     Some(32) => format!("输出文件 '{}' 正被其他程序占用", output_path.display()),
-                    _ => format!("无法写入输出文件 '{}': {}", output_path.display(), e),
+                    _ => format!("无法写入输出文件 '{}': {e}", output_path.display()),
                 };
-                error_and_exit(format_args!("{}", msg));
+                error_and_exit(format_args!("{msg}"));
             });
         }
     }
