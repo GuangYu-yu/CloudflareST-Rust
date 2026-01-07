@@ -89,6 +89,13 @@ impl Args {
         value_opt.map_or(default, |s| s.parse().unwrap_or(default))
     }
 
+    // 赋值字符串
+    fn assign_string(target: &mut String, value_opt: Option<String>) {
+        if let Some(v) = value_opt {
+            *target = v;
+        }
+    }
+
     /// 解析命令行参数
     pub(crate) fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
@@ -152,11 +159,11 @@ impl Args {
                     parsed.min_delay = Duration::from_millis(Self::parse_or::<u64>(v_opt, parsed.min_delay.as_millis().try_into().unwrap()).clamp(0, max_allowed));
                 }
                 // 字符串参数
-                "url" => if let Some(v) = v_opt { parsed.url = v; },
-                "hc" => if let Some(v) = v_opt { parsed.httping_code = v; },
-                "colo" => if let Some(v) = v_opt { parsed.httping_cf_colo = v; },
-                "f" => if let Some(v) = v_opt { parsed.ip_file = v; },
-                "ip" => if let Some(v) = v_opt { parsed.ip_text = v; },
+                "url" => Self::assign_string(&mut parsed.url, v_opt),
+                "hc" => Self::assign_string(&mut parsed.httping_code, v_opt),
+                "colo" => Self::assign_string(&mut parsed.httping_cf_colo, v_opt),
+                "f" => Self::assign_string(&mut parsed.ip_file, v_opt),
+                "ip" => Self::assign_string(&mut parsed.ip_text, v_opt),
                 "o" => parsed.output = v_opt,
                 "intf" => {
                     if let Some(ref interface) = v_opt {
