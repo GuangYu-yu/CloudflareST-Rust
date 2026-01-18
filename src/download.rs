@@ -101,6 +101,7 @@ pub(crate) struct DownloadTest<'a> {
     colo_filter: Arc<Vec<String>>,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
+    client: crate::hyper::MyHyperClient,
 }
 
 impl<'a> DownloadTest<'a> {
@@ -127,6 +128,13 @@ impl<'a> DownloadTest<'a> {
             ping_results.len()
         );
 
+        // 预先构建 Client
+        let client = crate::hyper::build_hyper_client(
+            &args.interface_config,
+            TTFB_TIMEOUT_MS,
+            host.to_string(),
+        ).unwrap();
+
         Self {
             args,
             uri,
@@ -136,6 +144,7 @@ impl<'a> DownloadTest<'a> {
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
+            client,
         }
     }
 
@@ -193,7 +202,6 @@ impl<'a> DownloadTest<'a> {
                 uri: uri.clone(),
                 host,
                 addr: ping_result.addr,
-                interface_config: &self.args.interface_config,
             };
             
             let behavior = DownloadBehavior {
@@ -207,7 +215,7 @@ impl<'a> DownloadTest<'a> {
                 timeout_flag: Arc::clone(&self.timeout_flag),
             };
             
-            let (speed, maybe_colo) = download_handler(conn, behavior, &context).await;
+            let (speed, maybe_colo) = download_handler(conn, behavior, &context, &self.client).await;
 
             // 更新下载速度和可能的数据中心信息
             ping_result.download_speed = speed;
@@ -268,7 +276,6 @@ pub(crate) struct DownloadConnection<'a> {
     pub uri: http::Uri,
     pub host: &'a str,
     pub addr: SocketAddr,
-    pub interface_config: &'a Arc<crate::interface::InterfaceParamResult>,
 }
 
 pub(crate) struct DownloadBehavior {
@@ -287,9 +294,10 @@ async fn download_handler(
     conn: DownloadConnection<'_>,
     behavior: DownloadBehavior,
     context: &DownloadContext,
+    client: &crate::hyper::MyHyperClient,
 ) -> (Option<f32>, Option<String>) {
     // 解构参数，提高代码可读性
-    let DownloadConnection { uri, host, addr, interface_config } = conn;
+    let DownloadConnection { uri, host, addr } = conn;
     let DownloadBehavior { duration: download_duration, need_colo, colo_filters } = behavior;
     
     // 在每次新的下载开始前重置速度为0
@@ -301,16 +309,6 @@ async fn download_handler(
     let warm_up_duration = Duration::from_secs(WARM_UP_DURATION_SECS);
     let extended_duration = download_duration + warm_up_duration;
 
-    // 创建客户端进行下载测速
-    let client = match hyper::build_hyper_client(
-        interface_config,
-        TTFB_TIMEOUT_MS,
-        host.to_string(),
-    ) {
-        Some(client) => client,
-        None => return (None, None),
-    };
-
     // 构造使用 IP 的 URI
     let uri = format!("{}://{}{}", uri.scheme_str().unwrap(), addr, uri.path()).parse().unwrap_or_else(|_| uri.clone());
 
@@ -319,7 +317,7 @@ async fn download_handler(
 
     // 发送GET请求
     let Ok(resp) = hyper::send_request(
-        &client, 
+        client, 
         host, 
         uri,
         Method::GET,
