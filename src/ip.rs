@@ -258,7 +258,7 @@ impl IpBuffer {
                 return None;
             }
 
-            self.reading_threads.fetch_add(1, Ordering::Acquire);
+            self.reading_threads.fetch_add(1, Ordering::SeqCst);
 
             let ptr = self.segments.load(Ordering::Acquire);
             if ptr.is_null() {
@@ -312,7 +312,7 @@ impl IpBuffer {
         if self.segments.compare_exchange(
             old_ptr,
             new_ptr,
-            Ordering::AcqRel,
+            Ordering::SeqCst,
             Ordering::Relaxed
         ).is_ok() {
             while self.reading_threads.load(Ordering::Acquire) > 0 {
