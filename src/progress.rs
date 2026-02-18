@@ -2,10 +2,10 @@ use std::{
     fmt::Write as FmtWrite,
     io::{self, stdout, Write},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
     },
-    thread::{self, JoinHandle},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -17,13 +17,13 @@ const SATURATION_BASE: f64 = 0.6;
 const REFRESH_INTERVAL_MS: u64 = 40;
 
 struct TextData {
+    pos: usize,
     msg: String,
     prefix: String,
 }
 
 struct BarInner {
-    pos: AtomicUsize,
-    text: Mutex<TextData>,
+    text: RwLock<Arc<TextData>>,
     is_done: AtomicBool,
     total: usize,
     start_str: String,
@@ -32,7 +32,6 @@ struct BarInner {
 
 pub(crate) struct Bar {
     inner: Arc<BarInner>,
-    handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl BarInner {
@@ -58,8 +57,12 @@ impl BarInner {
         bar_str: &mut String,
         output_buffer: &mut String,
     ) {
-        let current_pos = self.pos.load(Ordering::Relaxed);
-        let text = self.text.lock().unwrap();
+        let text_snapshot = {
+            let guard = self.text.read().unwrap();
+            Arc::clone(&*guard)
+        };
+
+        let current_pos = text_snapshot.pos;
 
         bar_str.clear();
         output_buffer.clear();
@@ -132,7 +135,7 @@ impl BarInner {
         let _ = write!(
             output_buffer,
             "\r\x1b[K\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
-            text.msg, bar_str, self.start_str, text.prefix, self.end_str
+            text_snapshot.msg, bar_str, self.start_str, text_snapshot.prefix, self.end_str
         );
 
         if let Err(e) = stdout_handle.write_all(output_buffer.as_bytes())
@@ -147,11 +150,11 @@ impl BarInner {
 impl Bar {
     pub(crate) fn new(count: usize, start_str: &str, end_str: &str) -> Self {
         let inner = Arc::new(BarInner {
-            pos: AtomicUsize::new(0),
-            text: Mutex::new(TextData {
+            text: RwLock::new(Arc::new(TextData {
+                pos: 0,
                 msg: String::new(),
                 prefix: String::new(),
-            }),
+            })),
             is_done: AtomicBool::new(false),
             total: count.max(1),
             start_str: start_str.to_string(),
@@ -159,42 +162,49 @@ impl Bar {
         });
 
         let inner_clone = Arc::clone(&inner);
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             inner_clone.run_render_loop();
         });
 
-        Self {
-            inner,
-            handle: Mutex::new(Some(handle)),
-        }
+        Self { inner }
     }
 
     pub(crate) fn update(&self, pos: usize, msg: impl Into<String>, suffix: impl Into<String>) {
         if self.inner.is_done.load(Ordering::Relaxed) { return; }
 
-        self.inner.pos.store(pos, Ordering::Relaxed);
+        let new_data = Arc::new(TextData {
+            pos,
+            msg: msg.into(),
+            prefix: suffix.into(),
+        });
 
-        let mut text = self.inner.text.lock().unwrap();
-        text.msg = msg.into();
-        text.prefix = suffix.into();
+        if let Ok(mut guard) = self.inner.text.write() {
+            *guard = new_data;
+        }
     }
 
     pub(crate) fn set_suffix(&self, suffix: impl Into<String>) {
         if self.inner.is_done.load(Ordering::Relaxed) { return; }
 
-        let mut text = self.inner.text.lock().unwrap();
-        text.prefix = suffix.into();
+        if let Ok(mut guard) = self.inner.text.write() {
+            let current = &**guard;
+            *guard = Arc::new(TextData {
+                pos: current.pos,
+                msg: current.msg.clone(),
+                prefix: suffix.into(),
+            });
+        }
     }
 
     pub(crate) fn done(&self) {
         if self.inner.is_done.load(Ordering::Acquire) { return; }
-        
+
         self.inner.is_done.store(true, Ordering::Release);
-        
-        if let Some(h) = self.handle.lock().unwrap().take() {
-            let _ = h.join();
+
+        while Arc::strong_count(&self.inner) > 1 {
+            thread::yield_now();
         }
-        
+
         let _ = stdout().flush();
     }
 }
