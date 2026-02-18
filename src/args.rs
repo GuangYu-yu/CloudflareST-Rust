@@ -57,7 +57,7 @@ impl Args {
             ping_times: 4,
             tcp_port: 443,
             url: String::new(),
-            httping: String::new(),
+            httping: "http://cp.cloudflare.com/cdn-cgi/trace".to_string(),
             httping_code: String::new(),
             httping_cf_colo: String::new(),
             max_delay: Duration::from_millis(2000),
@@ -331,7 +331,7 @@ pub(crate) fn print_help() {
 
         // 控制参数
         ("", "控制参数", ""), // 标记标题
-        ("-httping", "使用 HTTPing 测速并指定其地址", "未指定"),
+        ("-httping", "使用 HTTPing 测速并指定其地址", "http://cp.cloudflare.com/cdn-cgi/trace"),
         #[cfg(feature = "icmp")]
         ("-ping", "使用 ICMP Ping 进行延迟测速", "否"),
         ("-dd", "禁用下载测速", "否"),
