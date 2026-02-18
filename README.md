@@ -1,43 +1,4 @@
 <div align="center">
-
-# CloudflareST-Rust
-
-**对 [XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 使用 Rust 重写**
-
-![Rust Version](https://img.shields.io/badge/rustc-latest-orange?style=flat-square&logo=rust)
-[![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/GuangYu-yu/CloudflareST-Rust)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/GuangYu-yu/CloudflareST-Rust)
-[![ReadmeX](https://raw.githubusercontent.com/CodePhiliaX/resource-trusteeship/main/readmex.svg)](https://readmex.com/GuangYu-yu/CloudflareST-Rust)
-<p align="center">
-  <img src="https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/main/badges/star.svg" height="24">
-  <img src="https://raw.githubusercontent.com/GuangYu-yu/CloudflareST-Rust/main/badges/fork.svg" height="24">
-</p>
-
-**⚠️ 警告：工具仅用于简单的网络测速，造成的一切后果自负**
-
-</div>
-
-## 📝 使用建议
-
-- 建议从大范围 CIDR 中指定较大测速数量，并使用 `-tn` 参数
-  - 例如：`-ip 2606:4700::/48=1000 -tn 300`
-  - 含义是：对 2606:4700::/48 最多测速 1000 个随机 IP，并在延迟测速到 300 个可用 IP 后直接进行下一步
-- 因为采取了流式处理，每个 IP 都实时生成、测速并过滤，内存中始终只有符合要求的结果
-
-## 📊 测速结果示例
-
-<img width="780" height="380" alt="演示图" src="https://gitee.com/zhxdcyy/CloudflareST-Rust/raw/master/演示.png" />
-
-> 这里 `x|y` 的含义是已进行下载测速 y 个，获取到 x 个符合要求的结果
-
-## ✨ 功能特点
-
-- 📊 下载测速期间，显示实时速度
-- ⚡ IP 的生成和测速都是流式处理的，对 CIDR 依据采样数量均匀分割
-- 🔌 优先使用指定端口测速，例如：`-ip [2606:4700::]:8080,104.16.0.0:80`
-- 🌐 支持绑定到指定 IP 或接口名进行测速（`-intf`）
-- ⏱️ 支持给程序限制运行时间，超时后立即结算结果并退出（`-timeout`）
-
 ## 🚀 示例命令
 
 ```bash
@@ -50,7 +11,7 @@ curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
 
 > [!IMPORTANT]
 >- `speed.cloudflare.com` 不允许非 TLS 的 HTTP 下载测速，需自建测速地址
->- -hu 参数指定 HTTPS 延迟测速的 URL 地址，如果不带值则与下载测速共用地址
+>- 慎用 IPv4 + HTTPSing 组合，可能会触发限制
 >- 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
 >- 多网卡情况下，使用 -intf 参数会被策略路由影响效果
 >- 注意队列数量和实时下载速度，设置合理的筛选条件
