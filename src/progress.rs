@@ -3,7 +3,7 @@ use std::{
     io::{self, stdout, Write},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
@@ -23,7 +23,7 @@ struct TextData {
 }
 
 struct BarInner {
-    text: RwLock<Arc<TextData>>,
+    text: Mutex<Arc<TextData>>,
     is_done: AtomicBool,
     total: usize,
     start_str: String,
@@ -58,7 +58,7 @@ impl BarInner {
         output_buffer: &mut String,
     ) {
         let text_snapshot = {
-            let guard = self.text.read().unwrap();
+            let guard = self.text.lock().unwrap();
             Arc::clone(&*guard)
         };
 
@@ -150,7 +150,7 @@ impl BarInner {
 impl Bar {
     pub(crate) fn new(count: usize, start_str: &str, end_str: &str) -> Self {
         let inner = Arc::new(BarInner {
-            text: RwLock::new(Arc::new(TextData {
+            text: Mutex::new(Arc::new(TextData {
                 pos: 0,
                 msg: String::new(),
                 prefix: String::new(),
@@ -178,7 +178,7 @@ impl Bar {
             prefix: suffix.into(),
         });
 
-        if let Ok(mut guard) = self.inner.text.write() {
+        if let Ok(mut guard) = self.inner.text.lock() {
             *guard = new_data;
         }
     }
@@ -186,7 +186,7 @@ impl Bar {
     pub(crate) fn set_suffix(&self, suffix: impl Into<String>) {
         if self.inner.is_done.load(Ordering::Relaxed) { return; }
 
-        if let Ok(mut guard) = self.inner.text.write() {
+        if let Ok(mut guard) = self.inner.text.lock() {
             let current = &**guard;
             *guard = Arc::new(TextData {
                 pos: current.pos,
