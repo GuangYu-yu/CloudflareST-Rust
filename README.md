@@ -50,7 +50,7 @@ curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
 
 > [!IMPORTANT]
 >- `speed.cloudflare.com` 不允许非 TLS 的 HTTP 下载测速，需自建测速地址
->- 慎用 IPv4 + HTTPSing 组合，可能会触发限制
+>- 慎用高并发的 IPv4 + HTTPSing 组合，可能会触发限制
 >- 下载持续时间太短则不会算作有效速度，需确保下载测速文件足够大
 >- 多网卡情况下，使用 -intf 参数会被策略路由影响效果
 >- 注意队列数量和实时下载速度，设置合理的筛选条件
