@@ -84,7 +84,7 @@ curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
 
 | 参数 | 说明 | 示例 | 默认值 |
 |:-----|:-----|:-------|:-------|
-| `-httping` | 使用 HTTPing 测速并指定其地址 | N/A | 未指定 |
+| `-httping` | 使用 HTTPing 测速并指定其地址 | N/A | http://cp.cloudflare.com/cdn-cgi/trace |
 | `-dd` | 禁用下载测速 | N/A | 否 |
 | `-hc` | 指定 HTTPing 的状态码 | 200,301,302 | 未指定 |
 | `-colo` | 匹配指定地区 | HKG,sjc | 未指定 |
