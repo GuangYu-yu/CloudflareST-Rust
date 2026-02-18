@@ -56,6 +56,7 @@ curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
 >- 注意队列数量和实时下载速度，设置合理的筛选条件
 >- 可用 IP 数量是 Ping 通的，并非经历过筛选的数量
 >- 如果不想写入文件，直接使用 -o 参数并不带值即可
+>- 具体原理可参考 [流程图](https://github.com/GuangYu-yu/CloudflareST-Rust/blob/main/Mermaid.md) 或 [时序图](https://github.com/GuangYu-yu/CloudflareST-Rust/blob/main/时序图.md)
 
 ## 📋 参数说明
 
