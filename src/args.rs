@@ -19,7 +19,7 @@ pub(crate) struct Args {
     pub(crate) ping_times: u16,                    // Ping测试次数
     pub(crate) tcp_port: u16,                      // 端口号
     pub(crate) url: String,                        // 测速URL
-    pub(crate) httping: String,                    // HTTPing
+    pub(crate) httping: Option<String>,            // HTTPing
     pub(crate) httping_code: String,               // HTTPing要求的HTTP状态码
     pub(crate) httping_cf_colo: String,            // 指定数据中心
     pub(crate) max_delay: Duration,                // 最大可接受延迟
@@ -57,7 +57,7 @@ impl Args {
             ping_times: 4,
             tcp_port: 443,
             url: String::new(),
-            httping: "http://cp.cloudflare.com/cdn-cgi/trace".to_string(),
+            httping: None,
             httping_code: String::new(),
             httping_cf_colo: String::new(),
             max_delay: Duration::from_millis(2000),
@@ -109,7 +109,7 @@ impl Args {
             match k.as_str() {
                 // 布尔参数
                 "h" | "help" => parsed.help = true,
-                "httping" => if let Some(v) = v_opt { parsed.httping = v; },
+                "httping" => if let Some(v) = v_opt { parsed.httping = Some(v); } else { parsed.httping = Some("http://cp.cloudflare.com/cdn-cgi/trace".to_string()); },
                 "dd" => parsed.disable_download = true,
                 "all4" => parsed.test_all_ipv4 = true,
                 "sp" => parsed.show_port = true,
@@ -186,7 +186,7 @@ impl Args {
         }
 
         // 若启用 httping 且未使用 -tp，则根据HTTPing URL设置默认端口
-        if !use_tp && !parsed.httping.is_empty() && parsed.httping.starts_with("http:") {parsed.tcp_port = 80}
+        if !use_tp && parsed.httping.as_ref().is_some_and(|h| h.starts_with("http:")) {parsed.tcp_port = 80}
 
         parsed
     }
@@ -253,35 +253,30 @@ pub(crate) fn parse_args() -> Args {
         warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 参数"));
     }
 
-    // 验证URL格式
-    let checks = [
-        (!args.httping.is_empty(), &args.httping, "延迟测速"),
-        (!args.disable_download, &args.url, "下载测速"),
-    ];
-    
-    for (enabled, url, scene) in checks {
-        if enabled && !url.starts_with("http:") && !url.starts_with("https:") {
-            error_and_exit(format_args!("{scene}使用的 URL 必须以协议前缀开头"));
-        }
+    // 验证URL格式并检查端口匹配
+    let mut active_checks = Vec::new();
+    if let Some(ref url) = args.httping {
+        active_checks.push((url.as_str(), "延迟测速"));
+    }
+    if !args.disable_download && !args.url.is_empty() {
+        active_checks.push((args.url.as_str(), "下载测速"));
     }
 
-    // 检查端口与协议的匹配情况
-    let is_mismatch = 
-        // HTTPing相关检查
-        (!args.httping.is_empty() && (
-            // 场景1：使用 HTTP 但指定了TLS端口
-            (args.httping.starts_with("http:") && TLS_PORTS.contains(&args.tcp_port)) ||
-            // 场景2：使用 HTTPS 但指定了非TLS端口
-            (args.httping.starts_with("https:") && NON_TLS_PORTS.contains(&args.tcp_port))
-        )) ||
-        
-        // 场景3：下载测试中URL协议与端口不匹配
-        (!args.disable_download && !args.url.is_empty() && {
-            let url_lower = args.url.to_lowercase();
-            // HTTP URL配TLS端口，或HTTPS URL配非TLS端口
-            (url_lower.starts_with("http:") && TLS_PORTS.contains(&args.tcp_port)) ||
-            (url_lower.starts_with("https:") && NON_TLS_PORTS.contains(&args.tcp_port))
-        });
+    let mut is_mismatch = false;
+
+    for (url, scene) in active_checks {
+        let is_https = url.starts_with("https:");
+        let is_http = url.starts_with("http:");
+
+        if !is_http && !is_https {
+            error_and_exit(format_args!("{scene}使用的 URL 必须以协议前缀开头"));
+        }
+
+        if (is_https && NON_TLS_PORTS.contains(&args.tcp_port)) ||
+           (is_http && TLS_PORTS.contains(&args.tcp_port)) {
+            is_mismatch = true;
+        }
+    }
 
     if is_mismatch {
         warning_println(format_args!("端口与协议可能不匹配！"));
