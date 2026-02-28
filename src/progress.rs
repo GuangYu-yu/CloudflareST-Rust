@@ -32,30 +32,42 @@ struct BarInner {
 
 pub(crate) struct Bar {
     inner: Arc<BarInner>,
+    handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 impl BarInner {
     fn run_render_loop(&self) {
-        let mut stdout_handle = stdout();
+        let mut stdout_handle = stdout().lock();
         let start_instant = Instant::now();
         let mut bar_str = String::new();
         let mut output_buffer = String::new();
 
-        while !self.is_done.load(Ordering::Acquire) {
-            self.render_once(&mut stdout_handle, &start_instant, &mut bar_str, &mut output_buffer);
+        loop {
+            let term_width = get_terminal_width();
+            let reserved_space = 20 + self.start_str.len() + self.end_str.len() + 10;
+            let bar_length = term_width.saturating_sub(reserved_space);
+
+            bar_str.reserve(bar_length * 10);
+            output_buffer.reserve(256);
+
+            self.render_once(&mut stdout_handle, &start_instant, &mut bar_str, &mut output_buffer, bar_length);
+
+            if self.is_done.load(Ordering::Acquire) {
+                let _ = writeln!(stdout_handle);
+                break;
+            }
+
             thread::sleep(Duration::from_millis(REFRESH_INTERVAL_MS));
         }
-
-        self.render_once(&mut stdout_handle, &start_instant, &mut bar_str, &mut output_buffer);
-        let _ = writeln!(stdout_handle);
     }
 
     fn render_once(
         &self,
-        stdout_handle: &mut io::Stdout,
+        stdout_handle: &mut io::StdoutLock<'_>,
         start_instant: &Instant,
         bar_str: &mut String,
         output_buffer: &mut String,
+        bar_length: usize,
     ) {
         let text_snapshot = {
             let guard = self.text.lock().unwrap();
@@ -69,29 +81,21 @@ impl BarInner {
 
         const UNFILLED_BG: (u8, u8, u8) = (70, 70, 70);
 
-        let term_width = get_terminal_width();
-        let reserved_space = 20 + self.start_str.len() + self.end_str.len() + 10;
-        let bar_length = term_width.saturating_sub(reserved_space);
-
         let progress = (current_pos.min(self.total) as f64) / self.total.max(1) as f64;
         let filled = (progress * bar_length as f64) as usize;
         let phase = (start_instant.elapsed().as_secs_f64() * PROGRESS_BAR_SPEED) % 1.0;
 
-        let percent_content = format!(" {:>4.1}% ", progress * 100.0);
-        let percent_chars: Vec<char> = percent_content.chars().collect();
-        let percent_len = percent_chars.len();
+        let mut percent_buf = [b' '; 10];
+        let mut cursor = io::Cursor::new(&mut percent_buf[..]);
+        let _ = write!(cursor, " {:>4.1}% ", progress * 100.0);
+        let percent_len = cursor.position() as usize;
 
         let start_index = (bar_length / 2).saturating_sub(percent_len / 2)
             .min(bar_length.saturating_sub(percent_len));
         let end_index = start_index + percent_len;
 
-        bar_str.reserve(bar_length * 10);
-
         for i in 0..bar_length {
             let is_filled = i < filled;
-            let is_percent_char = i >= start_index && i < end_index;
-            let percent_index = if is_percent_char { i - start_index } else { 0 };
-
             let hue = (1.0 - i as f64 / bar_length as f64 + phase) % 1.0;
 
             let t = (start_instant.elapsed().as_secs_f64() * SPEED_FACTOR).fract();
@@ -116,8 +120,8 @@ impl BarInner {
                 UNFILLED_BG
             };
 
-            if is_percent_char {
-                let c = percent_chars[percent_index];
+            if i >= start_index && i < end_index {
+                let c = percent_buf[i - start_index] as char;
                 let _ = write!(
                     bar_str,
                     "\x1b[48;2;{};{};{}m\x1b[1;97m{}\x1b[0m",
@@ -162,11 +166,14 @@ impl Bar {
         });
 
         let inner_clone = Arc::clone(&inner);
-        thread::spawn(move || {
+        let handle = thread::spawn(move || {
             inner_clone.run_render_loop();
         });
 
-        Self { inner }
+        Self {
+            inner,
+            handle: Mutex::new(Some(handle)),
+        }
     }
 
     pub(crate) fn update(&self, pos: usize, msg: impl Into<String>, suffix: impl Into<String>) {
@@ -197,12 +204,12 @@ impl Bar {
     }
 
     pub(crate) fn done(&self) {
-        if self.inner.is_done.load(Ordering::Acquire) { return; }
+        if self.inner.is_done.swap(true, Ordering::SeqCst) { return; }
 
-        self.inner.is_done.store(true, Ordering::Release);
-
-        while Arc::strong_count(&self.inner) > 1 {
-            thread::yield_now();
+        if let Ok(mut guard) = self.handle.lock() {
+            if let Some(h) = guard.take() {
+                let _ = h.join();
+            }
         }
 
         let _ = stdout().flush();
