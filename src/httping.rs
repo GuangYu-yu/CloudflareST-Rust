@@ -169,7 +169,8 @@ impl HandlerFactory for HttpingHandlerFactory {
 
 pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 解析提供的HTTPing URL
-    let (uri, host_header) = parse_url_to_uri(&args.httping).unwrap();
+    let httping_url = args.httping.as_deref().unwrap();
+    let (uri, host_header) = parse_url_to_uri(httping_url).unwrap();
     
     let scheme = uri.scheme_str().unwrap();
     let path = uri.path();
