@@ -206,10 +206,9 @@ impl Bar {
     pub(crate) fn done(&self) {
         if self.inner.is_done.swap(true, Ordering::SeqCst) { return; }
 
-        if let Ok(mut guard) = self.handle.lock() {
-            if let Some(h) = guard.take() {
-                let _ = h.join();
-            }
+        if let Ok(mut guard) = self.handle.lock()
+            && let Some(h) = guard.take() {
+            let _ = h.join();
         }
 
         let _ = stdout().flush();
