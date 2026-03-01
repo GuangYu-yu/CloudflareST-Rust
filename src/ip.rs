@@ -140,27 +140,28 @@ pub(crate) struct CidrState {
     total_count: usize,
     interval_size: u128,
     start: u128,
-    end: u128,
+    last_size: u128,
     index_counter: AtomicUsize,
     is_finished: AtomicBool,
 }
 
 impl CidrState {
-    /// SplitMix64
-    fn splitmix_u64(index: u64, seed_offset: u64) -> u64 {
-        let mut z = index ^ seed_offset;
-        z ^= z >> 33;
-        z.wrapping_mul(0x9E3779B97F4A7C15)
-    }
-
-    pub(crate) fn new(id: usize, network: IpCidr, count: usize, start: u128, end: u128, interval_size: u128) -> Self {
+    pub(crate) fn new(id: usize, network: IpCidr, count: usize, start: u128, interval_size: u128) -> Self {
+        let last_size = if count > 0 {
+            let last_start = start + (count as u128 - 1) * interval_size;
+            let (_, end) = network.range_u128();
+            (end - last_start).saturating_add(1)
+        } else {
+            interval_size
+        };
+        
         Self {
             id,
             network,
             total_count: count,
             interval_size,
             start,
-            end,
+            last_size,
             index_counter: AtomicUsize::new(0),
             is_finished: AtomicBool::new(false),
         }
@@ -178,7 +179,7 @@ impl CidrState {
         let interval_start = self.start + (current_index as u128 * self.interval_size);
 
         let actual_interval_size = if current_index == self.total_count - 1 {
-            (self.end - interval_start).saturating_add(1)
+            self.last_size
         } else {
             self.interval_size
         };
@@ -186,12 +187,15 @@ impl CidrState {
         let random_offset = if actual_interval_size <= 1 {
             0
         } else {
-            let mixed_val = Self::splitmix_u64(
-                current_index as u64,
-                self.id as u64 ^ (&self.id as *const usize as u64)
-            );
+            const LCG_A: u64 = 6364136223846793005;
+            const LCG_C: u64 = 1442695040888963407;
 
-            (mixed_val as u128) % actual_interval_size
+            let seed = (current_index as u64)
+                .wrapping_mul(LCG_A)
+                .wrapping_add(LCG_C)
+                .wrapping_add(self.id as u64);
+            let offset = (seed >> 16) as u128;
+            offset % actual_interval_size
         };
 
         let random_ip = interval_start + random_offset;
@@ -443,7 +447,7 @@ pub(crate) fn process_ip_sources(ip_sources: Vec<String>, config: &Args) -> (Vec
                     };
 
                     total_expected += adjusted_count;
-                    cidr_info.push((*network, adjusted_count, start, end, interval_size));
+                    cidr_info.push((*network, adjusted_count, start, interval_size));
                 }
             }
             IpParseResult::Invalid => {}
@@ -453,7 +457,7 @@ pub(crate) fn process_ip_sources(ip_sources: Vec<String>, config: &Args) -> (Vec
     let cidr_states: Vec<_> = cidr_info
         .into_iter()
         .enumerate()
-        .map(|(id, (net, count, start, end, size))| CidrState::new(id, net, count, start, end, size))
+        .map(|(id, (net, count, start, size))| CidrState::new(id, net, count, start, size))
         .collect();
 
     (single_ips, cidr_states, total_expected)
