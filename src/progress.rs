@@ -2,28 +2,83 @@ use std::{
     fmt::Write as FmtWrite,
     io::{self, stdout, Write},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
 };
 
+// 进度条视觉参数
 const PROGRESS_BAR_BRIGHTNESS: [f64; 2] = [0.5, 0.3];
 const PROGRESS_BAR_SPEED: f64 = 0.2;
 const WAVE_WIDTH: f64 = 16.0;
 const SPEED_FACTOR: f64 = 0.3;
 const SATURATION_BASE: f64 = 0.6;
-const REFRESH_INTERVAL_MS: u64 = 40;
+const REFRESH_INTERVAL_MS: u64 = 16;
+
+// 三缓冲设计：1 个读者 + 2 个写者
+const SLOT_COUNT: usize = 3;
+
+// 每个缓冲区 32 字节
+const MSG_BUF_LEN: usize = 32;
+const PREFIX_BUF_LEN: usize = 32;
+
+// 槽位状态机
+const SLOT_FREE: usize = 0;
+const SLOT_WRITING: usize = 1;
+const SLOT_READY: usize = 2;
 
 struct TextData {
-    pos: usize,
-    msg: String,
-    prefix: String,
+    pos: usize,                // 当前进度位置
+    msg_len: usize,            // msg 字节长度
+    pre_len: usize,            // prefix 字节长度
+    msg: [u8; MSG_BUF_LEN],       // 32 字节缓冲区
+    prefix: [u8; PREFIX_BUF_LEN], // 32 字节缓冲区
+}
+
+impl TextData {
+    /// 将字符串写入 msg 缓冲区（直接按字节截断）
+    fn set_msg(&mut self, s: &str) {
+        let bytes = s.as_bytes();
+        let limit = MSG_BUF_LEN;
+        let actual_len = bytes.len().min(limit);
+        
+        self.msg_len = actual_len;
+        self.msg[..actual_len].copy_from_slice(&bytes[..actual_len]);
+    }
+    
+    /// 读取 msg
+    fn get_msg(&self) -> &str {
+        unsafe {
+            std::str::from_utf8_unchecked(&self.msg[..self.msg_len])
+        }
+    }
+    
+    /// 将字符串写入 prefix 缓冲区（直接按字节截断）
+    fn set_prefix(&mut self, s: &str) {
+        let bytes = s.as_bytes();
+        let limit = PREFIX_BUF_LEN;
+        let actual_len = bytes.len().min(limit);
+        
+        self.pre_len = actual_len;
+        self.prefix[..actual_len].copy_from_slice(&bytes[..actual_len]);
+    }
+    
+    /// 读取 prefix
+    fn get_prefix(&self) -> &str {
+        unsafe {
+            std::str::from_utf8_unchecked(&self.prefix[..self.pre_len])
+        }
+    }
 }
 
 struct BarInner {
-    text: Mutex<Arc<TextData>>,
+    slots: [std::cell::UnsafeCell<TextData>; SLOT_COUNT],
+    // 每个槽位的状态
+    states: [AtomicUsize; SLOT_COUNT],
+    // 当前最新且可读的槽位索引
+    current_idx: AtomicUsize,
     is_done: AtomicBool,
     total: usize,
     start_str: String,
@@ -34,6 +89,9 @@ pub(crate) struct Bar {
     inner: Arc<BarInner>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
+
+// 安全：状态机保证了线程安全（写者抢占 FREE/READY，读者只读 READY）
+unsafe impl Sync for BarInner {}
 
 impl BarInner {
     fn run_render_loop(&self) {
@@ -53,6 +111,8 @@ impl BarInner {
             self.render_once(&mut stdout_handle, &start_instant, &mut bar_str, &mut output_buffer, bar_length);
 
             if self.is_done.load(Ordering::Acquire) {
+                // 再渲染一次，确保读者看到最新数据
+                self.render_once(&mut stdout_handle, &start_instant, &mut bar_str, &mut output_buffer, bar_length);
                 let _ = writeln!(stdout_handle);
                 break;
             }
@@ -69,12 +129,16 @@ impl BarInner {
         output_buffer: &mut String,
         bar_length: usize,
     ) {
-        let text_snapshot = {
-            let guard = self.text.lock().unwrap();
-            Arc::clone(&*guard)
-        };
-
-        let current_pos = text_snapshot.pos;
+        // 原子读取当前黑板索引（读者视角）
+        let current_idx = self.current_idx.load(Ordering::Acquire) % SLOT_COUNT;
+        
+        // 安全读取（状态保证写已完成）
+        let slot = unsafe { &*self.slots[current_idx].get() };
+        let current_pos = slot.pos;
+        
+        // O(1) 读取字符串（写者已通过状态机保证数据完整）
+        let msg = slot.get_msg();
+        let prefix = slot.get_prefix();
 
         bar_str.clear();
         output_buffer.clear();
@@ -139,7 +203,7 @@ impl BarInner {
         let _ = write!(
             output_buffer,
             "\r\x1b[K\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
-            text_snapshot.msg, bar_str, self.start_str, text_snapshot.prefix, self.end_str
+            msg, bar_str, self.start_str, prefix, self.end_str
         );
 
         if let Err(e) = stdout_handle.write_all(output_buffer.as_bytes())
@@ -154,11 +218,15 @@ impl BarInner {
 impl Bar {
     pub(crate) fn new(count: usize, start_str: &str, end_str: &str) -> Self {
         let inner = Arc::new(BarInner {
-            text: Mutex::new(Arc::new(TextData {
+            slots: std::array::from_fn(|_| std::cell::UnsafeCell::new(TextData {
                 pos: 0,
-                msg: String::new(),
-                prefix: String::new(),
+                msg_len: 0,
+                pre_len: 0,
+                msg: [0u8; MSG_BUF_LEN],
+                prefix: [0u8; PREFIX_BUF_LEN],
             })),
+            states: [const { AtomicUsize::new(SLOT_FREE) }; SLOT_COUNT],
+            current_idx: AtomicUsize::new(0),
             is_done: AtomicBool::new(false),
             total: count.max(1),
             start_str: start_str.to_string(),
@@ -176,31 +244,49 @@ impl Bar {
         }
     }
 
-    pub(crate) fn update(&self, pos: usize, msg: impl Into<String>, suffix: impl Into<String>) {
+    pub(crate) fn update(&self, pos: usize, msg: impl AsRef<str>, suffix: impl AsRef<str>) {
         if self.inner.is_done.load(Ordering::Relaxed) { return; }
 
-        let new_data = Arc::new(TextData {
-            pos,
-            msg: msg.into(),
-            prefix: suffix.into(),
-        });
+        // 获取读者正在看的索引（避开读者保护区）
+        let current_reading = self.inner.current_idx.load(Ordering::Acquire);
 
-        if let Ok(mut guard) = self.inner.text.lock() {
-            *guard = new_data;
+        for i in 0..SLOT_COUNT {
+            let slot_idx = i;
+
+            // 跳过读者正在读的槽位
+            if slot_idx == current_reading { continue; }
+
+            let state = self.inner.states[slot_idx].load(Ordering::Relaxed);
+
+            // 抢占 FREE 或 READY 的槽位（WRITING 的跳过）
+            if state != SLOT_WRITING && self.inner.states[slot_idx].compare_exchange(
+                state, SLOT_WRITING,
+                Ordering::AcqRel, Ordering::Acquire,
+            ).is_ok() {
+                // 写入数据
+                let slot = unsafe { &mut *self.inner.slots[slot_idx].get() };
+                slot.pos = pos;
+                slot.set_msg(msg.as_ref());
+                slot.set_prefix(suffix.as_ref());
+
+                // 标记为 READY（Release 确保数据写入对读者可见）
+                self.inner.states[slot_idx].store(SLOT_READY, Ordering::Release);
+                self.inner.current_idx.store(slot_idx, Ordering::Release);
+
+                return;
+            }
         }
+        // 所有槽位都在用，丢弃本次更新（允许丢失）
     }
 
-    pub(crate) fn set_suffix(&self, suffix: impl Into<String>) {
+    pub(crate) fn set_suffix(&self, suffix: impl AsRef<str>) {
         if self.inner.is_done.load(Ordering::Relaxed) { return; }
 
-        if let Ok(mut guard) = self.inner.text.lock() {
-            let current = &**guard;
-            *guard = Arc::new(TextData {
-                pos: current.pos,
-                msg: current.msg.clone(),
-                prefix: suffix.into(),
-            });
-        }
+        // 读出当前最新数据，调用 update 写另一个槽位
+        let curr_idx = self.inner.current_idx.load(Ordering::Acquire);
+        let slot_ptr = unsafe { &*self.inner.slots[curr_idx % SLOT_COUNT].get() };
+
+        self.update(slot_ptr.pos, slot_ptr.get_msg(), suffix.as_ref());
     }
 
     pub(crate) fn done(&self) {
@@ -215,6 +301,7 @@ impl Bar {
     }
 }
 
+/// HSV 转 RGB（用于进度条渐变色）
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
     let i = (h * 6.0).floor() as i32;
     let f = h * 6.0 - i as f64;
