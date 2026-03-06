@@ -98,7 +98,7 @@ pub(crate) enum IpSegment {
         exhausted_notified: AtomicBool,
     },
     Generator {
-        cidr: Arc<CidrState>,
+        cidr: CidrState,
         exhausted_notified: AtomicBool,
     },
 }
@@ -228,7 +228,7 @@ impl IpBuffer {
 
         for cidr in cidr_states {
             segments.push(Arc::new(IpSegment::Generator {
-                cidr: Arc::new(cidr),
+                cidr: cidr,
                 exhausted_notified: AtomicBool::new(false),
             }));
         }
