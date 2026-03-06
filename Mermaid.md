@@ -42,8 +42,8 @@ flowchart TD
         
         P1[初始化测试环境<br>common.rs<br>create_base_ping] --> P2
         P2[创建进度条<br>progress.rs<br>Bar] --> P3
-        P3[创建HandlerFactory] --> P4
-        P4[创建客户端<br>HTTP:全局Client/TCP:Socket/ICMP:Client] --> P5
+        P3[创建PingMode实现<br>HttpingFactoryData/<br>TcpingFactoryData/<br>IcmpingFactoryData] --> P4
+        P4[创建客户端<br>HTTP:预创建全局Client<br>TCP:每次连接绑定接口<br>ICMP:预创建v4/v6 Client] --> P5
         P5[通过execute_with_rate_limit<br>控制并发] --> P6
         P6[执行测试<br>HTTP:HEAD/TCP:连接/ICMP:Echo] --> P7
         P7{测试成功?} -->|否| P8[丢弃结果]
@@ -82,7 +82,7 @@ flowchart TD
         N2[检查是否已有<br>数据中心信息] --> N3{已有数据中心<br>信息?}
         N3 -->|是| N4[使用已有数据中心信息]
         N3 -->|否| N5[需要获取数据中心信息]
-        N4 --> N6[构建HTTP客户端<br>复用Client<br>绑定网络接口]
+        N4 --> N6[使用预创建的HTTP Client<br>已绑定网络接口]
         N5 --> N6
         N6 --> N7[发送HTTP GET请求]
         N7 --> N8[获取HTTP响应]
