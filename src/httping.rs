@@ -28,24 +28,24 @@ impl common::PingMode for HttpingFactoryData {
         base: BasePing,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        // 1. 克隆必要的配置和资源
-        let args = Arc::clone(&base.args);
-        let colo_filters = Arc::clone(&self.colo_filters);
+        // 1. 克隆必要的配置
+        let args = base.args.clone();
+        let colo_filters = self.colo_filters.clone();
         let allowed_codes = self.allowed_codes.clone();
         
         // 2. 构造 URI
         let uri: http::Uri = format!("{}://{}{}", self.scheme, addr, self.path).parse().unwrap();
 
         let host_header = Arc::from(self.host_header.as_str());
-        let global_client = Arc::clone(&self.global_client);
+        let global_client = self.global_client.clone();
 
         Box::pin(async move {
             let ping_times = args.ping_times;
 
-            // 3. 克隆全局 Client
-            let client = Arc::clone(&global_client);
+            // 3. 移动全局 Client 到闭包
+            let client = global_client;
 
-            // 4. 创建任务结构体（包含共享状态）
+            // 4. 创建任务结构体并包装在 Arc 中
             let task = Arc::new(PingTask {
                 client,
                 httping_cf_colo: Arc::from(args.httping_cf_colo.as_str()),
@@ -59,9 +59,9 @@ impl common::PingMode for HttpingFactoryData {
 
             // 5. 执行 ping 循环
             let avg_delay = common::run_ping_loop(ping_times, 200, {
-                let task = Arc::clone(&task);
+                let task = task.clone();
                 move || {
-                    let task = Arc::clone(&task);
+                    let task = task.clone();
                     Box::pin(async move {
                         task.perform_ping().await
                     })
@@ -175,7 +175,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     common::print_speed_test_info(mode_name, &args);
 
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(args.clone(), sources, timeout_flag))
     });
 
     let client = crate::hyper::build_hyper_client(

@@ -94,12 +94,12 @@ impl BasePing {
 impl Clone for BasePing {
     fn clone(&self) -> Self {
         Self {
-            ip_buffer: Arc::clone(&self.ip_buffer),
-            bar: Arc::clone(&self.bar),
-            args: Arc::clone(&self.args),
-            success_count: Arc::clone(&self.success_count),
-            timeout_flag: Arc::clone(&self.timeout_flag),
-            tested_count: Arc::clone(&self.tested_count),
+            ip_buffer: self.ip_buffer.clone(),
+            bar: self.bar.clone(),
+            args: self.args.clone(),
+            success_count: self.success_count.clone(),
+            timeout_flag: self.timeout_flag.clone(),
+            tested_count: self.tested_count.clone(),
         }
     }
 }

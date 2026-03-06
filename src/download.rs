@@ -47,7 +47,9 @@ impl DownloadHandler {
 
     // 清理超出时间窗口的数据点
     fn cleanup_old_samples(&mut self, window_start: Instant) {
-        self.speed_samples.retain(|&(time, _)| time >= window_start);
+        while self.speed_samples.front().is_some_and(|(time, _)| *time < window_start) {
+            self.speed_samples.pop_front();
+        }
     }
 
     // 纯函数计算速度
@@ -150,11 +152,11 @@ impl<'a> DownloadTest<'a> {
 
     pub(crate) async fn test_download_speed(&mut self) -> Vec<PingData> {
         // 数据中心过滤条件
-        let colo_filters = Arc::clone(&self.colo_filter);
+        let colo_filters = self.colo_filter.clone();
 
-        let current_speed_arc: Arc<AtomicU32> = Arc::clone(&self.current_speed);
+        let current_speed_arc: Arc<AtomicU32> = self.current_speed.clone();
         let bar_arc = self.bar.clone();
-        let timeout_flag_clone = Arc::clone(&self.timeout_flag);
+        let timeout_flag_clone = self.timeout_flag.clone();
         
         // 使用统一的速度更新间隔
         let update_interval = Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
@@ -207,12 +209,12 @@ impl<'a> DownloadTest<'a> {
             let behavior = DownloadBehavior {
                 duration: self.args.timeout_duration.unwrap(),
                 need_colo,
-                colo_filters: Arc::clone(&colo_filters),
+                colo_filters: colo_filters.clone(),
             };
             
             let context = DownloadContext {
-                current_speed: Arc::clone(&self.current_speed),
-                timeout_flag: Arc::clone(&self.timeout_flag),
+                current_speed: self.current_speed.clone(),
+                timeout_flag: self.timeout_flag.clone(),
             };
             
             let (speed, maybe_colo) = download_handler(conn, behavior, &context, &self.client).await;

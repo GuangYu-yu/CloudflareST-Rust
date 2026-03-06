@@ -59,7 +59,7 @@ async fn main() {
         info_println(format_args!(
             "程序执行时间超过 {timeout:?} 后，将提前结算结果并退出"
         ));
-        let timeout_flag_clone = Arc::clone(&timeout_flag);
+        let timeout_flag_clone = timeout_flag.clone();
         thread::spawn(move || {
             thread::sleep(timeout);
             timeout_flag_clone.store(true, Ordering::SeqCst);
@@ -69,16 +69,16 @@ async fn main() {
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let ping_result: Vec<PingData> = match args.httping.is_some() {
         true => {
-            let ping = httping::new(Arc::clone(&args), sources, Arc::clone(&timeout_flag)).unwrap();
+            let ping = httping::new(args.clone(), sources, timeout_flag.clone()).unwrap();
             ping.run().await.unwrap()
         },
         #[cfg(feature = "icmp")]
         false if args.icmp_ping => {
-            let ping = icmp::new(Arc::clone(&args), sources, Arc::clone(&timeout_flag)).unwrap();
+            let ping = icmp::new(args.clone(), sources, timeout_flag.clone()).unwrap();
             ping.run().await.unwrap()
         },
         _ => {
-            let ping = tcping::new(Arc::clone(&args), sources, Arc::clone(&timeout_flag)).unwrap();
+            let ping = tcping::new(args.clone(), sources, timeout_flag.clone()).unwrap();
             ping.run().await.unwrap()
         }
     };
@@ -99,7 +99,7 @@ async fn main() {
         ping_result
     } else {
         // 创建可变下载测速实例
-        let mut download_test = download::DownloadTest::new(&args, ping_result, Arc::clone(&timeout_flag)).await;
+        let mut download_test = download::DownloadTest::new(&args, ping_result, timeout_flag.clone()).await;
         // 执行下载测速
         download_test.test_download_speed().await
     };

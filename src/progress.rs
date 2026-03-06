@@ -233,7 +233,7 @@ impl Bar {
             end_str: end_str.to_string(),
         });
 
-        let inner_clone = Arc::clone(&inner);
+        let inner_clone = inner.clone();
         let handle = thread::spawn(move || {
             inner_clone.run_render_loop();
         });

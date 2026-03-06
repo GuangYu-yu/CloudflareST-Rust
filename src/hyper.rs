@@ -63,7 +63,7 @@ impl Service<Uri> for ConnectorService {
     }
 
     fn call(&mut self, uri: Uri) -> Self::Future {
-        let config = Arc::clone(&self.interface_config);
+        let config = self.interface_config.clone();
         let t_duration = self.timeout_duration;
 
         Box::pin(async move {
@@ -101,7 +101,7 @@ pub(crate) fn build_hyper_client(
     timeout_ms: u64,
     server_name: String,
 ) -> Option<MyHyperClient> {
-    let connector = ConnectorService::new(Arc::clone(interface_config), timeout_ms);
+    let connector = ConnectorService::new(interface_config.clone(), timeout_ms);
 
     let resolver = FixedServerNameResolver::new(
         ServerName::try_from(server_name).ok()?

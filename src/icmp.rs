@@ -25,9 +25,7 @@ impl PingMode for IcmpingFactoryData {
         base: BasePing,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        let args = Arc::clone(&base.args);
-        let client_v4 = Arc::clone(&self.client_v4);
-        let client_v6 = Arc::clone(&self.client_v6);
+        let args = base.args.clone();
         let ip = addr.ip();
 
         Box::pin(async move {
@@ -35,8 +33,8 @@ impl PingMode for IcmpingFactoryData {
             
             // 根据IP类型选择客户端
             let client = match ip {
-                IpAddr::V4(_) => client_v4,
-                IpAddr::V6(_) => client_v6,
+                IpAddr::V4(_) => self.client_v4.clone(),
+                IpAddr::V6(_) => self.client_v6.clone(),
             };
             
             // 使用通用的ping循环函数
@@ -61,7 +59,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     common::print_speed_test_info("ICMP-Ping", &args);
 
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(args.clone(), sources, timeout_flag))
     });
 
     let client_v4 = Arc::new(Client::new(&Config::default())?);

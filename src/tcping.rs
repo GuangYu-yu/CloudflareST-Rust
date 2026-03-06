@@ -22,15 +22,15 @@ impl PingMode for TcpingFactoryData {
         base: BasePing,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        let args = Arc::clone(&base.args);
-        let interface_config = Arc::clone(&self.interface_config);
+        let args = base.args.clone();
+        let interface_config = self.interface_config.clone();
 
         Box::pin(async move {
             let ping_times = args.ping_times;
             
             // 使用通用的ping循环函数
             let avg_delay = common::run_ping_loop(ping_times, 200, || {
-                let interface_config = Arc::clone(&interface_config);
+                let interface_config = interface_config.clone();
                 async move {
                     (execute_with_rate_limit(|| async move {
                         Ok::<Option<f32>, io::Error>(
@@ -55,11 +55,11 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     common::print_speed_test_info("Tcping", &args);
 
     let base = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(common::create_base_ping(Arc::clone(&args), sources, timeout_flag))
+        tokio::runtime::Handle::current().block_on(common::create_base_ping(args.clone(), sources, timeout_flag))
     });
 
     let factory_data = TcpingFactoryData {
-        interface_config: Arc::clone(&args.interface_config),
+        interface_config: args.interface_config.clone(),
     };
 
     Ok(CommonPing::new(base, factory_data))
