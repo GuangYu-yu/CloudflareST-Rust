@@ -20,28 +20,12 @@ pub(crate) struct IcmpingFactoryData {
 }
 
 impl PingMode for IcmpingFactoryData {
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
-        Arc::new(IcmpingHandlerFactory {
-            base: Arc::new(base.clone()),
-            client_v4: Arc::clone(&self.client_v4),
-            client_v6: Arc::clone(&self.client_v6),
-        })
-    }
-
-    fn clone_box(&self) -> Box<dyn PingMode> {
-        Box::new(self.clone())
-    }
-}
-
-pub(crate) struct IcmpingHandlerFactory {
-    base: Arc<BasePing>,
-    client_v4: Arc<Client>,
-    client_v6: Arc<Client>,
-}
-
-impl HandlerFactory for IcmpingHandlerFactory {
-    fn create_handler(&self, addr: SocketAddr) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        let args = Arc::clone(&self.base.args);
+    fn run_test(
+        &self,
+        base: BasePing,
+        addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
+        let args = Arc::clone(&base.args);
         let client_v4 = Arc::clone(&self.client_v4);
         let client_v6 = Arc::clone(&self.client_v6);
         let ip = addr.ip();
@@ -65,6 +49,10 @@ impl HandlerFactory for IcmpingHandlerFactory {
 
             common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), None)
         })
+    }
+    
+    fn clone_box(&self) -> Box<dyn PingMode> {
+        Box::new(self.clone())
     }
 }
 

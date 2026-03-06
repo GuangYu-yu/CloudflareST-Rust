@@ -9,7 +9,7 @@ use http::Method;
 
 use crate::hyper::{send_request, parse_url_to_uri};
 use crate::args::Args;
-use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing};
+use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
 use crate::pool::execute_with_rate_limit;
 
 #[derive(Clone)]
@@ -23,19 +23,62 @@ pub(crate) struct HttpingFactoryData {
 }
 
 impl common::PingMode for HttpingFactoryData {
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
-        Arc::new(HttpingHandlerFactory {
-            base: Arc::new(base.clone()),
-            colo_filters: Arc::clone(&self.colo_filters),
-            allowed_codes: self.allowed_codes.clone(),
-            scheme: self.scheme.clone(),
-            host_header: self.host_header.clone().into(),
-            path: self.path.clone(),
-            global_client: Arc::clone(&self.global_client),
+    fn run_test(
+        &self,
+        base: BasePing,
+        addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
+        // 1. 克隆必要的配置和资源
+        let args = Arc::clone(&base.args);
+        let colo_filters = Arc::clone(&self.colo_filters);
+        let allowed_codes = self.allowed_codes.clone();
+        
+        // 2. 构造 URI
+        let uri: http::Uri = format!("{}://{}{}", self.scheme, addr, self.path).parse().unwrap();
+
+        let host_header = Arc::from(self.host_header.as_str());
+        let global_client = Arc::clone(&self.global_client);
+
+        Box::pin(async move {
+            let ping_times = args.ping_times;
+
+            // 3. 克隆全局 Client
+            let client = Arc::clone(&global_client);
+
+            // 4. 创建任务结构体（包含共享状态）
+            let task = Arc::new(PingTask {
+                client,
+                httping_cf_colo: Arc::from(args.httping_cf_colo.as_str()),
+                host_header,
+                uri,
+                colo_filters,
+                allowed_codes,
+                should_continue: AtomicBool::new(true),
+                local_data_center: std::sync::OnceLock::new(),
+            });
+
+            // 5. 执行 ping 循环
+            let avg_delay = common::run_ping_loop(ping_times, 200, {
+                let task = Arc::clone(&task);
+                move || {
+                    let task = Arc::clone(&task);
+                    Box::pin(async move {
+                        task.perform_ping().await
+                    })
+                }
+            }).await;
+
+            // 6. 如果因 Colo 不匹配而终止，则不返回结果
+            if !task.should_continue.load(Ordering::Relaxed) {
+                return None;
+            }
+
+            let data_center = task.local_data_center.get().cloned();
+            common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), data_center)
         })
     }
-
-    fn clone_box(&self) -> Box<dyn common::PingMode> {
+    
+    fn clone_box(&self) -> Box<dyn PingMode> {
         Box::new(self.clone())
     }
 }
@@ -102,71 +145,6 @@ impl PingTask {
     }
 }
 
-pub(crate) struct HttpingHandlerFactory {
-    base: Arc<BasePing>,
-    colo_filters: Arc<Vec<String>>,
-    allowed_codes: Option<Arc<Vec<u16>>>,
-    scheme: String,
-    path: String,
-    host_header: Arc<str>,
-    global_client: Arc<crate::hyper::MyHyperClient>,
-}
-
-impl HandlerFactory for HttpingHandlerFactory {
-    fn create_handler(
-        &self,
-        addr: SocketAddr,
-    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        let base = self.base.clone();
-        let args = Arc::clone(&base.args);
-        let colo_filters = Arc::clone(&self.colo_filters);
-        let allowed_codes = self.allowed_codes.clone();
-        
-        // 构造 URI
-        let uri: http::Uri = format!("{}://{}{}", self.scheme, addr, self.path).parse().unwrap();
-
-        let host_header = Arc::clone(&self.host_header);
-        let global_client = Arc::clone(&self.global_client);
-
-        Box::pin(async move {
-            let ping_times = args.ping_times;
-
-            // 克隆全局 Client
-            let client = Arc::clone(&global_client);
-
-            // 创建任务结构体（包含共享状态）
-            let task = Arc::new(PingTask {
-                client,
-                httping_cf_colo: Arc::from(args.httping_cf_colo.as_str()),
-                host_header: Arc::clone(&host_header),
-                uri,
-                colo_filters,
-                allowed_codes,
-                should_continue: AtomicBool::new(true),
-                local_data_center: std::sync::OnceLock::new(),
-            });
-
-            let avg_delay = common::run_ping_loop(ping_times, 200, {
-                let task = Arc::clone(&task);
-                move || {
-                    let task = Arc::clone(&task);
-                    Box::pin(async move {
-                        task.perform_ping().await
-                    })
-                }
-            }).await;
-
-            // 如果因 Colo 不匹配而终止，则不返回结果
-            if !task.should_continue.load(Ordering::Relaxed) {
-                return None;
-            }
-
-            let data_center = task.local_data_center.get().cloned();
-            common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), data_center)
-        })
-    }
-}
-
 pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
     // 解析提供的HTTPing URL
     let httping_url = args.httping.as_deref().unwrap();
@@ -183,16 +161,14 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     };
 
     // 预解析状态码列表
-    let allowed_codes = if !args.httping_code.is_empty() {
-        Some(Arc::new(
+    let allowed_codes = (!args.httping_code.is_empty()).then(|| {
+        Arc::new(
             args.httping_code
                 .split(',')
                 .filter_map(|s| s.trim().parse::<u16>().ok())
                 .collect::<Vec<u16>>()
-        ))
-    } else {
-        None
-    };
+        )
+    });
 
     // 打印开始延迟测试的信息
     let mode_name = "HTTPing";

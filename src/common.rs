@@ -144,13 +144,6 @@ pub(crate) async fn create_base_ping(args: Arc<Args>, sources: Vec<String>, time
     )
 }
 
-pub(crate) trait HandlerFactory: Send + Sync + 'static {
-    fn create_handler(
-        &self,
-        addr: SocketAddr,
-    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>>;
-}
-
 /// 通用的ping测试循环函数
 pub(crate) async fn run_ping_loop<F, Fut>(
     ping_times: u16,
@@ -179,8 +172,13 @@ where
     (recv > 0).then_some(avg_delay_ms)
 }
 
-pub(crate) trait PingMode: Send + Sync + 'static {
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory>;
+pub(crate) trait PingMode: Send + 'static {
+    fn run_test(
+        &self,
+        base: BasePing,
+        addr: SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>>;
+    
     fn clone_box(&self) -> Box<dyn PingMode>;
 }
 
@@ -217,15 +215,14 @@ impl Ping {
 
     // 通用的 run 方法
     pub(crate) async fn run(self) -> Result<Vec<PingData>, io::Error> {
-        let handler_factory = self.factory_data.create_handler_factory(&self.base);
-        run_ping_test(self.base, handler_factory).await
+        run_ping_test(self.base, self.factory_data).await
     }
 }
 
 /// 运行 ping 测试
 pub(crate) async fn run_ping_test(
     base: BasePing,
-    handler_factory: Arc<dyn HandlerFactory>,
+    mode: Box<dyn PingMode>,
 ) -> Result<Vec<PingData>, io::Error>
 {
     // 并发限制器最大并发数量
@@ -248,7 +245,7 @@ pub(crate) async fn run_ping_test(
     (0..pool_concurrency)
         .map_while(|_| base.ip_buffer.pop())
         .for_each(|addr| {
-            let _ = tasks.spawn(handler_factory.create_handler(addr));
+            let _ = tasks.spawn(mode.run_test(base.clone(), addr));
         });
     
     // 动态循环处理任务，直到超时或任务耗尽
@@ -279,7 +276,7 @@ pub(crate) async fn run_ping_test(
 
         // 继续添加新任务
         if let Some(addr) = base.ip_buffer.pop() {
-            tasks.spawn(handler_factory.create_handler(addr));
+            tasks.spawn(mode.run_test(base.clone(), addr));
         }
     }
 

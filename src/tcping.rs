@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use crate::args::Args;
-use crate::common::{self, HandlerFactory, PingData, BasePing, Ping as CommonPing, PingMode};
+use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
 use crate::pool::execute_with_rate_limit;
 use crate::interface::{InterfaceParamResult, bind_socket_to_interface};
 
@@ -17,29 +17,12 @@ pub(crate) struct TcpingFactoryData {
 }
 
 impl PingMode for TcpingFactoryData {
-    fn create_handler_factory(&self, base: &BasePing) -> Arc<dyn HandlerFactory> {
-        Arc::new(TcpingHandlerFactory {
-            base: Arc::new(base.clone()),
-            interface_config: Arc::clone(&self.interface_config),
-        })
-    }
-
-    fn clone_box(&self) -> Box<dyn PingMode> {
-        Box::new(self.clone())
-    }
-}
-
-pub(crate) struct TcpingHandlerFactory {
-    base: Arc<BasePing>,
-    interface_config: Arc<InterfaceParamResult>,
-}
-
-impl HandlerFactory for TcpingHandlerFactory {
-    fn create_handler(
+    fn run_test(
         &self,
+        base: BasePing,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        let args = Arc::clone(&self.base.args);
+        let args = Arc::clone(&base.args);
         let interface_config = Arc::clone(&self.interface_config);
 
         Box::pin(async move {
@@ -60,6 +43,10 @@ impl HandlerFactory for TcpingHandlerFactory {
 
             common::build_ping_data_result(addr, ping_times, avg_delay.unwrap_or(0.0), None)
         })
+    }
+    
+    fn clone_box(&self) -> Box<dyn PingMode> {
+        Box::new(self.clone())
     }
 }
 

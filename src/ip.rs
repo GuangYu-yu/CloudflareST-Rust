@@ -187,15 +187,7 @@ impl CidrState {
         let random_offset = if actual_interval_size <= 1 {
             0
         } else {
-            const LCG_A: u64 = 6364136223846793005;
-            const LCG_C: u64 = 1442695040888963407;
-
-            let seed = (current_index as u64)
-                .wrapping_mul(LCG_A)
-                .wrapping_add(LCG_C)
-                .wrapping_add(self.id as u64);
-            let offset = (seed >> 16) as u128;
-            offset % actual_interval_size
+            generate_lcg_offset(current_index, self.id) % actual_interval_size
         };
 
         let random_ip = interval_start + random_offset;
@@ -331,6 +323,16 @@ impl IpBuffer {
     pub(crate) fn total_expected(&self) -> usize {
         self.total_expected
     }
+}
+
+fn generate_lcg_offset(current_index: usize, id: usize) -> u128 {
+    const LCG_A: u64 = 6364136223846793005;
+    const LCG_C: u64 = 1442695040888963407;
+    let seed = (current_index as u64)
+        .wrapping_mul(LCG_A)
+        .wrapping_add(LCG_C)
+        .wrapping_add(id as u64);
+    (seed >> 16) as u128
 }
 
 impl Drop for IpBuffer {

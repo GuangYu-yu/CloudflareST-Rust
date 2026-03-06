@@ -306,6 +306,33 @@ fn approximate_display_width_no_color(s: &str) -> usize {
     width
 }
 
+fn format_help_line(name: &str, desc: &str, default: &str) -> String {
+    // 1. 格式化参数名：绿色 (\x1b[32m)
+    let name_colored = format!("\x1b[32m{}\x1b[0m", name);
+    let name_display_width = approximate_display_width_no_color(&name_colored);
+    let name_padding = " ".repeat(11usize.saturating_sub(name_display_width));
+    
+    // 2. 格式化描述 (默认颜色)
+    let desc_display_width = approximate_display_width_no_color(desc);
+    let desc_padding = " ".repeat(45usize.saturating_sub(desc_display_width));
+
+    // 3. 格式化默认值：暗淡色 (\x1b[2m)
+    let default_colored = format!("\x1b[2m{}\x1b[0m", default);
+    let default_display_width = approximate_display_width_no_color(&default_colored);
+    let default_padding = " ".repeat(15usize.saturating_sub(default_display_width));
+
+    // 4. 构建完整的参数行并添加到帮助文本
+    format!(
+        " {}{}{}{}{}{}\n",
+        name_colored,
+        name_padding,
+        desc,
+        desc_padding,
+        default_colored,
+        default_padding
+    )
+}
+
 pub(crate) fn print_help() {
     const HELP_ARGS: &[(&str, &str, &str)] = &[
         // 目标参数
@@ -359,30 +386,7 @@ pub(crate) fn print_help() {
             // 添加加粗洋红的标题
             help_text.push_str(&format!("\x1b[1;35m{}\x1b[0m\n", desc));
         } else {
-            // 1. 格式化参数名：绿色 (\x1b[32m)
-            let name_colored = format!("\x1b[32m{}\x1b[0m", name);
-            let name_display_width = approximate_display_width_no_color(&name_colored);
-            let name_padding = " ".repeat(11usize.saturating_sub(name_display_width));
-            
-            // 2. 格式化描述 (默认颜色)
-            let desc_display_width = approximate_display_width_no_color(desc);
-            let desc_padding = " ".repeat(45usize.saturating_sub(desc_display_width));
-
-            // 3. 格式化默认值：暗淡色 (\x1b[2m)
-            let default_colored = format!("\x1b[2m{}\x1b[0m", default);
-            let default_display_width = approximate_display_width_no_color(&default_colored);
-            let default_padding = " ".repeat(15usize.saturating_sub(default_display_width));
-
-            // 4. 构建完整的参数行并添加到帮助文本
-            help_text.push_str(&format!(
-                " {}{}{}{}{}{}\n",
-                name_colored,
-                name_padding,
-                desc,
-                desc_padding,
-                default_colored,
-                default_padding
-            ));
+            help_text.push_str(&format_help_line(name, desc, default));
         }
     }
     
