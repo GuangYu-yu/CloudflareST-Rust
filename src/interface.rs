@@ -174,7 +174,7 @@ fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
         }
         */
 
-        sock.bind_device(Some(name));
+        sock.bind_device(Some(name.as_bytes()));
         Ok(())
     }
     
