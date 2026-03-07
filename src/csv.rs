@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::common::PingData;
 use crate::info_println;
-use std::io::Write as IoWrite;
+use std::io::{Seek, Write as IoWrite};
 
 const TABLE_HEADERS: [&str; 7] = [
     "IP 地址",
@@ -32,8 +32,15 @@ pub(crate) fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dy
         return Ok(());
     }
 
-    let file_path = args.output.as_ref().unwrap();
-    let mut file = std::fs::File::create(file_path)?;
+    #[cfg(target_os = "windows")]
+    let mut file = crate::args::OUTPUT_HANDLE.get().unwrap().try_clone()?;
+    #[cfg(target_os = "windows")]
+    file.set_len(0)?;
+    #[cfg(target_os = "windows")]
+    file.rewind()?;
+
+    #[cfg(not(target_os = "windows"))]
+    let mut file = std::fs::File::create(args.output.as_ref().unwrap())?;
 
     // 写入表头
     write_csv_line(&mut file, &TABLE_HEADERS.iter().map(|s| s.to_string()).collect::<Vec<_>>())?;
@@ -47,7 +54,6 @@ pub(crate) fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dy
 
     // 确保数据写入磁盘
     file.flush()?;
-
     Ok(())
 }
 

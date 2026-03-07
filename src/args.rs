@@ -1,9 +1,12 @@
 use std::env;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use crate::{error_and_exit, warning_println};
 use crate::interface::{InterfaceParamResult, process_interface_param};
+
+#[cfg(target_os = "windows")]
+pub(crate) static OUTPUT_HANDLE: OnceLock<std::fs::File> = OnceLock::new();
 
 // 非TLS端口数组
 const NON_TLS_PORTS: [u16; 7] = [80, 8080, 8880, 2052, 2082, 2086, 2095];
@@ -226,19 +229,13 @@ pub(crate) fn parse_args() -> Args {
         error_and_exit(format_args!("指定的文件不存在"));
     }
 
-    // 检查输出文件是否被占用（仅Windows）
+    // Windows: 提前打开输出文件并保持句柄
     #[cfg(target_os = "windows")]
-    if let Some(ref output_file) = args.output {
-        let output_path = Path::new(output_file);
-        if output_path.exists()
-            && let Err(e) = std::fs::OpenOptions::new().write(true).open(output_path)
-        {
-            let msg = match e.raw_os_error() {
-                Some(32) => format!("输出文件 '{}' 正被其他程序占用", output_path.display()),
-                _ => format!("无法写入输出文件 '{}': {e}", output_path.display()),
-            };
-            error_and_exit(format_args!("{msg}"));
-        }
+    if let Some(path) = &args.output {
+        let file = std::fs::OpenOptions::new().write(true).create(true).open(path)
+            .unwrap_or_else(|e| error_and_exit(format_args!("无法写入到输出文件 '{path}': {e}")));
+        
+        OUTPUT_HANDLE.set(file).ok();
     }
 
     if args.ip_file.is_empty() && args.ip_text.is_empty() {
