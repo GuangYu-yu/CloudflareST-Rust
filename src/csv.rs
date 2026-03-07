@@ -1,7 +1,10 @@
 use crate::args::Args;
 use crate::common::PingData;
 use crate::info_println;
-use std::io::{Seek, Write as IoWrite};
+use std::io::Write as IoWrite;
+
+#[cfg(target_os = "windows")]
+use std::io::Seek;
 
 const TABLE_HEADERS: [&str; 7] = [
     "IP 地址",

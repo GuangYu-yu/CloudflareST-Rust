@@ -1,10 +1,12 @@
 use std::env;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 use crate::{error_and_exit, warning_println};
 use crate::interface::{InterfaceParamResult, process_interface_param};
 
+#[cfg(target_os = "windows")]
+use std::sync::OnceLock;
 #[cfg(target_os = "windows")]
 pub(crate) static OUTPUT_HANDLE: OnceLock<std::fs::File> = OnceLock::new();
 
@@ -232,7 +234,7 @@ pub(crate) fn parse_args() -> Args {
     // Windows: 提前打开输出文件并保持句柄
     #[cfg(target_os = "windows")]
     if let Some(path) = &args.output {
-        let file = std::fs::OpenOptions::new().write(true).create(true).open(path)
+        let file = std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(path)
             .unwrap_or_else(|e| error_and_exit(format_args!("无法写入到输出文件 '{path}': {e}")));
         
         OUTPUT_HANDLE.set(file).ok();
