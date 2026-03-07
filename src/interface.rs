@@ -153,27 +153,6 @@ fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
 fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
-        /*
-        let raw_fd = sock.as_raw_fd();
-        let c_name = std::ffi::CString::new(name)?;
-        
-        let ret = unsafe {
-            libc::setsockopt(
-                raw_fd,
-                libc::SOL_SOCKET,
-                libc::SO_BINDTODEVICE,
-                c_name.as_ptr() as *const libc::c_void,
-                name.len() as libc::socklen_t,
-            )
-        };
-        
-        if ret == 0 { 
-            Ok(()) 
-        } else { 
-            Err(std::io::Error::last_os_error())
-        }
-        */
-
         sock.bind_device(Some(name.as_bytes()))?;
         Ok(())
     }
