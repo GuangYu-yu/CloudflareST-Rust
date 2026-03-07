@@ -230,14 +230,14 @@ pub(crate) fn parse_args() -> Args {
     #[cfg(target_os = "windows")]
     if let Some(ref output_file) = args.output {
         let output_path = Path::new(output_file);
-        if output_path.exists() {
-            std::fs::OpenOptions::new().write(true).open(output_path).unwrap_or_else(|e| {
-                let msg = match e.raw_os_error() {
-                    Some(32) => format!("输出文件 '{}' 正被其他程序占用", output_path.display()),
-                    _ => format!("无法写入输出文件 '{}': {e}", output_path.display()),
-                };
-                error_and_exit(format_args!("{msg}"));
-            });
+        if output_path.exists()
+            && let Err(e) = std::fs::OpenOptions::new().write(true).open(output_path)
+        {
+            let msg = match e.raw_os_error() {
+                Some(32) => format!("输出文件 '{}' 正被其他程序占用", output_path.display()),
+                _ => format!("无法写入输出文件 '{}': {e}", output_path.display()),
+            };
+            error_and_exit(format_args!("{msg}"));
         }
     }
 
