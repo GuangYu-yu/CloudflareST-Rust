@@ -228,7 +228,7 @@ impl IpBuffer {
 
         for cidr in cidr_states {
             segments.push(Arc::new(IpSegment::Generator {
-                cidr: cidr,
+                cidr,
                 exhausted_notified: AtomicBool::new(false),
             }));
         }

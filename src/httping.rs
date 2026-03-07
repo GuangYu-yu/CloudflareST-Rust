@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -106,51 +105,44 @@ impl PingTask {
             let start = Instant::now();
             
             // 发送 HEAD 请求
-            let resp = match send_request(&self.client, self.host_header.as_ref(), self.uri.clone(), Method::HEAD, 1200).await {
-                Ok(resp) => resp,
-                Err(_) => return Ok::<Option<(f32, String)>, io::Error>(None),
-            };
+            let resp = send_request(&self.client, self.host_header.as_ref(), self.uri.clone(), Method::HEAD, 1200).await?;
             
             // 验证状态码
             let status = resp.status().as_u16();
             if let Some(ref codes) = self.allowed_codes && !codes.contains(&status) {
-                return Ok::<Option<(f32, String)>, io::Error>(None);
+                return None;
             }
             
             // 提取数据中心信息并计算延迟
-            let dc = match common::extract_data_center(&resp) {
-                Some(dc) => dc,
-                None => return Ok::<Option<(f32, String)>, io::Error>(None),
-            };
+            let dc = common::extract_data_center(&resp)?;
             let delay = start.elapsed().as_secs_f32() * 1000.0;
             
-            Ok::<Option<(f32, String)>, io::Error>(Some((delay, dc)))
+            Some((delay, dc))
         }).await;
 
         // 3. 处理结果与 Colo 过滤
         match result {
-            Ok(Some((delay, dc))) => {
+            Some((delay, dc)) => {
                 if self.local_data_center.get().is_none() {
                     // 检查数据中心（Colo）是否符合过滤要求
                     if !self.httping_cf_colo.is_empty() && !common::is_colo_matched(&dc, &self.colo_filters) {
                         self.should_continue.store(false, Ordering::Relaxed);
                         return None;
                     }
-                let _ = self.local_data_center.set(dc);
-            }
+                    let _ = self.local_data_center.set(dc);
+                }
                 Some(delay)
             }
-            _ => None,
+            None => None,
         }
     }
 }
 
-pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
-    // 解析提供的HTTPing URL
-    let httping_url = args.httping.as_deref().unwrap();
-    let (uri, host_header) = parse_url_to_uri(httping_url).unwrap();
+pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> Option<CommonPing> {
+    let httping_url = args.httping.as_deref()?;
+    let (uri, host_header) = parse_url_to_uri(httping_url)?;
     
-    let scheme = uri.scheme_str().unwrap();
+    let scheme = uri.scheme_str()?;
     let path = uri.path();
 
     // 解析 Colo 过滤条件
@@ -170,9 +162,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
         )
     });
 
-    // 打印开始延迟测试的信息
-    let mode_name = "HTTPing";
-    common::print_speed_test_info(mode_name, &args);
+    common::print_speed_test_info("HTTPing", &args);
 
     let base = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(common::create_base_ping(args.clone(), sources, timeout_flag))
@@ -182,7 +172,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
         &args.interface_config,
         1800,
         host_header.to_string(),
-    ).unwrap();
+    )?;
 
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),
@@ -193,5 +183,5 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
         global_client: Arc::new(client),
     };
 
-    Ok(CommonPing::new(base, factory_data))
+    Some(CommonPing::new(base, factory_data))
 }

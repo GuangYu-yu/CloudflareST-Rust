@@ -318,7 +318,7 @@ async fn download_handler(
     let mut handler = DownloadHandler::new(context.current_speed.clone());
 
     // 发送GET请求
-    let Ok(resp) = hyper::send_request(
+    let Some(resp) = hyper::send_request(
         client, 
         host, 
         uri,

@@ -34,10 +34,10 @@ pub(crate) fn init_global_limiter(max_concurrent: usize) {
 }
 
 // 执行带并发限制的操作
-pub(crate) async fn execute_with_rate_limit<F, Fut, T, E>(f: F) -> Result<T, E>
+pub(crate) async fn execute_with_rate_limit<F, Fut, T>(f: F) -> Option<T>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<T, E>>,
+    Fut: Future<Output = Option<T>>,
 {
     // 获取许可
     let _permit = GLOBAL_LIMITER.get().unwrap().acquire().await;

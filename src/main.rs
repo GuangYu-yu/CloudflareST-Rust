@@ -78,7 +78,7 @@ async fn main() {
             ping.run().await.unwrap()
         },
         _ => {
-            let ping = tcping::new(args.clone(), sources, timeout_flag.clone()).unwrap();
+            let ping = tcping::new(args.clone(), sources, timeout_flag.clone());
             ping.run().await.unwrap()
         }
     };

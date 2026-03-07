@@ -129,16 +129,18 @@ pub(crate) async fn send_request(
     uri: Uri,
     method: Method,
     timeout_ms: u64,
-) -> Result<Response<Incoming>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Option<Response<Incoming>> {
     let req = Request::builder()
         .uri(uri)
         .method(method)
         .header("User-Agent", USER_AGENT)
         .header("Host", host)
-        .body(EmptyBody)?;
+        .body(EmptyBody).ok()?;
 
-    let resp = timeout(Duration::from_millis(timeout_ms), client.request(req)).await??;
-    Ok(resp)
+    timeout(Duration::from_millis(timeout_ms), client.request(req))
+        .await
+        .ok()?
+        .ok()
 }
 
 /// 统一的 URI 解析函数

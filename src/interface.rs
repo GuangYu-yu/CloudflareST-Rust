@@ -150,33 +150,29 @@ fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
 
 /// Linux/macOS: 按接口名绑定
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
+fn bind_to_interface(sock: &TcpSocket, name: &str) -> Option<()> {
     #[cfg(target_os = "linux")]
     {
-        sock.bind_device(Some(name.as_bytes()))?;
-        Ok(())
+        sock.bind_device(Some(name.as_bytes())).ok()
     }
     
     #[cfg(target_os = "macos")]
     {
-        let idx = unsafe { libc::if_nametoindex(std::ffi::CString::new(name)?.as_ptr()) };
+        let c_name = std::ffi::CString::new(name).ok()?;
+        let idx = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
         if idx == 0 {
-            return Err(std::io::Error::last_os_error());
+            return None;
         }
 
-
         let fd = sock.as_raw_fd();
-        let opt = |level, opt_name| unsafe {
-            libc::setsockopt(fd, level, opt_name, &idx as *const _ as *const _, std::mem::size_of::<u32>() as _)
+        let opt = |level, name| unsafe {
+            libc::setsockopt(fd, level, name, &idx as *const _ as *const _, 4) == 0
         };
 
-
-        if opt(libc::IPPROTO_IP, libc::IP_BOUND_IF) == 0 
-            || opt(libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF) == 0 
-        {
-            Ok(())
+        if opt(libc::IPPROTO_IP, libc::IP_BOUND_IF) || opt(libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF) {
+            Some(())
         } else {
-            Err(std::io::Error::last_os_error())
+            None
         }
     }
 }
@@ -289,7 +285,7 @@ pub(crate) async fn bind_socket_to_interface(
     {
         // 如果提供了接口名，尝试绑定
         if let Some(ref name) = interface_config.name {
-            bind_to_interface(&sock, name).ok()?;
+            bind_to_interface(&sock, name)?;
         }
     }
 

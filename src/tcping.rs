@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -28,16 +27,12 @@ impl PingMode for TcpingFactoryData {
         Box::pin(async move {
             let ping_times = args.ping_times;
             
-            // 使用通用的ping循环函数
             let avg_delay = common::run_ping_loop(ping_times, 200, || {
                 let interface_config = interface_config.clone();
                 async move {
-                    (execute_with_rate_limit(|| async move {
-                        Ok::<Option<f32>, io::Error>(
-                            tcping(addr, &interface_config).await,
-                        )
-                    })
-                    .await).unwrap_or_default()
+                    execute_with_rate_limit(|| async move {
+                        tcping(addr, &interface_config).await
+                    }).await
                 }
             }).await;
 
@@ -50,8 +45,7 @@ impl PingMode for TcpingFactoryData {
     }
 }
 
-pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> io::Result<CommonPing> {
-    // 打印开始延迟测试的信息
+pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> CommonPing {
     common::print_speed_test_info("Tcping", &args);
 
     let base = tokio::task::block_in_place(|| {
@@ -62,7 +56,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
         interface_config: args.interface_config.clone(),
     };
 
-    Ok(CommonPing::new(base, factory_data))
+    CommonPing::new(base, factory_data)
 }
 
 // TCP连接测试函数
