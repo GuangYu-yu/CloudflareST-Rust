@@ -153,6 +153,7 @@ fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
 fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
+        /*
         let raw_fd = sock.as_raw_fd();
         let c_name = std::ffi::CString::new(name)?;
         
@@ -171,6 +172,10 @@ fn bind_to_interface(sock: &TcpSocket, name: &str) -> std::io::Result<()> {
         } else { 
             Err(std::io::Error::last_os_error())
         }
+        */
+
+        sock.bind_device(Some(name));
+        Ok(())
     }
     
     #[cfg(target_os = "macos")]
