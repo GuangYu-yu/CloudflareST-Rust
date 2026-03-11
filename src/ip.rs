@@ -135,7 +135,6 @@ impl IpSegment {
 
 /// CIDR 网络扫描状态
 pub(crate) struct CidrState {
-    id: usize,
     network: IpCidr,
     total_count: usize,
     interval_size: u128,
@@ -146,7 +145,7 @@ pub(crate) struct CidrState {
 }
 
 impl CidrState {
-    pub(crate) fn new(id: usize, network: IpCidr, count: usize, start: u128, interval_size: u128) -> Self {
+    pub(crate) fn new(network: IpCidr, count: usize, start: u128, interval_size: u128) -> Self {
         let last_size = if count > 0 {
             let last_start = start + (count as u128 - 1) * interval_size;
             let (_, end) = network.range_u128();
@@ -156,7 +155,6 @@ impl CidrState {
         };
         
         Self {
-            id,
             network,
             total_count: count,
             interval_size,
@@ -187,7 +185,7 @@ impl CidrState {
         let random_offset = if actual_interval_size <= 1 {
             0
         } else {
-            generate_lcg_offset(current_index, self.id) % actual_interval_size
+            generate_lcg_offset(current_index, self as *const Self as u64) % actual_interval_size
         };
 
         let random_ip = interval_start + random_offset;
@@ -325,13 +323,13 @@ impl IpBuffer {
     }
 }
 
-fn generate_lcg_offset(current_index: usize, id: usize) -> u128 {
+fn generate_lcg_offset(current_index: usize, addr: u64) -> u128 {
     const LCG_A: u64 = 6364136223846793005;
     const LCG_C: u64 = 1442695040888963407;
     let seed = (current_index as u64)
         .wrapping_mul(LCG_A)
         .wrapping_add(LCG_C)
-        .wrapping_add(id as u64);
+        .wrapping_add(addr);
     (seed >> 16) as u128
 }
 
@@ -458,8 +456,7 @@ pub(crate) fn process_ip_sources(ip_sources: Vec<String>, config: &Args) -> (Vec
 
     let cidr_states: Vec<_> = cidr_info
         .into_iter()
-        .enumerate()
-        .map(|(id, (net, count, start, size))| CidrState::new(id, net, count, start, size))
+        .map(|(net, count, start, size)| CidrState::new(net, count, start, size))
         .collect();
 
     (single_ips, cidr_states, total_expected)
