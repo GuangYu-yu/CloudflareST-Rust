@@ -185,7 +185,7 @@ impl CidrState {
         let random_offset = if actual_interval_size <= 1 {
             0
         } else {
-            generate_lcg_offset(current_index, self as *const Self as u64) % actual_interval_size
+            generate_refined_random(self as *const Self as usize) % actual_interval_size
         };
 
         let random_ip = interval_start + random_offset;
@@ -323,14 +323,22 @@ impl IpBuffer {
     }
 }
 
-fn generate_lcg_offset(current_index: usize, addr: u64) -> u128 {
-    const LCG_A: u64 = 6364136223846793005;
-    const LCG_C: u64 = 1442695040888963407;
-    let seed = (current_index as u64)
-        .wrapping_mul(LCG_A)
-        .wrapping_add(LCG_C)
-        .wrapping_add(addr);
-    (seed >> 16) as u128
+fn generate_refined_random(obj_addr: usize) -> u128 {
+    static SHARED_STATE: AtomicUsize = AtomicUsize::new(0);
+
+    let hasher_seed = generate_refined_random as *const () as usize;
+
+    let s = SHARED_STATE.fetch_add(1, Ordering::Relaxed);
+
+    let t = &s as *const _ as usize;
+    let mut x = s ^ obj_addr ^ t;
+
+    x = x.wrapping_mul(hasher_seed | 1);
+
+    x = x.rotate_left((usize::BITS / 2) as u32);
+    x = x.swap_bytes();
+
+    x as u128
 }
 
 impl Drop for IpBuffer {
