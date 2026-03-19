@@ -252,11 +252,11 @@ impl IpBuffer {
                 return None;
             }
 
-            self.reading_threads.fetch_add(1, Ordering::SeqCst);
+            self.reading_threads.fetch_add(1, Ordering::Relaxed);
 
             let ptr = self.segments.load(Ordering::Acquire);
             if ptr.is_null() {
-                self.reading_threads.fetch_sub(1, Ordering::Release);
+                self.reading_threads.fetch_sub(1, Ordering::Relaxed);
                 return None;
             }
 
@@ -265,7 +265,7 @@ impl IpBuffer {
                 Arc::from_raw(ptr)
             };
 
-            self.reading_threads.fetch_sub(1, Ordering::Release);
+            self.reading_threads.fetch_sub(1, Ordering::Relaxed);
 
             let segments_len = current_vec.len();
             if segments_len == 0 {
@@ -278,11 +278,15 @@ impl IpBuffer {
                 let idx = (start_idx + i) % segments_len;
                 let segment = &current_vec[idx];
 
+                if segment.is_exhausted() {
+                    continue;
+                }
+
                 if let Some(ip) = segment.next_ip(self.tcp_port) {
                     return Some(ip);
                 }
 
-                if segment.is_exhausted() && segment.mark_dead_once() {
+                if segment.mark_dead_once() {
                     let new_count = self.active_count.fetch_sub(1, Ordering::SeqCst) - 1;
                     
                     if new_count <= self.initial_len / 2 {
