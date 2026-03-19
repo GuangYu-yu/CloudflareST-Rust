@@ -335,7 +335,7 @@ fn generate_refined_random(obj_addr: usize) -> u128 {
 
     x = x.wrapping_mul(hasher_seed | 1);
 
-    x = x.rotate_left((usize::BITS / 2) as u32);
+    x = x.rotate_left(usize::BITS / 2);
     x = x.swap_bytes();
 
     x as u128
