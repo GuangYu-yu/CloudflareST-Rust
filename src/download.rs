@@ -83,7 +83,7 @@ impl DownloadHandler {
             self.cleanup_old_samples(window_start);
             
             let speed = self.calculate_speed();
-            self.bar.set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
+            self.bar.set_suffix(format!("{:.2} MB/s", speed / 1024.0 / 1024.0));
             self.last_update = Instant::now();
         }
     }
@@ -136,7 +136,7 @@ impl<'a> DownloadTest<'a> {
             args,
             uri,
             host,
-            bar: Arc::new(Bar::new(test_num, "", "MB/s")),
+            bar: Arc::new(Bar::new(test_num, "", "")),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
@@ -224,6 +224,9 @@ impl<'a> DownloadTest<'a> {
             let message = format!("{qualified_len}|{tested_count}");
             bar.update(tested_count, message, "");
         }
+
+        // 进度条最后显示 Done!
+        self.bar.set_suffix("Done!");
 
         // 完成进度条但保持当前进度
         self.bar.done();
