@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use http_body::Body;
@@ -25,17 +25,17 @@ use crate::hyper::{self, parse_url_to_uri};
 struct DownloadHandler {
     data_received: u64,
     last_update: Instant,
-    current_speed: Arc<AtomicU64>,
+    bar: Arc<Bar>,
     speed_samples: VecDeque<(Instant, u64)>,
 }
 
 impl DownloadHandler {
-    fn new(current_speed: Arc<AtomicU64>) -> Self {
+    fn new(bar: Arc<Bar>) -> Self {
         let now = Instant::now();
         Self {
             data_received: 0,
             last_update: now,
-            current_speed,
+            bar,
             speed_samples: VecDeque::new(),
         }
     }
@@ -83,7 +83,7 @@ impl DownloadHandler {
             self.cleanup_old_samples(window_start);
             
             let speed = self.calculate_speed();
-            self.current_speed.store((speed * 100.0) as u64, Ordering::Relaxed);
+            self.bar.set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
             self.last_update = Instant::now();
         }
     }
@@ -100,7 +100,6 @@ pub(crate) struct DownloadTest<'a> {
     uri: http::Uri,
     host: String,
     bar: Arc<Bar>,
-    current_speed: Arc<AtomicU64>,
     colo_filter: Arc<Vec<String>>,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
@@ -138,7 +137,6 @@ impl<'a> DownloadTest<'a> {
             uri,
             host,
             bar: Arc::new(Bar::new(test_num, "", "MB/s")),
-            current_speed: Arc::new(AtomicU64::new(0)),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
@@ -149,33 +147,6 @@ impl<'a> DownloadTest<'a> {
     pub(crate) async fn test_download_speed(&mut self) -> Vec<PingData> {
         // 数据中心过滤条件
         let colo_filters = self.colo_filter.clone();
-
-        let current_speed_arc: Arc<AtomicU64> = self.current_speed.clone();
-        let bar_arc = self.bar.clone();
-        let timeout_flag_clone = self.timeout_flag.clone();
-        
-        // 使用统一的速度更新间隔
-        let update_interval = Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
-
-        let speed_update_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(update_interval);
-            
-            loop {
-                if timeout_flag_clone.load(Ordering::SeqCst) {
-                    break;
-                }
-                
-                // 读取当前速度 (B/s)
-                let speed = current_speed_arc.load(Ordering::Relaxed) as f32 / 100.0;
-                
-                if speed >= 0.0 {
-                    // 更新进度条的速率后缀 (MB/s)
-                    bar_arc.set_suffix(format!("{:.2}", speed / 1024.0 / 1024.0));
-                }
-
-                interval.tick().await; // 等待下一个间隔
-            }
-        });
 
         let mut ping_queue = self.ping_results.drain(..).collect::<VecDeque<_>>();
         let mut qualified_results = Vec::with_capacity(self.args.test_count);
@@ -209,10 +180,10 @@ impl<'a> DownloadTest<'a> {
             };
             
             let context = DownloadContext {
-                current_speed: self.current_speed.clone(),
                 timeout_flag: self.timeout_flag.clone(),
                 interface_config: self.args.interface_config.clone(),
                 tls_connector: self.tls_connector.clone(),
+                bar: self.bar.clone(),
             };
             
             let (speed, maybe_colo) = download_handler(conn, behavior, &context).await;
@@ -254,9 +225,6 @@ impl<'a> DownloadTest<'a> {
             bar.update(tested_count, message, "");
         }
 
-        // 中止速度更新任务
-        speed_update_handle.abort();
-
         // 完成进度条但保持当前进度
         self.bar.done();
 
@@ -285,10 +253,10 @@ pub(crate) struct DownloadBehavior {
 }
 
 pub(crate) struct DownloadContext {
-    pub current_speed: Arc<AtomicU64>,
     pub timeout_flag: Arc<AtomicBool>,
     pub interface_config: Arc<InterfaceParamResult>,
     pub tls_connector: Arc<tokio_rustls::TlsConnector>,
+    pub bar: Arc<Bar>,
 }
 
 // 下载测速处理函数
@@ -299,8 +267,6 @@ async fn download_handler(
 ) -> (Option<f32>, Option<[u8; 3]>) {
     let DownloadConnection { uri, host, addr } = conn;
     let DownloadBehavior { duration: download_duration, need_colo, colo_filters } = behavior;
-    
-    context.current_speed.store(0, Ordering::Relaxed);
 
     let mut data_center = None;
 
@@ -309,7 +275,7 @@ async fn download_handler(
 
     let original_uri = uri;
 
-    let mut handler = DownloadHandler::new(context.current_speed.clone());
+    let mut handler = DownloadHandler::new(context.bar.clone());
 
     let Some(resp) = hyper::send_request(
         &context.interface_config,
