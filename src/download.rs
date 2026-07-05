@@ -312,7 +312,7 @@ async fn download_handler(
     let extended_duration = download_duration + warm_up_duration;
 
     // 构造使用 IP 的 URI
-    let uri = format!("{}://{}{}", uri.scheme_str().unwrap(), addr, uri.path()).parse().unwrap_or_else(|_| uri.clone());
+    let uri = format!("{}://{}{}", uri.scheme_str().unwrap(), addr, uri.path_and_query().map_or("/", |pq| pq.as_str())).parse().unwrap_or_else(|_| uri.clone());
 
     // 创建下载处理器
     let mut handler = DownloadHandler::new(context.current_speed.clone());
