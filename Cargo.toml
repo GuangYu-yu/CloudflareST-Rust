@@ -8,16 +8,16 @@ edition = "2024"
 icmp = ["dep:surge-ping"]
 
 [dependencies]
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"], default-features = false }
-hyper = { version = "1", features = ["client"], default-features = false }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net"], default-features = false }
+hyper = { version = "1", features = ["client", "http1"], default-features = false }
 rustls-pki-types = { version = "1", default-features = false }
-hyper-util = { version = "0.1", features = ["client-legacy"], default-features = false }
-hyper-rustls = { version = "0.27", features = ["ring", "webpki-roots", "http1"], default-features = false }
 http = { version = "1", default-features = false }
 http-body = { version = "1", default-features = false }
+hyper-util = { version = "0.1", features = ["tokio"], default-features = false }
 bytes = { version = "1", default-features = false }
-tower-service = { version = "0.3", default-features = false }
 surge-ping = { version = "0.8", optional = true, default-features = false }
+tokio-rustls = { version = "0.26", default-features = false }
+rustls = { version = "0.23", features = ["ring"], default-features = false }
 
 # --- Windows ---
 [target.'cfg(target_os = "windows")'.dependencies]

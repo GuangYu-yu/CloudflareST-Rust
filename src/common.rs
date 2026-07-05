@@ -9,7 +9,6 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use hyper::Response as HyperResponse;
 
 #[derive(Clone, Copy)]
 pub(crate) struct PingData {
@@ -119,9 +118,9 @@ pub(crate) fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -
     (avg_ms * 100.0).round() / 100.0
 }
 
-/// 从响应中提取数据中心信息
-pub(crate) fn extract_data_center(resp: &HyperResponse<hyper::body::Incoming>) -> Option<[u8; 3]> {
-    let s = resp.headers().get("cf-ray")?.to_str().ok()?.rsplit('-').next()?;
+/// 从响应头中提取数据中心信息
+pub(crate) fn extract_data_center(headers: &http::HeaderMap) -> Option<[u8; 3]> {
+    let s = headers.get("cf-ray")?.to_str().ok()?.rsplit('-').next()?;
     let b = s.as_bytes();
     (b.len() == 3).then(|| [b[0], b[1], b[2]])
 }

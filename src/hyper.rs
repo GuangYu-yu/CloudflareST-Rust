@@ -1,25 +1,79 @@
-use std::{
-    future::Future,
-    net::SocketAddr,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
 
-use rustls_pki_types::ServerName;
-use hyper::{Method, Request, Response, Uri, body::Incoming};
-use hyper_util::client::legacy::Client as LegacyClient;
-use hyper_rustls::FixedServerNameResolver;
+use http::{Method, Uri};
+use hyper::{Request, Response, body::Incoming};
 use hyper_util::rt::TokioIo;
-use hyper_rustls::HttpsConnectorBuilder;
-use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tower_service::Service;
+use tokio_rustls::TlsConnector;
 
 use crate::interface::{InterfaceParamResult, bind_socket_to_interface};
 
-/// 空的请求体实现
+pub(crate) const USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+// TLS（跳过证书验证）
+
+#[derive(Debug)]
+struct NoCertVerifier;
+
+impl rustls::client::danger::ServerCertVerifier for NoCertVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![
+            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rustls::SignatureScheme::RSA_PKCS1_SHA384,
+            rustls::SignatureScheme::RSA_PKCS1_SHA512,
+            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+            rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
+            rustls::SignatureScheme::ED25519,
+            rustls::SignatureScheme::RSA_PSS_SHA256,
+            rustls::SignatureScheme::RSA_PSS_SHA384,
+            rustls::SignatureScheme::RSA_PSS_SHA512,
+        ]
+    }
+}
+
+pub(crate) fn build_tls_connector() -> std::io::Result<Arc<TlsConnector>> {
+    let config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
+        .with_no_client_auth();
+    Ok(Arc::new(TlsConnector::from(Arc::new(config))))
+}
+
+// 空的请求体
+
 pub(crate) struct EmptyBody;
 
 impl hyper::body::Body for EmptyBody {
@@ -27,10 +81,10 @@ impl hyper::body::Body for EmptyBody {
     type Error = std::convert::Infallible;
 
     fn poll_frame(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
-        Poll::Ready(None)
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        std::task::Poll::Ready(None)
     }
 
     fn is_end_stream(&self) -> bool {
@@ -38,112 +92,72 @@ impl hyper::body::Body for EmptyBody {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct ConnectorService {
-    interface_config: Arc<InterfaceParamResult>,
-    timeout_duration: Duration,
-}
+// 发送 HTTP 请求
 
-impl ConnectorService {
-    pub(crate) fn new(interface_config: Arc<InterfaceParamResult>, timeout_ms: u64) -> Self {
-        Self {
-            interface_config,
-            timeout_duration: Duration::from_millis(timeout_ms),
-        }
-    }
-}
-
-impl Service<Uri> for ConnectorService {
-    type Response = TokioIo<TcpStream>;
-    type Error = Box<dyn std::error::Error + Send + Sync>;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, uri: Uri) -> Self::Future {
-        let config = self.interface_config.clone();
-        let t_duration = self.timeout_duration;
-
-        Box::pin(async move {
-            let addr: SocketAddr = format!("{}:{}", uri.host().unwrap(), uri.port_u16().unwrap())
-                .parse()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-
-            let socket = bind_socket_to_interface(addr, &config)
-                .await
-                .unwrap_or_else(|| {
-                    crate::error_and_exit(format_args!("绑定套接字到网络接口失败"));
-                });
-            
-            let stream = timeout(t_duration, socket.connect(addr))
-                .await
-                .map_err(|_| "")? // 连接超时
-                .map_err(|_| "")?; // 连接失败
-            
-            stream.set_nodelay(true).ok();
-            Ok(TokioIo::new(stream))
-        })
-    }
-}
-
-pub(crate) type MyHttpsConnector = hyper_rustls::HttpsConnector<ConnectorService>;
-pub(crate) type MyHyperClient = LegacyClient<MyHttpsConnector, EmptyBody>;
-
-/// 浏览器 User-Agent
-pub(crate) const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-/// 构建 hyper 客户端
-pub(crate) fn build_hyper_client(
-    interface_config: &Arc<InterfaceParamResult>,
-    timeout_ms: u64,
-    server_name: String,
-) -> Option<MyHyperClient> {
-    let connector = ConnectorService::new(interface_config.clone(), timeout_ms);
-
-    let resolver = FixedServerNameResolver::new(
-        ServerName::try_from(server_name).ok()?
-    );
-
-    let https_connector = HttpsConnectorBuilder::new()
-        .with_webpki_roots()
-        .https_or_http()
-        .with_server_name_resolver(resolver)
-        .enable_http1()
-        .wrap_connector(connector);
-
-    let client = LegacyClient::builder(hyper_util::rt::TokioExecutor::new())
-        .pool_max_idle_per_host(1)
-        .pool_idle_timeout(Duration::from_secs(1))
-        .build(https_connector);
-
-    Some(client)
-}
-
-/// 发送 HTTP 请求
 pub(crate) async fn send_request(
-    client: &MyHyperClient,
+    interface_config: &Arc<InterfaceParamResult>,
+    tls_connector: &TlsConnector,
     host: &str,
-    uri: Uri,
-    method: Method,
-    timeout_ms: u64,
+    uri: &Uri,
+    addr: SocketAddr,
+    method: &Method,
+    connect_timeout_ms: u64,
+    ttfb_timeout_ms: u64,
 ) -> Option<Response<Incoming>> {
-    let req = Request::builder()
-        .uri(uri)
-        .method(method)
-        .header("User-Agent", USER_AGENT)
-        .header("Host", host)
-        .body(EmptyBody).ok()?;
-
-    timeout(Duration::from_millis(timeout_ms), client.request(req))
+    // TCP 连接
+    let socket = bind_socket_to_interface(addr, interface_config).await?;
+    let stream = timeout(Duration::from_millis(connect_timeout_ms), socket.connect(addr))
         .await
         .ok()?
-        .ok()
+        .ok()?;
+    stream.set_nodelay(true).ok();
+
+    // TLS 握手
+    let server_name = rustls_pki_types::ServerName::try_from(host.to_string()).ok()?;
+    let tls_stream = timeout(
+        Duration::from_millis(connect_timeout_ms),
+        tls_connector.connect(server_name, stream),
+    )
+    .await
+    .ok()?
+    .ok()?;
+
+    // HTTP/1.1 握手
+    let io = TokioIo::new(tls_stream);
+    let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
+        .handshake(io)
+        .await
+        .ok()?;
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("[hyper] connection error: {e}");
+        }
+    });
+
+    // 构造请求（Host 头带端口号，兼容非默认端口）
+    let host_header = match uri.port_u16() {
+        Some(port) if port != 443 && port != 80 => format!("{host}:{port}"),
+        _ => host.to_string(),
+    };
+
+    let req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Host", &host_header)
+        .header("User-Agent", USER_AGENT)
+        .body(EmptyBody)
+        .ok()?;
+
+    // 发送请求并等待首字节
+    let resp = timeout(Duration::from_millis(ttfb_timeout_ms), sender.send_request(req))
+        .await
+        .ok()?
+        .ok()?;
+
+    Some(resp)
 }
 
-/// 统一的 URI 解析函数
 pub(crate) fn parse_url_to_uri(url_str: &str) -> Option<(Uri, String)> {
     let uri = url_str.parse::<Uri>().ok()?;
     let host = uri.host()?.to_string();

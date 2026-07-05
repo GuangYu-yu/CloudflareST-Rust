@@ -5,19 +5,20 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use http_body::Body;
-use http::Method;
 
 // 统一的速度更新间隔（毫秒）
 const SPEED_UPDATE_INTERVAL_MS: u64 = 500;
 
 // 下载测速相关常量
 const TTFB_TIMEOUT_MS: u64 = 1200; // 首字节超时时间（毫秒）
+const CONNECT_TIMEOUT_MS: u64 = 2000; // 连接超时时间（毫秒）
 const WARM_UP_DURATION_SECS: u64 = 3; // 预热时间（秒）
 
 use crate::args::Args;
 use crate::common::{self, PingData};
 use crate::progress::Bar;
 use crate::warning_println;
+use crate::interface::InterfaceParamResult;
 use crate::hyper::{self, parse_url_to_uri};
 
 // 定义下载处理器来处理下载数据
@@ -103,7 +104,7 @@ pub(crate) struct DownloadTest<'a> {
     colo_filter: Arc<Vec<String>>,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
-    client: crate::hyper::MyHyperClient,
+    tls_connector: Arc<tokio_rustls::TlsConnector>,
 }
 
 impl<'a> DownloadTest<'a> {
@@ -130,12 +131,7 @@ impl<'a> DownloadTest<'a> {
             ping_results.len()
         );
 
-        // 预先构建 Client
-        let client = crate::hyper::build_hyper_client(
-            &args.interface_config,
-            TTFB_TIMEOUT_MS,
-            host.to_string(),
-        ).unwrap();
+        let tls_connector = crate::hyper::build_tls_connector().unwrap();
 
         Self {
             args,
@@ -146,7 +142,7 @@ impl<'a> DownloadTest<'a> {
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
-            client,
+            tls_connector,
         }
     }
 
@@ -215,9 +211,11 @@ impl<'a> DownloadTest<'a> {
             let context = DownloadContext {
                 current_speed: self.current_speed.clone(),
                 timeout_flag: self.timeout_flag.clone(),
+                interface_config: self.args.interface_config.clone(),
+                tls_connector: self.tls_connector.clone(),
             };
             
-            let (speed, maybe_colo) = download_handler(conn, behavior, &context, &self.client).await;
+            let (speed, maybe_colo) = download_handler(conn, behavior, &context).await;
 
             // 更新下载速度和可能的数据中心信息
             ping_result.download_speed = speed;
@@ -289,6 +287,8 @@ pub(crate) struct DownloadBehavior {
 pub(crate) struct DownloadContext {
     pub current_speed: Arc<AtomicU64>,
     pub timeout_flag: Arc<AtomicBool>,
+    pub interface_config: Arc<InterfaceParamResult>,
+    pub tls_connector: Arc<tokio_rustls::TlsConnector>,
 }
 
 // 下载测速处理函数
@@ -296,71 +296,60 @@ async fn download_handler(
     conn: DownloadConnection<'_>,
     behavior: DownloadBehavior,
     context: &DownloadContext,
-    client: &crate::hyper::MyHyperClient,
 ) -> (Option<f32>, Option<[u8; 3]>) {
-    // 解构参数，提高代码可读性
     let DownloadConnection { uri, host, addr } = conn;
     let DownloadBehavior { duration: download_duration, need_colo, colo_filters } = behavior;
     
-    // 在每次新的下载开始前重置速度为0
     context.current_speed.store(0, Ordering::Relaxed);
 
     let mut data_center = None;
 
-    // 定义连接和TTFB的超时
     let warm_up_duration = Duration::from_secs(WARM_UP_DURATION_SECS);
     let extended_duration = download_duration + warm_up_duration;
 
-    // 构造使用 IP 的 URI
-    let uri = format!("{}://{}{}", uri.scheme_str().unwrap(), addr, uri.path_and_query().map_or("/", |pq| pq.as_str())).parse().unwrap_or_else(|_| uri.clone());
+    let original_uri = uri;
 
-    // 创建下载处理器
     let mut handler = DownloadHandler::new(context.current_speed.clone());
 
-    // 发送GET请求
     let Some(resp) = hyper::send_request(
-        client, 
-        host, 
-        uri,
-        Method::GET,
-        TTFB_TIMEOUT_MS
+        &context.interface_config,
+        &context.tls_connector,
+        host,
+        &original_uri,
+        addr,
+        &http::Method::GET,
+        CONNECT_TIMEOUT_MS,
+        TTFB_TIMEOUT_MS,
     ).await else {
         return (None, None);
     };
 
-    // 获取到响应，开始下载
     let avg_speed = {
-        // 如果需要获取数据中心信息，从响应头中提取
         if need_colo {
-            data_center = common::extract_data_center(&resp);
-            // 如果没有提取到数据中心信息，直接返回None
+            data_center = common::extract_data_center(resp.headers());
             if data_center.is_none() {
                 return (None, None);
             }
-            // 如果数据中心不符合要求，速度返回None，数据中心正常返回
             if let Some(_) = &data_center
                 && !colo_filters.is_empty() && !common::is_colo_matched(data_center.as_ref().map_or("", |b| std::str::from_utf8(b).unwrap()), &colo_filters) {
                 return (None, data_center);
             }
         }
 
-        // 读取响应体
         let time_start = Instant::now();
         let mut actual_content_read: u64 = 0;
         let mut actual_start_time: Option<Instant> = None;
-        let mut last_data_time: Option<Instant> = None; // 记录最后读取数据的时间
+        let mut last_data_time: Option<Instant> = None;
         
         let mut body = resp.into_body();
         let mut body_pin = std::pin::Pin::new(&mut body);
         
         loop {
-            // 检查是否应该继续下载
             let elapsed = time_start.elapsed();
             if elapsed >= extended_duration || context.timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
 
-            // 异步读取下一帧数据
             match std::future::poll_fn(|cx| body_pin.as_mut().poll_frame(cx)).await {
                 Some(Ok(frame)) => {
                     if let Some(data) = frame.data_ref() {
@@ -370,24 +359,22 @@ async fn download_handler(
                         let current_time = Instant::now();
                         let elapsed = current_time.duration_since(time_start);
 
-                        // 如果已经过了预热时间，开始记录实际下载数据
                         if elapsed >= warm_up_duration {
                             if actual_start_time.is_none() {
                                 actual_start_time = Some(current_time);
                             }
                             actual_content_read += size;
-                            last_data_time = Some(current_time); // 更新最后数据时间
+                            last_data_time = Some(current_time);
                         }
                     }
                 }
-                Some(Err(_)) => return (None, data_center), // 网络错误直接返回None
-                None => break, // 没有更多数据
+                Some(Err(_)) => return (None, data_center),
+                None => break,
             }
         }
 
-        // 计算实际速度（只计算预热后的数据）
         actual_start_time.and_then(|start| {
-            let end_time = last_data_time.unwrap_or_else(Instant::now); // 使用最后数据时间
+            let end_time = last_data_time.unwrap_or_else(Instant::now);
             let actual_elapsed = end_time.duration_since(start).as_secs_f32();
             if actual_elapsed > 0.0 {
                 Some(actual_content_read as f32 / actual_elapsed)

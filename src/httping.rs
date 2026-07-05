@@ -4,21 +4,24 @@ use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
-use http::Method;
 
 use crate::hyper::{send_request, parse_url_to_uri};
 use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
+use crate::interface::InterfaceParamResult;
 use crate::pool::execute_with_rate_limit;
+
+const TTFB_TIMEOUT_MS: u64 = 1200; // 首字节超时时间（毫秒）
+const CONNECT_TIMEOUT_MS: u64 = 2000; // 连接超时时间（毫秒）
 
 #[derive(Clone)]
 pub(crate) struct HttpingFactoryData {
     colo_filters: Arc<Vec<String>>,
-    scheme: String,
-    path: String,
+    original_uri: http::Uri,
     allowed_codes: Option<Arc<Vec<u16>>>,
     host_header: Arc<str>,
-    global_client: Arc<crate::hyper::MyHyperClient>,
+    interface_config: Arc<InterfaceParamResult>,
+    tls_connector: Arc<tokio_rustls::TlsConnector>,
 }
 
 impl common::PingMode for HttpingFactoryData {
@@ -27,35 +30,29 @@ impl common::PingMode for HttpingFactoryData {
         base: BasePing,
         addr: SocketAddr,
     ) -> Pin<Box<dyn Future<Output = Option<PingData>> + Send>> {
-        // 1. 克隆必要的配置
         let args = base.args.clone();
         let colo_filters = self.colo_filters.clone();
         let allowed_codes = self.allowed_codes.clone();
-        
-        // 2. 构造 URI
-        let uri: http::Uri = format!("{}://{}{}", self.scheme, addr, self.path).parse().unwrap();
-
+        let original_uri = self.original_uri.clone();
         let host_header = self.host_header.clone();
-        let global_client = (*self.global_client).clone();
+        let interface_config = self.interface_config.clone();
+        let tls_connector = self.tls_connector.clone();
 
         Box::pin(async move {
             let ping_times = args.ping_times;
 
-            // 3. 移动全局 Client 到闭包
-            let client = global_client;
-
-            // 4. 创建任务结构体并包装在 Arc 中
             let task = Arc::new(PingTask {
-                client,
+                interface_config,
+                tls_connector,
                 host_header,
-                uri,
+                original_uri,
+                addr,
                 colo_filters,
                 allowed_codes,
                 should_continue: AtomicBool::new(true),
                 local_data_center: OnceLock::new(),
             });
 
-            // 5. 执行 ping 循环
             let (avg_delay, recv) = common::run_ping_loop(ping_times, 200, {
                 let task = task.clone();
                 move || {
@@ -66,7 +63,6 @@ impl common::PingMode for HttpingFactoryData {
                 }
             }).await;
 
-            // 6. 如果因 Colo 不匹配而终止，则不返回结果
             if !task.should_continue.load(Ordering::Relaxed) {
                 return None;
             }
@@ -82,9 +78,11 @@ impl common::PingMode for HttpingFactoryData {
 }
 
 struct PingTask {
-    client: crate::hyper::MyHyperClient,
+    interface_config: Arc<InterfaceParamResult>,
+    tls_connector: Arc<tokio_rustls::TlsConnector>,
     host_header: Arc<str>,
-    uri: http::Uri,
+    original_uri: http::Uri,
+    addr: SocketAddr,
     colo_filters: Arc<Vec<String>>,
     allowed_codes: Option<Arc<Vec<u16>>>,
     should_continue: AtomicBool,
@@ -93,36 +91,38 @@ struct PingTask {
 
 impl PingTask {
     async fn perform_ping(&self) -> Option<f32> {
-        // 1. 快速检查退出标志
         if !self.should_continue.load(Ordering::Relaxed) {
             return None;
         }
 
-        // 2. 执行带频率限制的请求
         let result = execute_with_rate_limit(|| async {
             let start = Instant::now();
             
-            // 发送 HEAD 请求
-            let resp = send_request(&self.client, self.host_header.as_ref(), self.uri.clone(), Method::HEAD, 1200).await?;
+            let resp = send_request(
+                &self.interface_config,
+                &self.tls_connector,
+                self.host_header.as_ref(),
+                &self.original_uri,
+                self.addr,
+                &http::Method::HEAD,
+                CONNECT_TIMEOUT_MS,
+                TTFB_TIMEOUT_MS,
+            ).await?;
             
-            // 验证状态码
             let status = resp.status().as_u16();
             if let Some(ref codes) = self.allowed_codes && !codes.contains(&status) {
                 return None;
             }
             
-            // 提取数据中心信息并计算延迟
-            let dc = common::extract_data_center(&resp)?;
+            let dc = common::extract_data_center(resp.headers())?;
             let delay = start.elapsed().as_secs_f32() * 1000.0;
             
             Some((delay, dc))
         }).await;
 
-        // 3. 处理结果与 Colo 过滤
         match result {
             Some((delay, dc)) => {
                 if self.local_data_center.get().is_none() {
-                    // 检查数据中心（Colo）是否符合过滤要求
                     if !self.colo_filters.is_empty() && !common::is_colo_matched(std::str::from_utf8(&dc).unwrap(), &self.colo_filters) {
                         self.should_continue.store(false, Ordering::Relaxed);
                         return None;
@@ -139,11 +139,7 @@ impl PingTask {
 pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> Option<CommonPing> {
     let httping_url = args.httping.as_deref()?;
     let (uri, host_header) = parse_url_to_uri(httping_url)?;
-    
-    let scheme = uri.scheme_str()?;
-    let path = uri.path();
 
-    // 解析 Colo 过滤条件
     let colo_filters = if !args.httping_cf_colo.is_empty() {
         common::parse_colo_filters(&args.httping_cf_colo)
     } else {
@@ -164,19 +160,15 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
 
     let base = common::create_base_ping(args.clone(), sources, timeout_flag);
 
-    let client = crate::hyper::build_hyper_client(
-        &args.interface_config,
-        1800,
-        host_header.to_string(),
-    )?;
+    let tls_connector = crate::hyper::build_tls_connector().ok()?;
 
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),
-        scheme: scheme.to_string(),
-        path: path.to_string(),
+        original_uri: uri,
         allowed_codes,
         host_header: host_header.into(),
-        global_client: Arc::new(client),
+        interface_config: args.interface_config.clone(),
+        tls_connector,
     };
 
     Some(CommonPing::new(base, factory_data))
