@@ -202,7 +202,7 @@ impl BarInner {
 
         let _ = write!(
             output_buffer,
-            "\r\x1b[K\x1b[33m{}\x1b[0m {} {} \x1b[32m{}\x1b[0m {}",
+            "\r\x1b[K\x1b[33m{}\x1b[0m {} {}\x1b[32m{}\x1b[0m{}",
             msg, bar_str, self.start_str, prefix, self.end_str
         );
 

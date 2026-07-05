@@ -5,14 +5,13 @@ use std::sync::{Arc, OnceLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use crate::hyper::{send_request, parse_url_to_uri};
+use crate::hyper::{parse_url_to_uri, RequestContext};
 use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
-use crate::interface::InterfaceParamResult;
 use crate::pool::execute_with_rate_limit;
 
-const TTFB_TIMEOUT_MS: u64 = 1200; // 首字节超时时间（毫秒）
-const CONNECT_TIMEOUT_MS: u64 = 2000; // 连接超时时间（毫秒）
+const TTFB_TIMEOUT_MS: u64 = 1200;
+const CONNECT_TIMEOUT_MS: u64 = 2000;
 
 #[derive(Clone)]
 pub(crate) struct HttpingFactoryData {
@@ -20,8 +19,7 @@ pub(crate) struct HttpingFactoryData {
     original_uri: http::Uri,
     allowed_codes: Option<Arc<Vec<u16>>>,
     host_header: Arc<str>,
-    interface_config: Arc<InterfaceParamResult>,
-    tls_connector: Arc<tokio_rustls::TlsConnector>,
+    request_context: Arc<RequestContext>,
 }
 
 impl common::PingMode for HttpingFactoryData {
@@ -35,15 +33,13 @@ impl common::PingMode for HttpingFactoryData {
         let allowed_codes = self.allowed_codes.clone();
         let original_uri = self.original_uri.clone();
         let host_header = self.host_header.clone();
-        let interface_config = self.interface_config.clone();
-        let tls_connector = self.tls_connector.clone();
+        let request_context = self.request_context.clone();
 
         Box::pin(async move {
             let ping_times = args.ping_times;
 
             let task = Arc::new(PingTask {
-                interface_config,
-                tls_connector,
+                request_context,
                 host_header,
                 original_uri,
                 addr,
@@ -78,8 +74,7 @@ impl common::PingMode for HttpingFactoryData {
 }
 
 struct PingTask {
-    interface_config: Arc<InterfaceParamResult>,
-    tls_connector: Arc<tokio_rustls::TlsConnector>,
+    request_context: Arc<RequestContext>,
     host_header: Arc<str>,
     original_uri: http::Uri,
     addr: SocketAddr,
@@ -98,15 +93,11 @@ impl PingTask {
         let result = execute_with_rate_limit(|| async {
             let start = Instant::now();
             
-            let resp = send_request(
-                &self.interface_config,
-                &self.tls_connector,
+            let resp = self.request_context.send_request(
                 self.host_header.as_ref(),
                 &self.original_uri,
                 self.addr,
                 &http::Method::HEAD,
-                CONNECT_TIMEOUT_MS,
-                TTFB_TIMEOUT_MS,
             ).await?;
             
             let status = resp.status().as_u16();
@@ -161,14 +152,19 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     let base = common::create_base_ping(args.clone(), sources, timeout_flag);
 
     let tls_connector = crate::hyper::build_tls_connector().ok()?;
+    let request_context = Arc::new(RequestContext {
+        interface_config: args.interface_config.clone(),
+        tls_connector,
+        connect_timeout_ms: CONNECT_TIMEOUT_MS,
+        ttfb_timeout_ms: TTFB_TIMEOUT_MS,
+    });
 
     let factory_data = HttpingFactoryData {
         colo_filters: Arc::new(colo_filters),
         original_uri: uri,
         allowed_codes,
         host_header: host_header.into(),
-        interface_config: args.interface_config.clone(),
-        tls_connector,
+        request_context,
     };
 
     Some(CommonPing::new(base, factory_data))

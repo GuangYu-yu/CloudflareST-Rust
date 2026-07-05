@@ -18,8 +18,7 @@ use crate::args::Args;
 use crate::common::{self, PingData};
 use crate::progress::Bar;
 use crate::warning_println;
-use crate::interface::InterfaceParamResult;
-use crate::hyper::{self, parse_url_to_uri};
+use crate::hyper::{parse_url_to_uri, RequestContext};
 
 // 定义下载处理器来处理下载数据
 struct DownloadHandler {
@@ -103,7 +102,7 @@ pub(crate) struct DownloadTest<'a> {
     colo_filter: Arc<Vec<String>>,
     ping_results: Vec<PingData>,
     timeout_flag: Arc<AtomicBool>,
-    tls_connector: Arc<tokio_rustls::TlsConnector>,
+    request_context: Arc<RequestContext>,
 }
 
 impl<'a> DownloadTest<'a> {
@@ -131,6 +130,12 @@ impl<'a> DownloadTest<'a> {
         );
 
         let tls_connector = crate::hyper::build_tls_connector().unwrap();
+        let request_context = Arc::new(RequestContext {
+            interface_config: args.interface_config.clone(),
+            tls_connector,
+            connect_timeout_ms: CONNECT_TIMEOUT_MS,
+            ttfb_timeout_ms: TTFB_TIMEOUT_MS,
+        });
 
         Self {
             args,
@@ -140,7 +145,7 @@ impl<'a> DownloadTest<'a> {
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
-            tls_connector,
+            request_context,
         }
     }
 
@@ -181,8 +186,7 @@ impl<'a> DownloadTest<'a> {
             
             let context = DownloadContext {
                 timeout_flag: self.timeout_flag.clone(),
-                interface_config: self.args.interface_config.clone(),
-                tls_connector: self.tls_connector.clone(),
+                request_context: self.request_context.clone(),
                 bar: self.bar.clone(),
             };
             
@@ -257,8 +261,7 @@ pub(crate) struct DownloadBehavior {
 
 pub(crate) struct DownloadContext {
     pub timeout_flag: Arc<AtomicBool>,
-    pub interface_config: Arc<InterfaceParamResult>,
-    pub tls_connector: Arc<tokio_rustls::TlsConnector>,
+    pub request_context: Arc<RequestContext>,
     pub bar: Arc<Bar>,
 }
 
@@ -280,15 +283,11 @@ async fn download_handler(
 
     let mut handler = DownloadHandler::new(context.bar.clone());
 
-    let Some(resp) = hyper::send_request(
-        &context.interface_config,
-        &context.tls_connector,
+    let Some(resp) = context.request_context.send_request(
         host,
         &original_uri,
         addr,
         &http::Method::GET,
-        CONNECT_TIMEOUT_MS,
-        TTFB_TIMEOUT_MS,
     ).await else {
         return (None, None);
     };
@@ -306,13 +305,17 @@ async fn download_handler(
         }
 
         let time_start = Instant::now();
+        // 预热期间也记录数据，用于下载提前结束时的速度计算
+        let mut total_content_read: u64 = 0;
         let mut actual_content_read: u64 = 0;
         let mut actual_start_time: Option<Instant> = None;
         let mut last_data_time: Option<Instant> = None;
-        
+        let mut first_data_time: Option<Instant> = None;
+        let mut download_early_finish = false;
+
         let mut body = resp.into_body();
         let mut body_pin = std::pin::Pin::new(&mut body);
-        
+
         loop {
             let elapsed = time_start.elapsed();
             if elapsed >= extended_duration || context.timeout_flag.load(Ordering::SeqCst) {
@@ -328,6 +331,11 @@ async fn download_handler(
                         let current_time = Instant::now();
                         let elapsed = current_time.duration_since(time_start);
 
+                        total_content_read += size;
+                        if first_data_time.is_none() {
+                            first_data_time = Some(current_time);
+                        }
+
                         if elapsed >= warm_up_duration {
                             if actual_start_time.is_none() {
                                 actual_start_time = Some(current_time);
@@ -338,19 +346,33 @@ async fn download_handler(
                     }
                 }
                 Some(Err(_)) => return (None, data_center),
-                None => break,
+                None => {
+                    download_early_finish = true;
+                    break;
+                },
             }
         }
 
-        actual_start_time.and_then(|start| {
-            let end_time = last_data_time.unwrap_or_else(Instant::now);
-            let actual_elapsed = end_time.duration_since(start).as_secs_f32();
-            if actual_elapsed > 0.0 {
-                Some(actual_content_read as f32 / actual_elapsed)
+        if download_early_finish && actual_start_time.is_none() && total_content_read > 0 {
+            let start = first_data_time.unwrap_or(time_start);
+            let end = last_data_time.unwrap_or_else(Instant::now);
+            let elapsed = end.duration_since(start).as_secs_f32();
+            if elapsed > 0.0 {
+                Some(total_content_read as f32 / elapsed)
             } else {
                 None
             }
-        })
+        } else {
+            actual_start_time.and_then(|start| {
+                let end_time = last_data_time.unwrap_or_else(Instant::now);
+                let actual_elapsed = end_time.duration_since(start).as_secs_f32();
+                if actual_elapsed > 0.0 {
+                    Some(actual_content_read as f32 / actual_elapsed)
+                } else {
+                    None
+                }
+            })
+        }
     };
 
     (avg_speed, data_center)
