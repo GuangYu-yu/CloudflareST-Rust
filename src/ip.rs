@@ -259,20 +259,22 @@ impl IpBuffer {
 
 fn generate_refined_random(obj_addr: usize) -> u128 {
     static SHARED_STATE: AtomicUsize = AtomicUsize::new(0);
-
     let hasher_seed = generate_refined_random as *const () as usize;
 
     let s = SHARED_STATE.fetch_add(1, Ordering::Relaxed);
-
     let t = &s as *const _ as usize;
-    let mut x = s ^ obj_addr ^ t;
 
-    x = x.wrapping_mul(hasher_seed | 1);
+    let mut lo = s ^ obj_addr ^ t;
+    lo = lo.wrapping_mul(hasher_seed | 1);
+    lo = lo.rotate_left(usize::BITS / 2);
+    lo = lo.swap_bytes();
 
-    x = x.rotate_left(usize::BITS / 2);
-    x = x.swap_bytes();
+    let mut hi = lo.wrapping_mul(0x9E3779B97F4A7C15_usize);
+    hi = hi.rotate_left(usize::BITS / 4);
+    hi = hi.swap_bytes();
+    hi ^= s;
 
-    x as u128
+    (hi as u128) << 64 | (lo as u128)
 }
 
 /// 收集 IP/CIDR 来源
