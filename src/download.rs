@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -114,9 +113,6 @@ impl<'a> DownloadTest<'a> {
         // 解析 URL
         let (uri, host) = parse_url_to_uri(&args.url).unwrap();
 
-        // 计算实际需要测试的数量
-        let test_num = min(args.test_count, ping_results.len());
-
         // 先检查队列数量是否足够
         if args.test_count > ping_results.len() {
             warning_println(format_args!("队列的 IP 数量不足，可能需要降低延迟测速筛选条件！"));
@@ -141,7 +137,7 @@ impl<'a> DownloadTest<'a> {
             args,
             uri,
             host,
-            bar: Arc::new(Bar::new(test_num, "", "")),
+            bar: Arc::new(Bar::new(ping_results.len(), "", "")),
             colo_filter: Arc::new(common::parse_colo_filters(&args.httping_cf_colo)),
             ping_results,
             timeout_flag,
@@ -159,6 +155,9 @@ impl<'a> DownloadTest<'a> {
 
         let uri = &self.uri;
         let host = &self.host;
+
+        // 初始化进度条显示（合格数|已测数）
+        self.bar.update(qualified_results.len(), format!("{}|{}", qualified_results.len(), tested_count), "");
 
         while let Some(mut ping_result) = ping_queue.pop_front() {
             // 检查是否收到超时信号或已经找到足够数量的合格结果
@@ -305,13 +304,10 @@ async fn download_handler(
         }
 
         let time_start = Instant::now();
-        // 预热期间也记录数据，用于下载提前结束时的速度计算
         let mut total_content_read: u64 = 0;
         let mut actual_content_read: u64 = 0;
-        let mut actual_start_time: Option<Instant> = None;
-        let mut last_data_time: Option<Instant> = None;
-        let mut first_data_time: Option<Instant> = None;
-        let mut download_early_finish = false;
+        let mut stream_ended = false;
+        let mut stream_end_time = time_start;
 
         let mut body = resp.into_body();
         let mut body_pin = std::pin::Pin::new(&mut body);
@@ -332,46 +328,37 @@ async fn download_handler(
                         let elapsed = current_time.duration_since(time_start);
 
                         total_content_read += size;
-                        if first_data_time.is_none() {
-                            first_data_time = Some(current_time);
-                        }
 
                         if elapsed >= warm_up_duration {
-                            if actual_start_time.is_none() {
-                                actual_start_time = Some(current_time);
-                            }
                             actual_content_read += size;
-                            last_data_time = Some(current_time);
                         }
                     }
                 }
                 Some(Err(_)) => return (None, data_center),
                 None => {
-                    download_early_finish = true;
+                    stream_ended = true;
+                    stream_end_time = Instant::now();
                     break;
                 },
             }
         }
 
-        if download_early_finish && actual_start_time.is_none() && total_content_read > 0 {
-            let start = first_data_time.unwrap_or(time_start);
-            let end = last_data_time.unwrap_or_else(Instant::now);
-            let elapsed = end.duration_since(start).as_secs_f32();
+        if stream_ended {
+            // 文件正常读完：总数据量 / 总耗时（含预热）
+            let elapsed = stream_end_time.duration_since(time_start).as_secs_f32();
             if elapsed > 0.0 {
                 Some(total_content_read as f32 / elapsed)
             } else {
                 None
             }
         } else {
-            actual_start_time.and_then(|start| {
-                let end_time = last_data_time.unwrap_or_else(Instant::now);
-                let actual_elapsed = end_time.duration_since(start).as_secs_f32();
-                if actual_elapsed > 0.0 {
-                    Some(actual_content_read as f32 / actual_elapsed)
-                } else {
-                    None
-                }
-            })
+            // 超时退出：预热后数据量 / 设定测速时长
+            let duration_secs = download_duration.as_secs_f32();
+            if actual_content_read > 0 && duration_secs > 0.0 {
+                Some(actual_content_read as f32 / duration_secs)
+            } else {
+                None
+            }
         }
     };
 
