@@ -321,16 +321,12 @@ async fn download_handler(
             match std::future::poll_fn(|cx| body_pin.as_mut().poll_frame(cx)).await {
                 Some(Ok(frame)) => {
                     if let Some(data) = frame.data_ref() {
-                        let size = data.len() as u64;
-                        handler.update_data_received(size);
+                        handler.update_data_received(data.len() as u64);
+                        total_content_read += data.len() as u64;
 
-                        let current_time = Instant::now();
-                        let elapsed = current_time.duration_since(time_start);
-
-                        total_content_read += size;
-
+                        let elapsed = time_start.elapsed();
                         if elapsed >= warm_up_duration {
-                            actual_content_read += size;
+                            actual_content_read += data.len() as u64;
                         }
                     }
                 }
@@ -343,22 +339,23 @@ async fn download_handler(
             }
         }
 
-        if stream_ended {
+        let (bytes, duration) = if stream_ended {
             // 文件正常读完：总数据量 / 总耗时（含预热）
             let elapsed = stream_end_time.duration_since(time_start).as_secs_f32();
-            if elapsed > 0.0 {
-                Some(total_content_read as f32 / elapsed)
-            } else {
-                None
-            }
+            (total_content_read as f32, elapsed)
         } else {
             // 超时退出：预热后数据量 / 设定测速时长
             let duration_secs = download_duration.as_secs_f32();
-            if actual_content_read > 0 && duration_secs > 0.0 {
-                Some(actual_content_read as f32 / duration_secs)
-            } else {
-                None
-            }
+            (actual_content_read as f32, duration_secs)
+        };
+
+        // 超时退出时需要额外检查 bytes > 0，正常结束不需要
+        let is_valid = duration > 0.0 && (stream_ended || bytes > 0.0);
+
+        if is_valid {
+            Some(bytes / duration)
+        } else {
+            None
         }
     };
 
