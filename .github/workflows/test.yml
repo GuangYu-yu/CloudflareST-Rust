@@ -1,0 +1,25 @@
+name: Print PATH
+
+on:
+  workflow_dispatch:
+
+jobs:
+  print-path:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Print PATH
+        shell: pwsh
+        run: |
+          Write-Host "PATH entries:"
+          $env:PATH -split ';' | ForEach-Object {
+            Write-Host $_
+          }
+
+          Write-Host ""
+          Write-Host "link.exe candidates:"
+          where.exe link
