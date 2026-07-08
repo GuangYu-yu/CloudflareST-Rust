@@ -91,6 +91,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: 安装 Zig
+        if: ${{ matrix.os != 'Windows' }}
         uses: mlugg/setup-zig@v2
         with:
           version: master
