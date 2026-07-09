@@ -60,11 +60,7 @@
 ## 🚀 示例命令
 
 ```bash
-curl -s https://www.cloudflare-cn.com/ips-v4 -o ip.txt
-```
-
-```bash
--f ip.txt -tn 3000 -dn 10 -sl 15 -tlr 0 -httping https://cp.cloudflare.com/cdn-cgi/trace -url https://speed.cloudflare.com/__down?bytes=524288000
+-f <(curl -fsL https://www.cloudflare-cn.com/ips-v4) -tn 3000 -dn 10 -sl 15 -tlr 0 -httping https://cp.cloudflare.com/cdn-cgi/trace -url https://speed.cloudflare.com/__down?bytes=524288000
 ```
 
 > [!IMPORTANT]
