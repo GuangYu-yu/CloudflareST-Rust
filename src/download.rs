@@ -9,8 +9,6 @@ use http_body::Body;
 const SPEED_UPDATE_INTERVAL_MS: u64 = 500;
 
 // 下载测速相关常量
-const TTFB_TIMEOUT_MS: u64 = 1200; // 首字节超时时间（毫秒）
-const CONNECT_TIMEOUT_MS: u64 = 2000; // 连接超时时间（毫秒）
 const WARM_UP_DURATION_SECS: u64 = 3; // 预热时间（秒）
 
 use crate::args::Args;
@@ -129,8 +127,8 @@ impl<'a> DownloadTest<'a> {
         let request_context = Arc::new(RequestContext {
             interface_config: args.interface_config.clone(),
             tls_connector,
-            connect_timeout_ms: CONNECT_TIMEOUT_MS,
-            ttfb_timeout_ms: TTFB_TIMEOUT_MS,
+            connect_timeout_ms: crate::common::CONNECT_TIMEOUT_MS,
+            ttfb_timeout_ms: crate::common::TTFB_TIMEOUT_MS,
         });
 
         Self {

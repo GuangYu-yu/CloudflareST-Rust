@@ -1,5 +1,4 @@
 use crate::common::PingData;
-use crate::csv::PrintResult;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -105,7 +104,7 @@ async fn main() {
     };
 
     // 打印结果
-    ping_data.print(&args);
+    csv::print_results(&ping_data, &args);
 
     // 输出文件
     if let Some(output_file) = &args.output && !ping_data.is_empty() {

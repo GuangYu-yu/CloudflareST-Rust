@@ -73,7 +73,6 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
 async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
     let ip = addr.ip();
     let payload = [0; 56];
-    // 生成唯一标识符
     let identifier = PingIdentifier(PING_IDENTIFIER_COUNTER.fetch_add(1, Ordering::Relaxed));
 
     let mut pinger = client.pinger(ip, identifier).await;

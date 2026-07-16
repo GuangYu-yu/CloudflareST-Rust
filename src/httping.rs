@@ -10,9 +10,6 @@ use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
 use crate::pool::execute_with_rate_limit;
 
-const TTFB_TIMEOUT_MS: u64 = 1200;
-const CONNECT_TIMEOUT_MS: u64 = 2000;
-
 #[derive(Clone)]
 pub(crate) struct HttpingFactoryData {
     colo_filters: Arc<Vec<String>>,
@@ -155,8 +152,8 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     let request_context = Arc::new(RequestContext {
         interface_config: args.interface_config.clone(),
         tls_connector,
-        connect_timeout_ms: CONNECT_TIMEOUT_MS,
-        ttfb_timeout_ms: TTFB_TIMEOUT_MS,
+        connect_timeout_ms: crate::common::CONNECT_TIMEOUT_MS,
+        ttfb_timeout_ms: crate::common::TTFB_TIMEOUT_MS,
     });
 
     let factory_data = HttpingFactoryData {

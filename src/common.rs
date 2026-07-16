@@ -10,6 +10,11 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+/// 首字节超时时间（毫秒）
+pub(crate) const TTFB_TIMEOUT_MS: u64 = 1200;
+/// 连接超时时间（毫秒）
+pub(crate) const CONNECT_TIMEOUT_MS: u64 = 2000;
+
 #[derive(Clone, Copy)]
 pub(crate) struct PingData {
     pub(crate) addr: SocketAddr,
