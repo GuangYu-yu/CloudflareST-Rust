@@ -27,7 +27,7 @@ impl PingMode for TcpingFactoryData {
         Box::pin(async move {
             let ping_times = args.ping_times;
             
-            let (avg_delay, recv) = common::run_ping_loop(ping_times, 200, || {
+            let (avg_delay, recv) = common::run_ping_loop(ping_times, common::PING_INTERVAL_MS, || {
                 let interface_config = interface_config.clone();
                 async move {
                     execute_with_rate_limit(|| async move {

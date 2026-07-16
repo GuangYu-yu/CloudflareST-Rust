@@ -413,11 +413,7 @@ fn calculate_ip_count(parsed_result: &IpParseResult, custom_count: Option<u128>,
             }
 
             if is_ipv4 && test_all_ipv4 {
-                return if prefix < 32 {
-                    1u128 << (32 - prefix)
-                } else {
-                    1
-                };
+                return 1u128 << (32 - prefix);
             }
 
             calculate_sample_count(prefix, is_ipv4)
@@ -428,10 +424,15 @@ fn calculate_ip_count(parsed_result: &IpParseResult, custom_count: Option<u128>,
     }
 }
 
+/// 采样指数上限
+const MAX_SAMPLE_EXP: u8 = 18;
+/// 采样指数最小偏移量
+const MIN_SAMPLE_EXP_OFFSET: u8 = 2;
+
 /// 根据前缀长度计算采样数量
 pub(crate) fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
     let max_bits: u8 = if is_ipv4 { 31 } else { 127 };
     let host_bits = max_bits.saturating_sub(prefix);
-    let sample_exp = host_bits.min(18).saturating_sub(2);
+    let sample_exp = host_bits.min(MAX_SAMPLE_EXP).saturating_sub(MIN_SAMPLE_EXP_OFFSET);
     1u128 << sample_exp
 }

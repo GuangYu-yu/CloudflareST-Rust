@@ -4,7 +4,6 @@ version = "1.0.0"
 edition = "2024"
 
 [features]
-# default = ["icmp"]
 icmp = ["dep:surge-ping"]
 
 [dependencies]

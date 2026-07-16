@@ -46,7 +46,7 @@ impl common::PingMode for HttpingFactoryData {
                 local_data_center: OnceLock::new(),
             });
 
-            let (avg_delay, recv) = common::run_ping_loop(ping_times, 200, {
+            let (avg_delay, recv) = common::run_ping_loop(ping_times, common::PING_INTERVAL_MS, {
                 let task = task.clone();
                 move || {
                     let task = task.clone();

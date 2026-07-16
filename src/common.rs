@@ -14,6 +14,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 pub(crate) const TTFB_TIMEOUT_MS: u64 = 1200;
 /// 连接超时时间（毫秒）
 pub(crate) const CONNECT_TIMEOUT_MS: u64 = 2000;
+/// 延迟测试中每次 ping 之间的等待间隔（毫秒）
+pub(crate) const PING_INTERVAL_MS: u64 = 200;
 
 #[derive(Clone, Copy)]
 pub(crate) struct PingData {
@@ -338,6 +340,13 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
 
     let has_speed = results.iter().any(|r| r.download_speed.is_some());
 
+    // 评分权重常量
+    const SPEED_WEIGHT: f32 = 0.5;
+    const DELAY_WEIGHT: f32 = -0.2;
+    const LOSS_WEIGHT: f32 = -0.3;
+    const DELAY_WEIGHT_ONLY: f32 = -0.4;
+    const LOSS_WEIGHT_ONLY: f32 = -0.6;
+
     // 计算分数
     let score = |d: &PingData| {
         let speed = d.download_speed.unwrap_or(0.0);
@@ -345,9 +354,12 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
         let delay = d.delay;
 
         if has_speed {
-            (speed - avg_speed) * 0.5 + (delay - avg_delay) * -0.2 + (loss - avg_loss) * -0.3
+            (speed - avg_speed) * SPEED_WEIGHT
+                + (delay - avg_delay) * DELAY_WEIGHT
+                + (loss - avg_loss) * LOSS_WEIGHT
         } else {
-            (delay - avg_delay) * -0.4 + (loss - avg_loss) * -0.6
+            (delay - avg_delay) * DELAY_WEIGHT_ONLY
+                + (loss - avg_loss) * LOSS_WEIGHT_ONLY
         }
     };
 
