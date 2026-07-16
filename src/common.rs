@@ -16,8 +16,12 @@ pub(crate) const TTFB_TIMEOUT_MS: u64 = 1200;
 pub(crate) const CONNECT_TIMEOUT_MS: u64 = 2000;
 /// 延迟测试中每次 ping 之间的等待间隔（毫秒）
 pub(crate) const PING_INTERVAL_MS: u64 = 200;
+/// 四舍五入精度（2 位小数）
+pub(crate) const ROUNDING_PRECISION: f32 = 100.0;
+/// 1 MB 对应的字节数
+pub(crate) const BYTES_PER_MB: f32 = 1024.0 * 1024.0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct PingData {
     pub(crate) addr: SocketAddr,
     pub(crate) sent: u16,
@@ -122,7 +126,7 @@ pub(crate) fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -
     // 计算平均值
     let avg_ms = total_delay_ms / success_count as f32;
     // 四舍五入到两位小数
-    (avg_ms * 100.0).round() / 100.0
+    (avg_ms * ROUNDING_PRECISION).round() / ROUNDING_PRECISION
 }
 
 /// 从响应头中提取数据中心信息

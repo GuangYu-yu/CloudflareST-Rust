@@ -1,7 +1,6 @@
 use crate::common::PingData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 
 // 定义统一的错误、信息和警告输出函数
 pub(crate) fn error_println(args: std::fmt::Arguments<'_>) {
@@ -59,8 +58,8 @@ async fn main() {
             "程序执行时间超过 {timeout:?} 后，将提前结算结果并退出"
         ));
         let timeout_flag_clone = timeout_flag.clone();
-        thread::spawn(move || {
-            thread::sleep(timeout);
+        tokio::spawn(async move {
+            tokio::time::sleep(timeout).await;
             timeout_flag_clone.store(true, Ordering::SeqCst);
         });
     }

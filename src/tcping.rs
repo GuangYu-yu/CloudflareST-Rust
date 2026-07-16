@@ -10,6 +10,9 @@ use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
 use crate::pool::execute_with_rate_limit;
 use crate::interface::{InterfaceParamResult, bind_socket_to_interface};
 
+/// TCPing 连接超时（毫秒）
+const TCPING_TIMEOUT_MS: u64 = 1000;
+
 #[derive(Clone)]
 pub(crate) struct TcpingFactoryData {
     interface_config: Arc<InterfaceParamResult>,
@@ -68,7 +71,7 @@ pub(crate) async fn tcping(
     let socket = bind_socket_to_interface(addr, interface_config).await?;
 
     // 连接
-    match tokio::time::timeout(std::time::Duration::from_millis(1000), socket.connect(addr)).await {
+    match tokio::time::timeout(std::time::Duration::from_millis(TCPING_TIMEOUT_MS), socket.connect(addr)).await {
         Ok(Ok(stream)) => {
             drop(stream);
             Some(start_time.elapsed().as_secs_f32() * 1000.0)

@@ -191,7 +191,7 @@ impl Args {
         }
 
         // 若启用 httping 且未使用 -tp，则根据HTTPing URL设置默认端口
-        if !use_tp && parsed.httping.as_ref().is_some_and(|h| h.starts_with("http:")) {parsed.tcp_port = 80}
+        if !use_tp && parsed.httping.as_ref().is_some_and(|h| h.starts_with("http:")) {parsed.tcp_port = NON_TLS_PORTS[0]}
 
         parsed
     }

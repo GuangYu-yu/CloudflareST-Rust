@@ -115,6 +115,8 @@ fn bind_source_ip_to_socket(sock: &TcpSocket, addr: &SocketAddr, ips: &Interface
     {
         let raw_fd = sock.as_raw_fd();
         let on: libc::c_int = 1;
+        // SAFETY: raw_fd 是 TcpSocket 的有效 fd；setsockopt 是标准 POSIX 调用，
+        // IP_BIND_ADDRESS_NO_PORT 设置仅影响端口分配策略，失败时不会导致未定义行为。
         unsafe {
             libc::setsockopt(
                 raw_fd,
@@ -163,6 +165,8 @@ fn bind_to_interface(sock: &TcpSocket, name: &str) -> Option<()> {
         }
 
         let fd = sock.as_raw_fd();
+        // SAFETY: fd 是 TcpSocket 的有效 fd，idx 是 if_nametoindex 返回的合法接口索引。
+        // setsockopt 是标准 POSIX 调用，遵循常规错误返回约定。
         let opt = |level, name| unsafe {
             libc::setsockopt(fd, level, name, &idx as *const _ as *const _, 4) == 0
         };
@@ -187,6 +191,8 @@ fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> b
     };
 
     let res = unsafe {
+        // SAFETY: raw 是 TcpSocket 的有效 socket 句柄；setsockopt 是标准 Windows API，
+        // 参数 level/optname 使用 Win32 常量，idx_bytes 是合法字节切片。
         setsockopt(
             raw as _,
             level,
@@ -202,6 +208,9 @@ fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> b
 /// Windows: 获取接口索引
 #[cfg(target_os = "windows")]
 pub(crate) fn get_interface_index(name: &str) -> Option<u32> {
+    // SAFETY: 遵循 GetAdaptersAddresses 标准两阶段调用模式——先查询缓冲区大小，
+    // 分配后再次查询。FriendlyName 指针在 buffer 生命周期内有效。所有 Win32 常量
+    // 使用标准值且已验证。循环遍历链表时每次检查 current.is_null()。
     unsafe {
         let mut size: u32 = 0;
 

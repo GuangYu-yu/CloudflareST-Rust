@@ -122,7 +122,7 @@ fn ping_data_to_fields(data: &PingData) -> Vec<String> {
         format!("{:.2}", data.loss_rate()),
         format!("{:.2}", data.delay),
         match data.download_speed {
-            Some(speed) => format!("{:.2}", speed / 1024.0 / 1024.0),
+            Some(speed) => format!("{:.2}", speed / crate::common::BYTES_PER_MB),
             None => String::new(),
         },
         data.colo_str().to_string(),

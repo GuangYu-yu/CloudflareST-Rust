@@ -79,7 +79,7 @@ impl DownloadHandler {
             self.cleanup_old_samples(window_start);
             
             let speed = self.calculate_speed();
-            self.bar.set_suffix(format!("{:.2} MB/s", speed / 1024.0 / 1024.0));
+            self.bar.set_suffix(format!("{:.2} MB/s", speed / crate::common::BYTES_PER_MB));
             self.last_update = Instant::now();
         }
     }
@@ -199,7 +199,7 @@ impl<'a> DownloadTest<'a> {
 
             // 检查速度是否符合要求
             let speed_match = match speed {
-                Some(s) => s >= self.args.min_speed * 1024.0 * 1024.0,
+                Some(s) => s >= self.args.min_speed * crate::common::BYTES_PER_MB,
                 None => false,
             };
 

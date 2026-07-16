@@ -50,6 +50,8 @@ impl TextData {
     
     /// 读取 msg
     fn get_msg(&self) -> &str {
+        // SAFETY: set_msg() 只写入来自 &str 的有效 UTF-8 字节，
+        // 且状态机保证此槽位在读者读取前已处于 READY 状态。
         unsafe {
             std::str::from_utf8_unchecked(&self.msg[..self.msg_len])
         }
@@ -67,6 +69,8 @@ impl TextData {
     
     /// 读取 prefix
     fn get_prefix(&self) -> &str {
+        // SAFETY: set_prefix() 只写入来自 &str 的有效 UTF-8 字节，
+        // 且状态机保证此槽位在读者读取前已处于 READY 状态。
         unsafe {
             std::str::from_utf8_unchecked(&self.prefix[..self.pre_len])
         }
@@ -132,7 +136,8 @@ impl BarInner {
         // 原子读取当前黑板索引（读者视角）
         let current_idx = self.current_idx.load(Ordering::Acquire) % SLOT_COUNT;
         
-        // 安全读取（状态保证写已完成）
+        // SAFETY: current_idx 指向一个 READY 槽位（写者已通过状态机保证数据完整，
+        // 在设为 READY 后才会更新 current_idx）。读者不修改数据，只读取。
         let slot = unsafe { &*self.slots[current_idx].get() };
         let current_pos = slot.pos;
         
@@ -264,6 +269,8 @@ impl Bar {
                 Ordering::AcqRel, Ordering::Acquire,
             ).is_ok() {
                 // 写入数据
+                // SAFETY: 通过 compare_exchange 成功获取了此槽位的独占写权限
+                //（状态从 FREE/READY 变更为 WRITING），无其他线程并发写此槽位。
                 let slot = unsafe { &mut *self.inner.slots[slot_idx].get() };
                 slot.pos = pos;
                 slot.set_msg(msg.as_ref());
@@ -284,6 +291,8 @@ impl Bar {
 
         // 读出当前最新数据，调用 update 写另一个槽位
         let curr_idx = self.inner.current_idx.load(Ordering::Acquire);
+        // SAFETY: curr_idx 指向一个 READY 槽位（写者已通过状态机保证数据完整）。
+        // 此处只读取 pos 和 msg 字段，不修改数据。
         let slot_ptr = unsafe { &*self.inner.slots[curr_idx % SLOT_COUNT].get() };
 
         self.update(slot_ptr.pos, slot_ptr.get_msg(), suffix.as_ref());

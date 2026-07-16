@@ -158,7 +158,7 @@ pub(crate) async fn send_request(
     let io = TokioIo::new(stream);
     let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
         .handshake(io)
-        .await.unwrap();
+        .await.ok()?;
 
     tokio::spawn(async move {
         let _ = conn.await;
