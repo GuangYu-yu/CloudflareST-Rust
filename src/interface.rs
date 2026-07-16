@@ -135,13 +135,11 @@ fn bind_source_ip_to_socket(sock: &TcpSocket, addr: &SocketAddr, ips: &Interface
 }
 
 /// 根据IP地址类型创建对应的TCP Socket
-fn create_tcp_socket_for_ip(addr: &IpAddr) -> Option<TcpSocket> {
-    let sock = match addr {
-        IpAddr::V4(_) => TcpSocket::new_v4().ok(),
-        IpAddr::V6(_) => TcpSocket::new_v6().ok(),
-    }?;
-    
-    Some(sock)
+fn create_tcp_socket_for_ip(addr: &IpAddr) -> TcpSocket {
+    match addr {
+        IpAddr::V4(_) => TcpSocket::new_v4().unwrap(),
+        IpAddr::V6(_) => TcpSocket::new_v6().unwrap(),
+    }
 }
 
 //
@@ -263,7 +261,7 @@ pub(crate) async fn bind_socket_to_interface(
     interface_config: &InterfaceParamResult,
 ) -> Option<TcpSocket> {
     // 创建基础socket
-    let sock = create_tcp_socket_for_ip(&addr.ip())?;
+    let sock = create_tcp_socket_for_ip(&addr.ip());
 
     if let Some(ref ips) = interface_config.interface_ips {
         // 如果提供了IP地址，则绑定IP地址

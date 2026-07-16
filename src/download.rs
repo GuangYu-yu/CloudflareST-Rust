@@ -297,8 +297,7 @@ async fn download_handler(
             if data_center.is_none() {
                 return (None, None);
             }
-            if let Some(_) = &data_center
-                && !colo_filters.is_empty() && !common::is_colo_matched(data_center.as_ref().map_or("", |b| std::str::from_utf8(b).unwrap()), &colo_filters) {
+            if !colo_filters.is_empty() && !common::is_colo_matched(data_center.as_ref().map_or("", |b| std::str::from_utf8(b).unwrap()), &colo_filters) {
                 return (None, data_center);
             }
         }

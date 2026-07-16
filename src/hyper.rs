@@ -143,7 +143,7 @@ pub(crate) async fn send_request(
 
     // TLS 握手（仅 HTTPS）
     let stream: Box<dyn IoBox> = if uri.scheme_str() == Some("https") {
-        let server_name = rustls_pki_types::ServerName::try_from(host.to_string()).ok()?;
+        let server_name = rustls_pki_types::ServerName::try_from(host.to_string()).unwrap();
         let tls_stream = timeout(
             Duration::from_millis(connect_timeout_ms),
             tls_connector.connect(server_name, stream),
@@ -158,7 +158,7 @@ pub(crate) async fn send_request(
     let io = TokioIo::new(stream);
     let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
         .handshake(io)
-        .await.ok()?;
+        .await.unwrap();
 
     tokio::spawn(async move {
         let _ = conn.await;
@@ -173,7 +173,7 @@ pub(crate) async fn send_request(
         .header("Host", &host_header)
         .header("User-Agent", USER_AGENT)
         .body(EmptyBody)
-        .ok()?;
+        .unwrap();
 
     // 发送请求并等待首字节
     let resp = timeout(Duration::from_millis(ttfb_timeout_ms), sender.send_request(req)).await.ok()?.ok()?;

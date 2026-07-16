@@ -58,8 +58,8 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
 
     let base = common::create_base_ping(args.clone(), sources, timeout_flag);
 
-    let client_v4 = Arc::new(Client::new(&Config::default()).ok()?);
-    let client_v6 = Arc::new(Client::new(&Config::builder().kind(ICMP::V6).build()).ok()?);
+    let client_v4 = Arc::new(Client::new(&Config::default()).unwrap());
+    let client_v6 = Arc::new(Client::new(&Config::builder().kind(ICMP::V6).build()).unwrap());
 
     let factory_data = IcmpingFactoryData {
         client_v4,
@@ -75,13 +75,11 @@ async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> 
     let payload = [0; 56];
     // 生成唯一标识符
     let identifier = PingIdentifier(PING_IDENTIFIER_COUNTER.fetch_add(1, Ordering::Relaxed));
-    let mut rtt = None;
 
     let mut pinger = client.pinger(ip, identifier).await;
     pinger.timeout(args.max_delay);
 
-    if let Ok((_, dur)) = pinger.ping(PingSequence(0), &payload).await {
-        rtt = Some(dur.as_secs_f32() * 1000.0);
-    }
-    rtt
+    pinger.ping(PingSequence(0), &payload).await
+        .ok()
+        .map(|(_, dur)| dur.as_secs_f32() * 1000.0)
 }

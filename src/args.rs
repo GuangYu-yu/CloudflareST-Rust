@@ -208,7 +208,7 @@ impl Args {
                     .filter(|next| !next.starts_with('-'))
                     .map(|next| next.to_string());
                 
-                value.is_some().then(|| iter.next());
+                if value.is_some() { iter.next(); }
                 
                 result.push((key, value));
             }

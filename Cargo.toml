@@ -14,7 +14,6 @@ rustls-pki-types = { version = "1", default-features = false }
 http = { version = "1", default-features = false }
 http-body = { version = "1", default-features = false }
 hyper-util = { version = "0.1", features = ["tokio"], default-features = false }
-bytes = { version = "1", default-features = false }
 surge-ping = { version = "0.9", optional = true, default-features = false }
 tokio-rustls = { version = "0.26", default-features = false }
 rustls = { version = "0.23", features = ["ring"], default-features = false }

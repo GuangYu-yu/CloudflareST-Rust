@@ -60,13 +60,10 @@ impl IpCidr {
 
     /// 解析 CIDR 格式字符串
     pub(crate) fn parse(s: &str) -> Option<Self> {
-        let parts: Vec<&str> = s.split('/').collect();
-        if parts.len() != 2 {
-            return None;
-        }
+        let (ip_part, prefix_part) = s.split_once('/')?;
 
-        let ip = IpAddr::from_str(parts[0]).ok()?;
-        let prefix = parts[1].parse::<u8>().ok()?;
+        let ip = IpAddr::from_str(ip_part).ok()?;
+        let prefix = prefix_part.parse::<u8>().ok()?;
 
         match ip {
             IpAddr::V4(v4) if prefix <= 32 => Some(IpCidr::V4(v4, prefix)),

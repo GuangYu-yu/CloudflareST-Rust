@@ -151,7 +151,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
 
     let base = common::create_base_ping(args.clone(), sources, timeout_flag);
 
-    let tls_connector = crate::hyper::build_tls_connector().ok()?;
+    let tls_connector = crate::hyper::build_tls_connector().unwrap();
     let request_context = Arc::new(RequestContext {
         interface_config: args.interface_config.clone(),
         tls_connector,
