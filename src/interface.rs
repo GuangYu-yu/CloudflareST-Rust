@@ -271,6 +271,7 @@ pub(crate) async fn bind_socket_to_interface(
 ) -> Option<TcpSocket> {
     // 创建基础socket
     let sock = create_tcp_socket_for_ip(&addr.ip());
+    let _ = sock.set_reuseaddr(true);
 
     if let Some(ref ips) = interface_config.interface_ips {
         // 如果提供了IP地址，则绑定IP地址
