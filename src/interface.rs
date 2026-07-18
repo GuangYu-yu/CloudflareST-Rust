@@ -144,50 +144,40 @@ fn create_tcp_socket_for_ip(addr: &IpAddr) -> TcpSocket {
     }
 }
 
-//
-// 平台专用接口绑定函数
-//
-
-/// Linux/macOS: 按接口名绑定
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn bind_to_interface(sock: &TcpSocket, name: &str) -> Option<()> {
-    #[cfg(target_os = "linux")]
-    {
-        sock.bind_device(Some(name.as_bytes())).ok()
+    sock.bind_device(Some(name.as_bytes())).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn bind_to_interface(sock: &TcpSocket, name: &str, for_addr: IpAddr) -> Option<()> {
+    let c_name = std::ffi::CString::new(name).ok()?;
+    let idx = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
+    if idx == 0 {
+        return None;
     }
-    
-    #[cfg(target_os = "macos")]
-    {
-        let c_name = std::ffi::CString::new(name).ok()?;
-        let idx = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
-        if idx == 0 {
-            return None;
-        }
 
-        let fd = sock.as_raw_fd();
-        // SAFETY: fd 是 TcpSocket 的有效 fd，idx 是 if_nametoindex 返回的合法接口索引。
-        // setsockopt 是标准 POSIX 调用，遵循常规错误返回约定。
-        let opt = |level, name| unsafe {
-            libc::setsockopt(fd, level, name, &idx as *const _ as *const _, 4) == 0
-        };
+    let (level, optname) = match for_addr {
+        IpAddr::V4(_) => (libc::IPPROTO_IP, libc::IP_BOUND_IF),
+        IpAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF),
+    };
 
-        if opt(libc::IPPROTO_IP, libc::IP_BOUND_IF) || opt(libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF) {
-            Some(())
-        } else {
-            None
-        }
+    let fd = sock.as_raw_fd();
+    // SAFETY: fd 有效，idx 合法，level/optname 与 for_addr 协议族匹配。
+    unsafe {
+        (libc::setsockopt(fd, level, optname, &idx as *const _ as *const _, std::mem::size_of_val(&idx) as libc::socklen_t) == 0)
+            .then_some(())
     }
 }
 
 /// Windows: 按接口索引绑定
 #[cfg(target_os = "windows")]
-fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, is_ipv6: bool) -> bool {
+fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, for_addr: IpAddr) -> bool {
     let raw = sock.as_raw_socket();
 
-    let (level, optname, idx_bytes) = if is_ipv6 {
-        (IPPROTO_IPV6, IPV6_UNICAST_IF, iface_idx.to_ne_bytes())
-    } else {
-        (IPPROTO_IP, IP_UNICAST_IF, iface_idx.to_be_bytes())
+    let (level, optname, idx_bytes) = match for_addr {
+        IpAddr::V4(_) => (IPPROTO_IP, IP_UNICAST_IF, iface_idx.to_be_bytes()),
+        IpAddr::V6(_) => (IPPROTO_IPV6, IPV6_UNICAST_IF, iface_idx.to_ne_bytes()),
     };
 
     let res = unsafe {
@@ -283,18 +273,19 @@ pub(crate) async fn bind_socket_to_interface(
     #[cfg(target_os = "windows")]
     if let Some(idx) = interface_config.interface_index {
         // 尝试绑定到接口索引
-        if !bind_to_interface_index(&sock, idx, addr.is_ipv6()) {
+        if !bind_to_interface_index(&sock, idx, addr.ip()) {
             return None;
         }
     }
 
-    // 使用接口名
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        // 如果提供了接口名，尝试绑定
-        if let Some(ref name) = interface_config.name {
-            bind_to_interface(&sock, name)?;
-        }
+    #[cfg(target_os = "linux")]
+    if let Some(ref name) = interface_config.name {
+        bind_to_interface(&sock, name)?;
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(ref name) = interface_config.name {
+        bind_to_interface(&sock, name, addr.ip())?;
     }
 
     Some(sock)
