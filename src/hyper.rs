@@ -160,7 +160,7 @@ pub(crate) async fn send_request(
         .handshake(io)
         .await.ok()?;
 
-    tokio::spawn(async move {
+    let conn_handle = tokio::spawn(async move {
         let _ = conn.await;
     });
 
@@ -176,7 +176,10 @@ pub(crate) async fn send_request(
         .unwrap();
 
     // 发送请求并等待首字节
-    let resp = timeout(Duration::from_millis(ttfb_timeout_ms), sender.send_request(req)).await.ok()?.ok()?;
+    let Ok(Ok(resp)) = timeout(Duration::from_millis(ttfb_timeout_ms), sender.send_request(req)).await else {
+        conn_handle.abort();
+        return None;
+    };
 
     Some(resp)
 }
