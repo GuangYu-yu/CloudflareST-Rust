@@ -303,6 +303,7 @@ impl Bar {
 
         if let Ok(mut guard) = self.handle.lock()
             && let Some(h) = guard.take() {
+            drop(guard);
             let _ = h.join();
         }
 
