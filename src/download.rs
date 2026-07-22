@@ -74,11 +74,13 @@ impl DownloadHandler {
     // 更新显示速度
     fn update_display(&mut self) {
         if self.should_update_display() {
-            let window_start = Instant::now() - Duration::from_millis(SPEED_UPDATE_INTERVAL_MS);
+            let window_start = self.last_update;
             self.cleanup_old_samples(window_start);
             
             let speed = self.calculate_speed();
-            self.intervals.push(speed);
+            if speed > 0.0 {
+                self.intervals.push(speed);
+            }
             self.bar.set_suffix(format!("{:.2} MB/s", speed / crate::common::BYTES_PER_MB));
             self.last_update = Instant::now();
         }
@@ -90,7 +92,8 @@ impl DownloadHandler {
         self.update_display();
     }
 
-    // 序贯高斯加权：每个区间速度相对于历史均值的偏离（标准差倍数）决定其权重
+    // 中位数-MAD 高斯加权：每个区间速度相对于全体中位数的偏离决定其权重，
+    // 不依赖时间顺序，无硬编码（1.4826 是 MAD→σ 的理论校准常数）
     fn weighted_speed(&self) -> Option<f32> {
         let v = &self.intervals;
         let n = v.len();
@@ -101,26 +104,22 @@ impl DownloadHandler {
             return Some(v[0]);
         }
 
-        let mut weights = Vec::with_capacity(n);
-        weights.push(1.0);
-        let mut sum = v[0];
-        let mut sum_sq = v[0] * v[0];
+        // 中位数
+        let mut sorted = v.to_vec();
+        let (_, median, _) = sorted.select_nth_unstable_by(n / 2, |a, b| a.total_cmp(b));
+        let med = *median;
 
-        for (i, &val) in v.iter().enumerate().skip(1) {
-            let m = i as f32;
-            let mu = sum / m;
-            let var = (sum_sq / m) - (mu * mu);
-            let sigma = var.max(0.0).sqrt();
-            let w_i = if sigma > 0.0 {
-                let z = (val - mu) / sigma;
-                (-z * z / 2.0).exp()
-            } else {
-                1.0 // 无方差信息 → 无法判断偏离 → 不惩罚
-            };
-            weights.push(w_i);
-            sum += val;
-            sum_sq += val * val;
-        }
+        // MAD: median(|v_i - median|)
+        let mut devs: Vec<f32> = v.iter().map(|x| (x - med).abs()).collect();
+        let (_, mad_median, _) = devs.select_nth_unstable_by(n / 2, |a, b| a.total_cmp(b));
+        let mad = (*mad_median).max((med.abs() * f32::EPSILON).max(f32::EPSILON));
+
+        // 高斯权重
+        let sigma = 1.4826 * mad;
+        let weights: Vec<f32> = v.iter().map(|x| {
+            let z = (x - med) / sigma;
+            (-z * z / 2.0).exp()
+        }).collect();
 
         let total_w: f32 = weights.iter().sum();
         let weighted_sum: f32 = v.iter().zip(weights.iter()).map(|(x, w)| x * w).sum();
@@ -129,6 +128,12 @@ impl DownloadHandler {
 
     // 兜底：将最后一个不完整窗口的数据补录进 intervals
     fn flush_last_interval(&mut self) {
+        // 只保留最后一次 update_display 之后的采样
+        let cutoff = self.last_update;
+        while self.speed_samples.front().is_some_and(|(t, _)| *t < cutoff) {
+            self.speed_samples.pop_front();
+        }
+
         if self.speed_samples.len() >= 2 {
             let speed = self.calculate_speed();
             if speed > 0.0 {

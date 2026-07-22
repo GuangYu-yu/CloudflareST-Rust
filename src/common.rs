@@ -343,6 +343,7 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
         (0.0, 0.0)
     };
 
+    // σ < 1e-3 时视为无区分度
     let safe_div = |v: f32, d: f32| if d < 1e-3 { 0.0 } else { v / d };
 
     const W_SPEED: f32 = 1.0;
