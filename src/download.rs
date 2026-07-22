@@ -8,9 +8,6 @@ use http_body::Body;
 // 统一的速度更新间隔（毫秒）
 const SPEED_UPDATE_INTERVAL_MS: u64 = 500;
 
-// 下载测速相关常量
-const WARM_UP_DURATION_SECS: u64 = 3; // 预热时间（秒）
-
 use crate::args::Args;
 use crate::common::{self, PingData};
 use crate::progress::Bar;
@@ -19,27 +16,29 @@ use crate::hyper::{parse_url_to_uri, RequestContext};
 
 // 定义下载处理器来处理下载数据
 struct DownloadHandler {
-    data_received: u64,
+    cumulative: u64,
     last_update: Instant,
     bar: Arc<Bar>,
     speed_samples: VecDeque<(Instant, u64)>,
+    intervals: Vec<f32>,
 }
 
 impl DownloadHandler {
     fn new(bar: Arc<Bar>) -> Self {
         let now = Instant::now();
         Self {
-            data_received: 0,
+            cumulative: 0,
             last_update: now,
             bar,
             speed_samples: VecDeque::new(),
+            intervals: Vec::new(),
         }
     }
 
     // 添加数据点
     fn add_data_point(&mut self, size: u64) {
-        self.data_received += size;
-        self.speed_samples.push_back((Instant::now(), self.data_received));
+        self.cumulative += size;
+        self.speed_samples.push_back((Instant::now(), self.cumulative));
     }
 
     // 清理超出时间窗口的数据点
@@ -79,6 +78,7 @@ impl DownloadHandler {
             self.cleanup_old_samples(window_start);
             
             let speed = self.calculate_speed();
+            self.intervals.push(speed);
             self.bar.set_suffix(format!("{:.2} MB/s", speed / crate::common::BYTES_PER_MB));
             self.last_update = Instant::now();
         }
@@ -88,6 +88,53 @@ impl DownloadHandler {
     fn update_data_received(&mut self, size: u64) {
         self.add_data_point(size);
         self.update_display();
+    }
+
+    // 序贯高斯加权：每个区间速度相对于历史均值的偏离（标准差倍数）决定其权重
+    fn weighted_speed(&self) -> Option<f32> {
+        let v = &self.intervals;
+        let n = v.len();
+        if n == 0 {
+            return None;
+        }
+        if n == 1 {
+            return Some(v[0]);
+        }
+
+        let mut weights = Vec::with_capacity(n);
+        weights.push(1.0);
+        let mut sum = v[0];
+        let mut sum_sq = v[0] * v[0];
+
+        for (i, &val) in v.iter().enumerate().skip(1) {
+            let m = i as f32;
+            let mu = sum / m;
+            let var = (sum_sq / m) - (mu * mu);
+            let sigma = var.max(0.0).sqrt();
+            let w_i = if sigma > 0.0 {
+                let z = (val - mu) / sigma;
+                (-z * z / 2.0).exp()
+            } else {
+                1.0 // 无方差信息 → 无法判断偏离 → 不惩罚
+            };
+            weights.push(w_i);
+            sum += val;
+            sum_sq += val * val;
+        }
+
+        let total_w: f32 = weights.iter().sum();
+        let weighted_sum: f32 = v.iter().zip(weights.iter()).map(|(x, w)| x * w).sum();
+        Some(weighted_sum / total_w)
+    }
+
+    // 兜底：将最后一个不完整窗口的数据补录进 intervals
+    fn flush_last_interval(&mut self) {
+        if self.speed_samples.len() >= 2 {
+            let speed = self.calculate_speed();
+            if speed > 0.0 {
+                self.intervals.push(speed);
+            }
+        }
     }
 }
 
@@ -273,9 +320,6 @@ async fn download_handler(
 
     let mut data_center = None;
 
-    let warm_up_duration = Duration::from_secs(WARM_UP_DURATION_SECS);
-    let extended_duration = download_duration + warm_up_duration;
-
     let original_uri = uri;
 
     let mut handler = DownloadHandler::new(context.bar.clone());
@@ -301,17 +345,13 @@ async fn download_handler(
         }
 
         let time_start = Instant::now();
-        let mut total_content_read: u64 = 0;
-        let mut actual_content_read: u64 = 0;
-        let mut stream_ended = false;
-        let mut stream_end_time = time_start;
 
         let mut body = resp.into_body();
         let mut body_pin = std::pin::Pin::new(&mut body);
 
         loop {
             let elapsed = time_start.elapsed();
-            if elapsed >= extended_duration || context.timeout_flag.load(Ordering::SeqCst) {
+            if elapsed >= download_duration || context.timeout_flag.load(Ordering::SeqCst) {
                 break;
             }
 
@@ -319,41 +359,23 @@ async fn download_handler(
                 Some(Ok(frame)) => {
                     if let Some(data) = frame.data_ref() {
                         handler.update_data_received(data.len() as u64);
-                        total_content_read += data.len() as u64;
-
-                        let elapsed = time_start.elapsed();
-                        if elapsed >= warm_up_duration {
-                            actual_content_read += data.len() as u64;
-                        }
                     }
                 }
                 Some(Err(_)) => return (None, data_center),
-                None => {
-                    stream_ended = true;
-                    stream_end_time = Instant::now();
-                    break;
-                },
+                None => break,
             }
         }
 
-        let (bytes, duration) = if stream_ended {
-            // 文件正常读完：总数据量 / 总耗时（含预热）
-            let elapsed = stream_end_time.duration_since(time_start).as_secs_f32();
-            (total_content_read as f32, elapsed)
-        } else {
-            // 超时退出：预热后数据量 / 设定测速时长
-            let duration_secs = download_duration.as_secs_f32();
-            (actual_content_read as f32, duration_secs)
-        };
-
-        // 超时退出时需要额外检查 bytes > 0，正常结束不需要
-        let is_valid = duration > 0.0 && (stream_ended || bytes > 0.0);
-
-        if is_valid {
-            Some(bytes / duration)
-        } else {
-            None
-        }
+        // 补录最后一个不完整窗口，再计算加权速度
+        handler.flush_last_interval();
+        handler.weighted_speed().or_else(|| {
+            let elapsed = time_start.elapsed().as_secs_f32();
+            if elapsed > 0.0 && handler.cumulative > 0 {
+                Some(handler.cumulative as f32 / elapsed)
+            } else {
+                None
+            }
+        })
     };
 
     (avg_speed, data_center)

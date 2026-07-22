@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::ip::IpBuffer;
 use crate::progress::Bar;
-use crate::pool::GLOBAL_LIMITER;
+use crate::pool;
 use tokio::task::JoinSet;
 use std::future::Future;
 use std::io;
@@ -235,7 +235,7 @@ pub(crate) async fn run_ping_test(
 ) -> Result<Vec<PingData>, io::Error>
 {
     // 并发限制器最大并发数量
-    let pool_concurrency = GLOBAL_LIMITER.get().unwrap().max_concurrent;
+    let pool_concurrency = pool::max_concurrent();
     
     // 缓存常用值
     let timeout_flag = &base.timeout_flag;
@@ -322,56 +322,49 @@ pub(crate) fn should_keep_result(data: &PingData, args: &Args) -> bool {
 
 /// 排序结果
 pub(crate) fn sort_results(results: &mut [PingData]) {
-    if results.is_empty() {
+    if results.len() < 2 {
         return;
     }
 
-    let (total_count, total_speed, total_loss, total_delay) = {
-        let count = results.len() as f32;
-        let (speed, loss, delay) = results.iter().fold((0.0, 0.0, 0.0), |acc, d| {
-            (
-                acc.0 + d.download_speed.unwrap_or(0.0),
-                acc.1 + d.loss_rate(),
-                acc.2 + d.delay,
-            )
-        });
-        (count, speed, loss, delay)
-    };
-
-    let avg_speed = total_speed / total_count;
-    let avg_loss = total_loss / total_count;
-    let avg_delay = total_delay / total_count;
-
+    let n = results.len() as f32;
     let has_speed = results.iter().any(|r| r.download_speed.is_some());
 
-    // 评分权重常量
-    const SPEED_WEIGHT: f32 = 0.5;
-    const DELAY_WEIGHT: f32 = -0.2;
-    const LOSS_WEIGHT: f32 = -0.3;
-    const DELAY_WEIGHT_ONLY: f32 = -0.4;
-    const LOSS_WEIGHT_ONLY: f32 = -0.6;
+    let avg_delay = results.iter().map(|r| r.delay).sum::<f32>() / n;
+    let avg_loss  = results.iter().map(|r| r.loss_rate()).sum::<f32>() / n;
+    let std_delay = (results.iter().map(|r| (r.delay - avg_delay).powi(2)).sum::<f32>() / n).sqrt();
+    let std_loss  = (results.iter().map(|r| (r.loss_rate() - avg_loss).powi(2)).sum::<f32>() / n).sqrt();
 
-    // 计算分数
+    let speeds: Vec<f32> = results.iter().filter_map(|r| r.download_speed).collect();
+    let (avg_speed, std_speed) = if !speeds.is_empty() {
+        let avg = speeds.iter().sum::<f32>() / speeds.len() as f32;
+        let var = speeds.iter().map(|s| (s - avg).powi(2)).sum::<f32>() / speeds.len() as f32;
+        (avg, var.sqrt())
+    } else {
+        (0.0, 0.0)
+    };
+
+    let safe_div = |v: f32, d: f32| if d < 1e-3 { 0.0 } else { v / d };
+
+    const W_SPEED: f32 = 1.0;
+    const W_DELAY: f32 = 1.0;
+    const W_LOSS:  f32 = 1.0;
+
     let score = |d: &PingData| {
-        let speed = d.download_speed.unwrap_or(0.0);
-        let loss = d.loss_rate();
-        let delay = d.delay;
-
+        // z-score：各维度归一化后加权求和，None 表示"该维度信息缺失"而非"值为零"
+        let z_speed = match d.download_speed {
+            Some(s) => safe_div(s - avg_speed, std_speed),
+            None    => 0.0,
+        };
+        let z_delay = safe_div(d.delay - avg_delay, std_delay);
+        let z_loss  = safe_div(d.loss_rate() - avg_loss, std_loss);
         if has_speed {
-            (speed - avg_speed) * SPEED_WEIGHT
-                + (delay - avg_delay) * DELAY_WEIGHT
-                + (loss - avg_loss) * LOSS_WEIGHT
+            W_SPEED * z_speed - W_DELAY * z_delay - W_LOSS * z_loss
         } else {
-            (delay - avg_delay) * DELAY_WEIGHT_ONLY
-                + (loss - avg_loss) * LOSS_WEIGHT_ONLY
+            -W_DELAY * z_delay - W_LOSS * z_loss
         }
     };
 
-    results.sort_unstable_by(|a, b| {
-        score(b)
-            .partial_cmp(&score(a))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    results.sort_unstable_by(|a, b| score(b).total_cmp(&score(a)));
 }
 
 /// 检查是否收到超时信号

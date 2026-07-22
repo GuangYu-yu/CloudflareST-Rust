@@ -7,7 +7,6 @@ use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 
 use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
-use crate::pool::execute_with_rate_limit;
 
 // 标识符计数器
 static PING_IDENTIFIER_COUNTER: AtomicU16 = AtomicU16::new(0);
@@ -38,9 +37,8 @@ impl PingMode for IcmpingFactoryData {
                 let client = client.clone();
                 let args = args.clone();
                 async move {
-                    execute_with_rate_limit(|| async {
-                        icmp_ping(addr, &args, &client).await
-                    }).await
+                    let _permit = crate::pool::acquire_permit().await;
+                    icmp_ping(addr, &args, &client).await
                 }
             }).await;
 

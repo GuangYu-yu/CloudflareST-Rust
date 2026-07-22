@@ -7,7 +7,6 @@ use std::time::Instant;
 
 use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
-use crate::pool::execute_with_rate_limit;
 use crate::interface::{InterfaceParamResult, bind_socket_to_interface};
 
 /// TCPing 连接超时（毫秒）
@@ -33,9 +32,8 @@ impl PingMode for TcpingFactoryData {
             let (avg_delay, recv) = common::run_ping_loop(ping_times, common::PING_INTERVAL_MS, || {
                 let interface_config = interface_config.clone();
                 async move {
-                    execute_with_rate_limit(|| async move {
-                        tcping(addr, &interface_config).await
-                    }).await
+                    let _permit = crate::pool::acquire_permit().await;
+                    tcping(addr, &interface_config).await
                 }
             }).await;
 

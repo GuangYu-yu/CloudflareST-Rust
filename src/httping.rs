@@ -8,7 +8,6 @@ use std::time::Instant;
 use crate::hyper::{parse_url_to_uri, RequestContext};
 use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
-use crate::pool::execute_with_rate_limit;
 
 #[derive(Clone)]
 pub(crate) struct HttpingFactoryData {
@@ -87,7 +86,8 @@ impl PingTask {
             return None;
         }
 
-        let result = execute_with_rate_limit(|| async {
+        let result = {
+            let _permit = crate::pool::acquire_permit().await;
             let start = Instant::now();
             
             let resp = self.request_context.send_request(
@@ -106,7 +106,7 @@ impl PingTask {
             let delay = start.elapsed().as_secs_f32() * 1000.0;
             
             Some((delay, dc))
-        }).await;
+        };
 
         match result {
             Some((delay, dc)) => {
