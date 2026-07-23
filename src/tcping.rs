@@ -68,6 +68,11 @@ pub(crate) async fn tcping(
     // 使用通用的接口绑定函数创建socket
     let socket = bind_socket_to_interface(addr, interface_config).await?;
 
+    // 跳过 TIME_WAIT：tcping 只测 RTT，不交换数据，发 RST 安全
+    // linger 设置在 socket 上，connect 后 stream 自动继承
+    #[allow(deprecated)]
+    let _ = socket.set_linger(Some(std::time::Duration::ZERO));
+
     // 连接
     match tokio::time::timeout(std::time::Duration::from_millis(TCPING_TIMEOUT_MS), socket.connect(addr)).await {
         Ok(Ok(stream)) => {
