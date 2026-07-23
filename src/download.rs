@@ -199,7 +199,7 @@ impl<'a> DownloadTest<'a> {
         // 数据中心过滤条件
         let colo_filters = self.colo_filter.clone();
 
-        let mut ping_queue = self.ping_results.drain(..).collect::<VecDeque<_>>();
+        let mut ping_queue = std::mem::take(&mut self.ping_results).into_iter().collect::<VecDeque<_>>();
         let mut qualified_results = Vec::with_capacity(self.args.test_count);
         let mut tested_count = 0;
 

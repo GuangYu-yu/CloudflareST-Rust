@@ -1,3 +1,8 @@
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 use crate::common::PingData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
