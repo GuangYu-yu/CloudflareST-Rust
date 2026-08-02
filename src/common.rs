@@ -4,7 +4,6 @@ use crate::progress::Bar;
 use crate::pool;
 use tokio::task::JoinSet;
 use std::future::Future;
-use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -223,7 +222,7 @@ impl Ping {
     }
 
     // 通用的 run 方法
-    pub(crate) async fn run(self) -> Result<Vec<PingData>, io::Error> {
+    pub(crate) async fn run(self) -> Vec<PingData> {
         run_ping_test(self.base, self.factory_data).await
     }
 }
@@ -232,7 +231,7 @@ impl Ping {
 pub(crate) async fn run_ping_test(
     base: BasePing,
     mode: Box<dyn PingMode>,
-) -> Result<Vec<PingData>, io::Error>
+) -> Vec<PingData>
 {
     // 并发限制器最大并发数量
     let pool_concurrency = pool::max_concurrent();
@@ -293,7 +292,7 @@ pub(crate) async fn run_ping_test(
     bar.done();
     sort_results(&mut results);
 
-    Ok(results)
+    results
 }
 
 /// 解析数据中心过滤条件字符串为向量

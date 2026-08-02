@@ -3,7 +3,8 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use crate::common::PingData;
+use crate::args::Args;
+use crate::common::{Ping as CommonPing, PingData};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -39,6 +40,17 @@ mod ip;
 mod pool;
 mod progress;
 
+fn create_ping(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> Option<CommonPing> {
+    if args.httping.is_some() {
+        return httping::new(args, sources, timeout_flag);
+    }
+    #[cfg(feature = "icmp")]
+    if args.icmp_ping {
+        return icmp::new(args, sources, timeout_flag);
+    }
+    Some(tcping::new(args, sources, timeout_flag))
+}
+
 #[tokio::main]
 async fn main() {
     // 打印全局标题
@@ -70,21 +82,10 @@ async fn main() {
     }
 
     // 根据参数选择 TCP、HTTP 或 ICMP 测速
-    let ping_result: Vec<PingData> = match args.httping.is_some() {
-        true => {
-            let ping = httping::new(args.clone(), sources, timeout_flag.clone()).unwrap();
-            ping.run().await.unwrap()
-        },
-        #[cfg(feature = "icmp")]
-        false if args.icmp_ping => {
-            let ping = icmp::new(args.clone(), sources, timeout_flag.clone()).unwrap();
-            ping.run().await.unwrap()
-        },
-        _ => {
-            let ping = tcping::new(args.clone(), sources, timeout_flag.clone());
-            ping.run().await.unwrap()
-        }
+    let Some(ping) = create_ping(args.clone(), sources, timeout_flag.clone()) else {
+        return;
     };
+    let ping_result: Vec<PingData> = ping.run().await;
 
     // 检查是否在 ping 阶段被超时中断
     let ping_interrupted = timeout_flag.load(Ordering::SeqCst);

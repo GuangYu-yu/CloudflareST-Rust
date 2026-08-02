@@ -38,14 +38,13 @@ struct TextData {
 }
 
 impl TextData {
-    /// 将字符串写入 msg 缓冲区（直接按字节截断）
+    /// 将字符串写入 msg 缓冲区（按字符边界截断）
     fn set_msg(&mut self, s: &str) {
-        let bytes = s.as_bytes();
         let limit = MSG_BUF_LEN;
-        let actual_len = bytes.len().min(limit);
-        
+        let actual_len = s.floor_char_boundary(limit.min(s.len()));
+
         self.msg_len = actual_len;
-        self.msg[..actual_len].copy_from_slice(&bytes[..actual_len]);
+        self.msg[..actual_len].copy_from_slice(&s.as_bytes()[..actual_len]);
     }
     
     /// 读取 msg
@@ -57,14 +56,13 @@ impl TextData {
         }
     }
     
-    /// 将字符串写入 prefix 缓冲区（直接按字节截断）
+    /// 将字符串写入 prefix 缓冲区
     fn set_prefix(&mut self, s: &str) {
-        let bytes = s.as_bytes();
         let limit = PREFIX_BUF_LEN;
-        let actual_len = bytes.len().min(limit);
-        
+        let actual_len = s.floor_char_boundary(limit.min(s.len()));
+
         self.pre_len = actual_len;
-        self.prefix[..actual_len].copy_from_slice(&bytes[..actual_len]);
+        self.prefix[..actual_len].copy_from_slice(&s.as_bytes()[..actual_len]);
     }
     
     /// 读取 prefix
