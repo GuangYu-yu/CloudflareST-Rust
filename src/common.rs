@@ -10,9 +10,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// 首字节超时时间（毫秒）
-pub(crate) const TTFB_TIMEOUT_MS: u64 = 1200;
+pub(crate) const TTFB_TIMEOUT_MS: u64 = 1000;
 /// 连接超时时间（毫秒）
-pub(crate) const CONNECT_TIMEOUT_MS: u64 = 2000;
+pub(crate) const CONNECT_TIMEOUT_MS: u64 = 1000;
 /// 延迟测试中每次 ping 之间的等待间隔（毫秒）
 pub(crate) const PING_INTERVAL_MS: u64 = 200;
 /// 四舍五入精度（2 位小数）

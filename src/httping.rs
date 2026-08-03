@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use crate::hyper::{parse_url_to_uri, RequestContext};
+use crate::hyper::{parse_url_to_uri, HttpConnection, RequestContext};
 use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
 
@@ -45,22 +45,28 @@ impl common::PingMode for HttpingFactoryData {
                 local_data_center: OnceLock::new(),
             });
 
-            let (avg_delay, recv) = common::run_ping_loop(ping_times, common::PING_INTERVAL_MS, {
-                let task = task.clone();
-                move || {
-                    let task = task.clone();
-                    Box::pin(async move {
-                        task.perform_ping().await
-                    })
+            let mut conn: Option<HttpConnection> = None;
+            let mut recv = 0u16;
+            let mut total_delay_ms = 0.0f32;
+
+            for _ in 0..ping_times {
+                if !task.should_continue.load(Ordering::Relaxed) {
+                    break;
                 }
-            }).await;
+                if let Some(delay) = task.perform_ping(&mut conn).await {
+                    recv += 1;
+                    total_delay_ms += delay;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(common::PING_INTERVAL_MS)).await;
+                }
+            }
 
             if !task.should_continue.load(Ordering::Relaxed) {
                 return None;
             }
 
+            let avg_delay = common::calculate_precise_delay(total_delay_ms, recv);
             let data_center = task.local_data_center.get().cloned();
-            common::build_ping_data_result(addr, ping_times, recv, avg_delay.unwrap_or(0.0), data_center)
+            common::build_ping_data_result(addr, ping_times, recv, avg_delay, data_center)
         })
     }
     
@@ -81,32 +87,45 @@ struct PingTask {
 }
 
 impl PingTask {
-    async fn perform_ping(&self) -> Option<f32> {
+    async fn perform_ping(&self, conn_slot: &mut Option<HttpConnection>) -> Option<f32> {
         if !self.should_continue.load(Ordering::Relaxed) {
             return None;
         }
 
-        let result = {
-            let _permit = crate::pool::acquire_permit().await;
-            let start = Instant::now();
-            
-            let resp = self.request_context.send_request(
+        let _permit = crate::pool::acquire_permit().await;
+
+        // 首次或上次连接已作废时，建立新连接
+        if conn_slot.is_none() {
+            *conn_slot = self.request_context.open(
                 self.host_header.as_ref(),
                 &self.original_uri,
                 self.addr,
-                &http::Method::HEAD,
-            ).await?;
-            
-            let status = resp.status().as_u16();
-            if let Some(ref codes) = self.allowed_codes && !codes.contains(&status) {
-                return None;
-            }
-            
-            let dc = common::extract_data_center(resp.headers())?;
-            let delay = start.elapsed().as_secs_f32() * 1000.0;
-            
-            Some((delay, dc))
+            ).await;
+        }
+        // 取出连接：请求失败/超时后直接丢弃（HTTP/1 无法部分取消），否则放回复用
+        let mut connection = conn_slot.take()?;
+
+        let start = Instant::now();
+
+        let resp = match tokio::time::timeout(
+            std::time::Duration::from_millis(self.request_context.ttfb_timeout_ms),
+            connection.request(&self.original_uri, &http::Method::HEAD),
+        ).await {
+            Ok(Ok(resp)) => resp,
+            // 超时或 IO 错误：连接已损坏，drop 后保持 None，下次重建
+            _ => return None,
         };
+
+        // 业务判断（此时连接仍健康）
+        let status = resp.status().as_u16();
+        let result = if let Some(ref codes) = self.allowed_codes && !codes.contains(&status) {
+            None
+        } else {
+            common::extract_data_center(resp.headers())
+                .map(|dc| (start.elapsed().as_secs_f32() * 1000.0, dc))
+        };
+
+        *conn_slot = Some(connection);
 
         match result {
             Some((delay, dc)) => {
@@ -134,7 +153,6 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
         Vec::new()
     };
 
-    // 预解析状态码列表
     let allowed_codes = (!args.httping_code.is_empty()).then(|| {
         Arc::new(
             args.httping_code
@@ -153,7 +171,7 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
         interface_config: args.interface_config.clone(),
         tls_connector,
         connect_timeout_ms: crate::common::CONNECT_TIMEOUT_MS,
-        ttfb_timeout_ms: crate::common::TTFB_TIMEOUT_MS,
+        ttfb_timeout_ms: crate::common::TTFB_TIMEOUT_MS.max(args.max_delay.as_millis() as u64),
     });
 
     let factory_data = HttpingFactoryData {
