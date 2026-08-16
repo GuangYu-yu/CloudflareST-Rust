@@ -9,7 +9,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-// 进度条视觉参数
 const PROGRESS_BAR_BRIGHTNESS: [f64; 2] = [0.5, 0.3];
 const PROGRESS_BAR_SPEED: f64 = 0.2;
 const WAVE_WIDTH: f64 = 16.0;
@@ -17,28 +16,25 @@ const SPEED_FACTOR: f64 = 0.3;
 const SATURATION_BASE: f64 = 0.6;
 const REFRESH_INTERVAL_MS: u64 = 16;
 
-// 三缓冲设计：1 个读者 + 2 个写者
+// 三缓冲设计：1 个读者 + 1 个写者（ping 和 download 顺序执行，不并发写）
 const SLOT_COUNT: usize = 3;
 
-// 每个缓冲区 32 字节
 const MSG_BUF_LEN: usize = 32;
 const PREFIX_BUF_LEN: usize = 32;
 
-// 槽位状态机
 const SLOT_FREE: usize = 0;
 const SLOT_WRITING: usize = 1;
 const SLOT_READY: usize = 2;
 
 struct TextData {
-    pos: usize,                // 当前进度位置
-    msg_len: usize,            // msg 字节长度
-    pre_len: usize,            // prefix 字节长度
-    msg: [u8; MSG_BUF_LEN],       // 32 字节缓冲区
-    prefix: [u8; PREFIX_BUF_LEN], // 32 字节缓冲区
+    pos: usize,
+    msg_len: usize,
+    pre_len: usize,
+    msg: [u8; MSG_BUF_LEN],
+    prefix: [u8; PREFIX_BUF_LEN],
 }
 
 impl TextData {
-    /// 将字符串写入 msg 缓冲区（按字符边界截断）
     fn set_msg(&mut self, s: &str) {
         let limit = MSG_BUF_LEN;
         let actual_len = s.floor_char_boundary(limit.min(s.len()));
@@ -47,7 +43,6 @@ impl TextData {
         self.msg[..actual_len].copy_from_slice(&s.as_bytes()[..actual_len]);
     }
     
-    /// 读取 msg
     fn get_msg(&self) -> &str {
         // SAFETY: set_msg() 只写入来自 &str 的有效 UTF-8 字节，
         // 且状态机保证此槽位在读者读取前已处于 READY 状态。
@@ -55,8 +50,7 @@ impl TextData {
             std::str::from_utf8_unchecked(&self.msg[..self.msg_len])
         }
     }
-    
-    /// 将字符串写入 prefix 缓冲区
+
     fn set_prefix(&mut self, s: &str) {
         let limit = PREFIX_BUF_LEN;
         let actual_len = s.floor_char_boundary(limit.min(s.len()));
@@ -65,7 +59,6 @@ impl TextData {
         self.prefix[..actual_len].copy_from_slice(&s.as_bytes()[..actual_len]);
     }
     
-    /// 读取 prefix
     fn get_prefix(&self) -> &str {
         // SAFETY: set_prefix() 只写入来自 &str 的有效 UTF-8 字节，
         // 且状态机保证此槽位在读者读取前已处于 READY 状态。
@@ -77,9 +70,7 @@ impl TextData {
 
 struct BarInner {
     slots: [std::cell::UnsafeCell<TextData>; SLOT_COUNT],
-    // 每个槽位的状态
     states: [AtomicUsize; SLOT_COUNT],
-    // 当前最新且可读的槽位索引
     current_idx: AtomicUsize,
     is_done: AtomicBool,
     total: usize,
@@ -92,7 +83,8 @@ pub(crate) struct Bar {
     handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
-// 安全：状态机保证了线程安全（写者抢占 FREE/READY，读者只读 READY）
+// SAFETY: 单写者约束（见顶部注释）。写者通过 Release store 发布 READY + current_idx，
+// 读者通过 Acquire load 读取 current_idx，看到的槽位数据已完整。
 unsafe impl Sync for BarInner {}
 
 impl BarInner {
@@ -131,15 +123,13 @@ impl BarInner {
         output_buffer: &mut String,
         bar_length: usize,
     ) {
-        // 原子读取当前黑板索引（读者视角）
         let current_idx = self.current_idx.load(Ordering::Acquire) % SLOT_COUNT;
-        
+
         // SAFETY: current_idx 指向一个 READY 槽位（写者已通过状态机保证数据完整，
         // 在设为 READY 后才会更新 current_idx）。读者不修改数据，只读取。
         let slot = unsafe { &*self.slots[current_idx].get() };
         let current_pos = slot.pos;
-        
-        // O(1) 读取字符串（写者已通过状态机保证数据完整）
+
         let msg = slot.get_msg();
         let prefix = slot.get_prefix();
 
@@ -250,23 +240,19 @@ impl Bar {
     pub(crate) fn update(&self, pos: usize, msg: impl AsRef<str>, suffix: impl AsRef<str>) {
         if self.inner.is_done.load(Ordering::Relaxed) { return; }
 
-        // 获取读者正在看的索引（避开读者保护区）
         let current_reading = self.inner.current_idx.load(Ordering::Acquire);
 
         for i in 0..SLOT_COUNT {
             let slot_idx = i;
 
-            // 跳过读者正在读的槽位
             if slot_idx == current_reading { continue; }
 
             let state = self.inner.states[slot_idx].load(Ordering::Relaxed);
 
-            // 抢占 FREE 或 READY 的槽位（WRITING 的跳过）
             if state != SLOT_WRITING && self.inner.states[slot_idx].compare_exchange(
                 state, SLOT_WRITING,
                 Ordering::AcqRel, Ordering::Acquire,
             ).is_ok() {
-                // 写入数据
                 // SAFETY: 通过 compare_exchange 成功获取了此槽位的独占写权限
                 //（状态从 FREE/READY 变更为 WRITING），无其他线程并发写此槽位。
                 let slot = unsafe { &mut *self.inner.slots[slot_idx].get() };
@@ -287,7 +273,6 @@ impl Bar {
     pub(crate) fn set_suffix(&self, suffix: impl AsRef<str>) {
         if self.inner.is_done.load(Ordering::Relaxed) { return; }
 
-        // 读出当前最新数据，调用 update 写另一个槽位
         let curr_idx = self.inner.current_idx.load(Ordering::Acquire);
         // SAFETY: curr_idx 指向一个 READY 槽位（写者已通过状态机保证数据完整）。
         // 此处只读取 pos 和 msg 字段，不修改数据。
@@ -309,7 +294,6 @@ impl Bar {
     }
 }
 
-/// HSV 转 RGB（用于进度条渐变色）
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
     let i = (h * 6.0).floor() as i32;
     let f = h * 6.0 - i as f64;
@@ -332,6 +316,7 @@ fn get_terminal_width() -> usize {
     use windows_sys::Win32::System::Console::{GetConsoleScreenBufferInfo, GetStdHandle, STD_OUTPUT_HANDLE, CONSOLE_SCREEN_BUFFER_INFO};
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     unsafe {
+        // SAFETY: GetStdHandle/GetConsoleScreenBufferInfo 只读控制台状态，无副作用
         let handle = GetStdHandle(STD_OUTPUT_HANDLE);
         if handle == 0 as _ || handle == INVALID_HANDLE_VALUE {
             return 80;
@@ -349,6 +334,7 @@ fn get_terminal_width() -> usize {
 fn get_terminal_width() -> usize {
     use libc::{ioctl, winsize, TIOCGWINSZ, STDOUT_FILENO};
     unsafe {
+        // SAFETY: ioctl(TIOCGWINSZ) 只读终端窗口尺寸，ws 是 zeroed 的合法 winsize
         let mut ws: winsize = std::mem::zeroed();
         if ioctl(STDOUT_FILENO, TIOCGWINSZ, &mut ws) == 0 {
             return ws.ws_col as usize;

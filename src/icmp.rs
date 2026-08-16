@@ -8,7 +8,6 @@ use surge_ping::{Client, Config, PingIdentifier, PingSequence, ICMP};
 use crate::args::Args;
 use crate::common::{self, PingData, BasePing, Ping as CommonPing, PingMode};
 
-// 标识符计数器
 static PING_IDENTIFIER_COUNTER: AtomicU16 = AtomicU16::new(0);
 
 #[derive(Clone)]
@@ -29,23 +28,18 @@ impl PingMode for IcmpingFactoryData {
             IpAddr::V4(_) => self.client_v4.clone(),
             IpAddr::V6(_) => self.client_v6.clone(),
         };
+        let args_for_closure = args.clone();
 
-        Box::pin(async move {
-            let ping_times = args.ping_times;
-            
-            let (avg_delay, recv) = common::run_ping_loop(ping_times, 0, || {
-                let client = client.clone();
-                let args = args.clone();
-                async move {
-                    let _permit = crate::pool::acquire_permit().await;
-                    icmp_ping(addr, &args, &client).await
-                }
-            }).await;
-
-            common::build_ping_data_result(addr, ping_times, recv, avg_delay.unwrap_or(0.0), None)
-        })
+        Box::pin(common::ping_one(args, addr, 0, move || {
+            let client = client.clone();
+            let args = args_for_closure.clone();
+            async move {
+                let _permit = crate::pool::acquire_permit().await;
+                icmp_ping(addr, &args, &client).await
+            }
+        }))
     }
-    
+
     fn clone_box(&self) -> Box<dyn PingMode> {
         Box::new(self.clone())
     }
@@ -67,7 +61,6 @@ pub(crate) fn new(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<Atomi
     Some(CommonPing::new(base, factory_data))
 }
 
-// ICMP ping函数
 async fn icmp_ping(addr: SocketAddr, args: &Arc<Args>, client: &Arc<Client>) -> Option<f32> {
     let ip = addr.ip();
     let payload = [0; 56];

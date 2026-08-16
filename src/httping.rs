@@ -130,7 +130,7 @@ impl PingTask {
         match result {
             Some((delay, dc)) => {
                 if self.local_data_center.get().is_none() {
-                    if !self.colo_filters.is_empty() && !common::is_colo_matched(std::str::from_utf8(&dc).unwrap(), &self.colo_filters) {
+                    if !self.colo_filters.is_empty() && !common::is_colo_matched(common::colo_bytes_to_str(&dc), &self.colo_filters) {
                         self.should_continue.store(false, Ordering::Relaxed);
                         return None;
                     }

@@ -9,7 +9,6 @@ use std::sync::{
 
 use crate::args::Args;
 
-/// IPv4/IPv6 CIDR 网络块
 #[derive(Clone, Copy)]
 pub(crate) enum IpCidr {
     V4(Ipv4Addr, u8),
@@ -24,7 +23,6 @@ impl IpCidr {
         }
     }
 
-    /// 计算地址范围，返回 (起始地址, 结束地址)
     pub(crate) fn range_u128(&self) -> (u128, u128) {
         let (val, len, max_bits, full_mask) = self.parts();
         let host_bits = max_bits - len;
@@ -58,7 +56,6 @@ impl IpCidr {
         }
     }
 
-    /// 解析 CIDR 格式字符串
     pub(crate) fn parse(s: &str) -> Option<Self> {
         let (ip_part, prefix_part) = s.split_once('/')?;
 
@@ -73,7 +70,6 @@ impl IpCidr {
     }
 }
 
-/// IP 地址缓冲区
 pub(crate) struct IpBuffer {
     total_expected: usize,
     segments: Arc<Vec<Arc<IpSegment>>>,
@@ -115,7 +111,6 @@ impl IpSegment {
     }
 }
 
-/// CIDR 网络扫描状态
 pub(crate) struct CidrState {
     network: IpCidr,
     total_count: usize,
@@ -145,7 +140,6 @@ impl CidrState {
         }
     }
 
-    /// 生成下一个随机 IP 地址
     fn next_ip(&self, tcp_port: u16) -> Option<SocketAddr> {
         let current_index = self.index_counter.fetch_add(1, Ordering::Relaxed);
 
@@ -214,7 +208,6 @@ impl IpBuffer {
         }
     }
 
-    /// 弹出一个 IP 地址，优先处理单个 IP，其次轮询 CIDR 块
     pub(crate) fn pop(&self) -> Option<SocketAddr> {
         loop {
             if self.active_count.load(Ordering::Acquire) == 0 {
@@ -274,7 +267,6 @@ fn generate_refined_random(obj_addr: usize) -> u128 {
     (hi as u128) << 64 | (lo as u128)
 }
 
-/// 收集 IP/CIDR 来源
 pub(crate) fn collect_ip_sources(ip_text: &str, ip_file: &str) -> Vec<String> {
     let clean = |s: &str| {
         let s = s.trim();
@@ -297,14 +289,12 @@ pub(crate) fn collect_ip_sources(ip_text: &str, ip_file: &str) -> Vec<String> {
     sources
 }
 
-/// 统一的解析结果，包含IP信息和自定义计数
 #[derive(Clone)]
 struct ParsedIpInfo {
     result: IpParseResult,
     custom_count: Option<u128>,
 }
 
-/// 统一解析IP范围和计数信息
 fn parse_ip_info(ip_range: &str) -> ParsedIpInfo {
     let (ip_part, custom_count) = if let Some((ip_part, count_str)) = ip_range.split_once('=') {
         let count = count_str.trim().parse::<u128>().ok().filter(|&n| n > 0);
@@ -346,7 +336,6 @@ fn parse_ip_with_port(ip_str: &str) -> IpParseResult {
     IpParseResult::Invalid
 }
 
-/// 处理 IP 来源
 pub(crate) fn process_ip_sources(ip_sources: Vec<String>, config: &Args) -> (Vec<SocketAddr>, Vec<CidrState>, usize) {
     let mut single_ips = Vec::new();
     let mut cidr_info = Vec::new();
@@ -394,7 +383,6 @@ pub(crate) fn process_ip_sources(ip_sources: Vec<String>, config: &Args) -> (Vec
     (single_ips, cidr_states, total_expected)
 }
 
-/// 计算采样 IP 数量
 fn calculate_ip_count(parsed_result: &IpParseResult, custom_count: Option<u128>, test_all_ipv4: bool) -> u128 {
     match parsed_result {
         IpParseResult::SocketAddr(_) => {
@@ -424,12 +412,9 @@ fn calculate_ip_count(parsed_result: &IpParseResult, custom_count: Option<u128>,
     }
 }
 
-/// 采样指数上限
 const MAX_SAMPLE_EXP: u8 = 18;
-/// 采样指数最小偏移量
 const MIN_SAMPLE_EXP_OFFSET: u8 = 2;
 
-/// 根据前缀长度计算采样数量
 pub(crate) fn calculate_sample_count(prefix: u8, is_ipv4: bool) -> u128 {
     let max_bits: u8 = if is_ipv4 { 31 } else { 127 };
     let host_bits = max_bits.saturating_sub(prefix);

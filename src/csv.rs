@@ -16,9 +16,7 @@ const TABLE_HEADERS: [&str; 7] = [
     "数据中心",
 ];
 
-/// 从 PingResult 导出 CSV 文件
 pub(crate) fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
-    /// 写入CSV行到文件
     fn write_csv_line(file: &mut std::fs::File, fields: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let line = fields.join(",");
         writeln!(file, "{}", line)?;
@@ -51,7 +49,6 @@ pub(crate) fn export_csv(results: &[PingData], args: &Args) -> Result<(), Box<dy
     Ok(())
 }
 
-/// 打印测速结果
 pub(crate) fn print_results(results: &[PingData], args: &Args) {
     if results.is_empty() {
         info_println(format_args!("测速结果 IP 数量为 0，跳过输出结果"));
@@ -113,7 +110,6 @@ pub(crate) fn print_results(results: &[PingData], args: &Args) {
     println!("{leading}{line}");
 }
 
-/// 将 PingData 转换为通用数据格式
 fn ping_data_to_fields(data: &PingData) -> Vec<String> {
     vec![
         data.addr.to_string(),

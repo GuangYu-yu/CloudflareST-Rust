@@ -8,7 +8,6 @@ use crate::common::{Ping as CommonPing, PingData};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-// 定义统一的错误、信息和警告输出函数
 pub(crate) fn error_println(args: std::fmt::Arguments<'_>) {
     eprintln!("\x1b[31;1m[错误]\x1b[0m {args}");
 }
@@ -53,44 +52,35 @@ fn create_ping(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBo
 
 #[tokio::main]
 async fn main() {
-    // 打印全局标题
-    // 蓝色加粗
     println!("\x1b[34;1m# CloudflareST-Rust\x1b[0m");
 
-    // 解析命令行参数
     let args = Arc::new(args::parse_args());
 
-    // 收集并验证
     let sources = ip::collect_ip_sources(&args.ip_text, &args.ip_file);
 
-    // 初始化全局并发限制器
     pool::init_global_limiter(args.max_threads);
 
-    // 创建全局超时标志
     let timeout_flag = Arc::new(AtomicBool::new(false));
 
-    // 设置全局超时
     if let Some(timeout) = args.global_timeout_duration {
         info_println(format_args!(
             "程序执行时间超过 {timeout:?} 后，将提前结算结果并退出"
         ));
         let timeout_flag_clone = timeout_flag.clone();
+        // fire-and-forget：超时后置标志位，主循环自行检测退出
         tokio::spawn(async move {
             tokio::time::sleep(timeout).await;
             timeout_flag_clone.store(true, Ordering::SeqCst);
         });
     }
 
-    // 根据参数选择 TCP、HTTP 或 ICMP 测速
     let Some(ping) = create_ping(args.clone(), sources, timeout_flag.clone()) else {
-        return;
+        error_and_exit(format_args!("创建测速实例失败"));
     };
     let ping_result: Vec<PingData> = ping.run().await;
 
-    // 检查是否在 ping 阶段被超时中断
     let ping_interrupted = timeout_flag.load(Ordering::SeqCst);
 
-    // 开始下载测速
     let ping_data = if args.disable_download || ping_result.is_empty() || ping_interrupted {
         let reason = if args.disable_download {
             "已禁用下载测速"
@@ -102,16 +92,12 @@ async fn main() {
         info_println(format_args!("{reason}"));
         ping_result
     } else {
-        // 创建可变下载测速实例
         let mut download_test = download::DownloadTest::new(&args, ping_result, timeout_flag.clone()).await;
-        // 执行下载测速
         download_test.test_download_speed().await
     };
 
-    // 打印结果
     csv::print_results(&ping_data, &args);
 
-    // 输出文件
     if let Some(output_file) = &args.output && !ping_data.is_empty() {
         match csv::export_csv(&ping_data, &args) {
             Ok(_) => info_println(format_args!("测速结果已写入 {output_file} 文件，可使用记事本/表格软件查看")),

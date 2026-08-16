@@ -58,11 +58,10 @@ impl PingData {
     }
 
     pub(crate) fn colo_str(&self) -> &str {
-        self.data_center.as_ref().map_or("", |b| std::str::from_utf8(b).unwrap())
+        colo_opt_to_str(self.data_center.as_ref())
     }
 }
 
-// 打印测速信息的通用函数
 pub(crate) fn print_speed_test_info(mode: &str, args: &Args) {
     println!(
         "开始延迟测速（模式：{mode}, 端口：{}, 范围：{} ~ {} ms, 丢包：{:.2})",
@@ -73,7 +72,7 @@ pub(crate) fn print_speed_test_info(mode: &str, args: &Args) {
     );
 }
 
-/// 基础Ping结构体，包含所有公共字段
+#[derive(Clone)]
 pub(crate) struct BasePing {
     pub(crate) ip_buffer: Arc<IpBuffer>,
     pub(crate) bar: Arc<Bar>,
@@ -103,56 +102,46 @@ impl BasePing {
     }
 }
 
-impl Clone for BasePing {
-    fn clone(&self) -> Self {
-        Self {
-            ip_buffer: self.ip_buffer.clone(),
-            bar: self.bar.clone(),
-            args: self.args.clone(),
-            success_count: self.success_count.clone(),
-            timeout_flag: self.timeout_flag.clone(),
-            tested_count: self.tested_count.clone(),
-        }
-    }
-}
-
 /// 计算平均延迟，精确到两位小数
 pub(crate) fn calculate_precise_delay(total_delay_ms: f32, success_count: u16) -> f32 {
     if success_count == 0 {
         return 0.0;
     }
 
-    // 计算平均值
     let avg_ms = total_delay_ms / success_count as f32;
-    // 四舍五入到两位小数
     (avg_ms * ROUNDING_PRECISION).round() / ROUNDING_PRECISION
 }
 
-/// 从响应头中提取数据中心信息
 pub(crate) fn extract_data_center(headers: &http::HeaderMap) -> Option<[u8; 3]> {
     let s = headers.get("cf-ray")?.to_str().ok()?.rsplit('-').next()?;
     let b = s.as_bytes();
     (b.len() == 3).then(|| [b[0], b[1], b[2]])
 }
 
+pub(crate) fn colo_bytes_to_str(b: &[u8; 3]) -> &str {
+    std::str::from_utf8(b).unwrap()
+}
+
+/// 将 Option<colo> 转换为字符串（None 返回空串）
+pub(crate) fn colo_opt_to_str(opt: Option<&[u8; 3]>) -> &str {
+    opt.map_or("", colo_bytes_to_str)
+}
+
 /// Ping 初始化
 pub(crate) fn create_base_ping(args: Arc<Args>, sources: Vec<String>, timeout_flag: Arc<AtomicBool>) -> BasePing {
-    // 处理 IP 源并创建缓冲区
     let (single_ips, cidr_states, total_expected) = crate::ip::process_ip_sources(sources, &args);
     let ip_buffer = IpBuffer::new(cidr_states, single_ips, total_expected, args.tcp_port);
 
-    // 创建 BasePing 所需各项资源并初始化
     BasePing::new(
-        Arc::new(ip_buffer),                                    // IP 缓冲区
-        Arc::new(Bar::new(total_expected, "可用:", "")), // 创建进度条
-        args,                                                     // 参数包装
-        Arc::new(AtomicUsize::new(0)),                          // 成功计数器
-        timeout_flag,                                           // 提前中止标记
-        Arc::new(AtomicUsize::new(0)),                          // 已测试计数器
+        Arc::new(ip_buffer),
+        Arc::new(Bar::new(total_expected, "可用:", "")),
+        args,
+        Arc::new(AtomicUsize::new(0)),
+        timeout_flag,
+        Arc::new(AtomicUsize::new(0)),
     )
 }
 
-/// 通用的ping测试循环函数
 pub(crate) async fn run_ping_loop<F, Fut>(
     ping_times: u16,
     wait_ms: u64,
@@ -170,14 +159,28 @@ where
             recv += 1;
             total_delay_ms += delay;
 
-            // 成功时等待指定时间再进行下一次ping
             tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
         }
     }
 
-    // 计算平均延迟
     let avg_delay_ms = calculate_precise_delay(total_delay_ms, recv);
     ((recv > 0).then_some(avg_delay_ms), recv)
+}
+
+/// 通用 ping 编排：循环探测 + 构建结果（无 colo）
+pub(crate) async fn ping_one<F, Fut>(
+    args: Arc<Args>,
+    addr: SocketAddr,
+    wait_ms: u64,
+    test_fn: F,
+) -> Option<PingData>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<f32>>,
+{
+    let ping_times = args.ping_times;
+    let (avg_delay, recv) = run_ping_loop(ping_times, wait_ms, test_fn).await;
+    build_ping_data_result(addr, ping_times, recv, avg_delay.unwrap_or(0.0), None)
 }
 
 pub(crate) trait PingMode: Send + 'static {
@@ -221,7 +224,6 @@ impl Ping {
         }
     }
 
-    // 通用的 run 方法
     pub(crate) async fn run(self) -> Vec<PingData> {
         run_ping_test(self.base, self.factory_data).await
     }
@@ -233,32 +235,25 @@ pub(crate) async fn run_ping_test(
     mode: Box<dyn PingMode>,
 ) -> Vec<PingData>
 {
-    // 并发限制器最大并发数量
     let pool_concurrency = pool::max_concurrent();
-    
-    // 缓存常用值
+
     let timeout_flag = &base.timeout_flag;
     let success_count = &base.success_count;
     let bar = &base.bar;
     let args = &base.args;
     let total_ips = base.ip_buffer.total_expected();
-    let tn = args.target_num.map(|t| t.min(total_ips)); // 目标数量，不超过总IP数
-    
-    // 创建异步任务管理器和结果收集器
+    let tn = args.target_num.map(|t| t.min(total_ips));
+
     let mut tasks = JoinSet::new();
-    // 使用 -tn 参数时预分配结果向量容量，否则使用默认容量
     let mut results = tn.map_or(Vec::new(), Vec::with_capacity);
 
-    // 初始启动任务直到达到并发限制或没有更多 IP
     (0..pool_concurrency)
         .map_while(|_| base.ip_buffer.pop())
         .for_each(|addr| {
             let _ = tasks.spawn(mode.run_test(base.clone(), addr));
         });
     
-    // 动态循环处理任务，直到超时或任务耗尽
     while let Some(join_result) = tasks.join_next().await {
-        // 检查超时信号或是否达到目标成功数量，满足任一条件则提前退出
         let current_success = success_count.load(Ordering::Relaxed);
         if check_timeout_signal(timeout_flag) 
             || tn.is_some_and(|tn| current_success >= tn) {
@@ -266,7 +261,6 @@ pub(crate) async fn run_ping_test(
             break;
         }
 
-        // 处理结果
         let mut success_increment = 0;
         if let Ok(result) = join_result
             && let Some(ping_data) = result.filter(|d| should_keep_result(d, args))
@@ -275,27 +269,23 @@ pub(crate) async fn run_ping_test(
             results.push(ping_data);
         }
 
-        // 更新测试计数和进度条
         let current_tested = base.tested_count.fetch_add(1, Ordering::Relaxed) + 1;
         if success_increment > 0 {
             success_count.fetch_add(success_increment, Ordering::Relaxed);
         }
         update_progress_bar(bar, current_tested, current_success + success_increment, total_ips);
 
-        // 继续添加新任务
         if let Some(addr) = base.ip_buffer.pop() {
-            tasks.spawn(mode.run_test(base.clone(), addr));
+            let _ = tasks.spawn(mode.run_test(base.clone(), addr));
         }
     }
 
-    // 完成进度条并排序结果
     bar.done();
     sort_results(&mut results);
 
     results
 }
 
-/// 解析数据中心过滤条件字符串为向量
 pub(crate) fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
     colo_filter
         .split(',')
@@ -304,29 +294,24 @@ pub(crate) fn parse_colo_filters(colo_filter: &str) -> Vec<String> {
         .collect()
 }
 
-// 检查数据中心是否匹配过滤条件
 pub(crate) fn is_colo_matched(data_center: &str, colo_filters: &[String]) -> bool {
     !data_center.is_empty()
         && (colo_filters.is_empty()
             || colo_filters.iter().any(|f| f.eq_ignore_ascii_case(data_center)))
 }
 
-/// 判断测试结果是否符合筛选条件
 pub(crate) fn should_keep_result(data: &PingData, args: &Args) -> bool {
-    // 检查丢包率和延迟上下限
     data.loss_rate() <= args.max_loss_rate
         && data.delay >= args.min_delay.as_millis() as f32
         && data.delay <= args.max_delay.as_millis() as f32
 }
 
-/// 排序结果
 pub(crate) fn sort_results(results: &mut [PingData]) {
     if results.len() < 2 {
         return;
     }
 
     let n = results.len() as f32;
-    let has_speed = results.iter().any(|r| r.download_speed.is_some());
 
     let avg_delay = results.iter().map(|r| r.delay).sum::<f32>() / n;
     let avg_loss  = results.iter().map(|r| r.loss_rate()).sum::<f32>() / n;
@@ -357,22 +342,16 @@ pub(crate) fn sort_results(results: &mut [PingData]) {
         };
         let z_delay = safe_div(d.delay - avg_delay, std_delay);
         let z_loss  = safe_div(d.loss_rate() - avg_loss, std_loss);
-        if has_speed {
-            W_SPEED * z_speed - W_DELAY * z_delay - W_LOSS * z_loss
-        } else {
-            -W_DELAY * z_delay - W_LOSS * z_loss
-        }
+        W_SPEED * z_speed - W_DELAY * z_delay - W_LOSS * z_loss
     };
 
     results.sort_unstable_by(|a, b| score(b).total_cmp(&score(a)));
 }
 
-/// 检查是否收到超时信号
 pub(crate) fn check_timeout_signal(timeout_flag: &AtomicBool) -> bool {
     timeout_flag.load(Ordering::SeqCst)
 }
 
-/// 统一的进度条更新函数
 pub(crate) fn update_progress_bar(
     bar: &Bar,
     current_tested: usize,

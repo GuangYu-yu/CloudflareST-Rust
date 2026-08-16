@@ -24,7 +24,6 @@ use {
     },
 };
 
-/// 接口 IP 信息
 #[derive(Clone)]
 pub(crate) struct InterfaceIps {
     pub(crate) ipv4: Option<IpAddr>,
@@ -32,7 +31,6 @@ pub(crate) struct InterfaceIps {
     pub(crate) port: Option<u16>,
 }
 
-/// 接口解析结果
 #[derive(Clone, Default)]
 pub(crate) struct InterfaceParamResult {
     pub(crate) interface_ips: Option<InterfaceIps>,
@@ -43,7 +41,6 @@ pub(crate) struct InterfaceParamResult {
     pub(crate) interface_index: Option<u32>,
 }
 
-/// 解析接口参数类型
 #[derive(Clone)]
 pub(crate) enum ParsedInterface {
     SocketAddr(SocketAddr),
@@ -51,7 +48,6 @@ pub(crate) enum ParsedInterface {
     Name(String),
 }
 
-/// 从 IP 和 port 构建 InterfaceIps 
 fn interface_ips_from_ip(ip: IpAddr, port: Option<u16>) -> InterfaceIps { 
     match ip { 
         IpAddr::V4(ipv4) => InterfaceIps { ipv4: Some(ipv4.into()), ipv6: None, port }, 
@@ -59,7 +55,6 @@ fn interface_ips_from_ip(ip: IpAddr, port: Option<u16>) -> InterfaceIps {
     } 
 } 
 
-/// 验证接口名是否有效
 fn is_valid_interface_name(name: &str) -> bool {
     #[cfg(target_os = "windows")]
     { get_interface_index(name).is_some() }
@@ -67,7 +62,10 @@ fn is_valid_interface_name(name: &str) -> bool {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         std::ffi::CString::new(name)
-            .map_or(false, |c| unsafe { libc::if_nametoindex(c.as_ptr()) != 0 })
+            .map_or(false, |c| {
+                // SAFETY: if_nametoindex 只读内核接口表，c 是合法 CString 空指针结尾
+                unsafe { libc::if_nametoindex(c.as_ptr()) != 0 }
+            })
     }
 }
 
@@ -90,10 +88,8 @@ pub(crate) fn process_interface_param(interface: &str) -> InterfaceParamResult {
             ..InterfaceParamResult::default()
         }, 
         ParsedInterface::Name(name) => {
-            // 验证接口名是否有效
             let is_valid = is_valid_interface_name(&name);
             
-            // 在Windows系统上，尝试获取接口索引
             #[cfg(target_os = "windows")]
             let interface_index = get_interface_index(&name);
             
@@ -109,7 +105,6 @@ pub(crate) fn process_interface_param(interface: &str) -> InterfaceParamResult {
     } 
 }
 
-/// 根据目标IP地址绑定源IP到socket
 fn bind_source_ip_to_socket(sock: &TcpSocket, addr: &SocketAddr, ips: &InterfaceIps) -> Option<()> {
     #[cfg(target_os = "linux")]
     {
@@ -136,7 +131,6 @@ fn bind_source_ip_to_socket(sock: &TcpSocket, addr: &SocketAddr, ips: &Interface
     sock.bind(SocketAddr::new(ip, port)).ok() 
 }
 
-/// 根据IP地址类型创建对应的TCP Socket
 fn create_tcp_socket_for_ip(addr: &IpAddr) -> TcpSocket {
     match addr {
         IpAddr::V4(_) => TcpSocket::new_v4().unwrap(),
@@ -152,6 +146,7 @@ fn bind_to_interface(sock: &TcpSocket, name: &str) -> Option<()> {
 #[cfg(target_os = "macos")]
 fn bind_to_interface(sock: &TcpSocket, name: &str, for_addr: IpAddr) -> Option<()> {
     let c_name = std::ffi::CString::new(name).ok()?;
+    // SAFETY: if_nametoindex 只读内核接口表，c_name 是合法 CString 空指针结尾
     let idx = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
     if idx == 0 {
         return None;
@@ -170,7 +165,6 @@ fn bind_to_interface(sock: &TcpSocket, name: &str, for_addr: IpAddr) -> Option<(
     }
 }
 
-/// Windows: 按接口索引绑定
 #[cfg(target_os = "windows")]
 fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, for_addr: IpAddr) -> bool {
     let raw = sock.as_raw_socket();
@@ -195,7 +189,6 @@ fn bind_to_interface_index(sock: &TcpSocket, iface_idx: u32, for_addr: IpAddr) -
     res != SOCKET_ERROR
 }
 
-/// Windows: 获取接口索引
 #[cfg(target_os = "windows")]
 pub(crate) fn get_interface_index(name: &str) -> Option<u32> {
     // SAFETY: 遵循 GetAdaptersAddresses 标准两阶段调用模式——先查询缓冲区大小，
@@ -254,25 +247,20 @@ pub(crate) fn get_interface_index(name: &str) -> Option<u32> {
     None
 }
 
-/// 绑定 TCP Socket
 pub(crate) async fn bind_socket_to_interface(
     addr: SocketAddr,
     interface_config: &InterfaceParamResult,
 ) -> Option<TcpSocket> {
-    // 创建基础socket
     let sock = create_tcp_socket_for_ip(&addr.ip());
     let _ = sock.set_reuseaddr(true);
 
     if let Some(ref ips) = interface_config.interface_ips {
-        // 如果提供了IP地址，则绑定IP地址
         bind_source_ip_to_socket(&sock, &addr, ips)?;
         return Some(sock);
     }
 
-    // 使用结构体中的接口索引
     #[cfg(target_os = "windows")]
     if let Some(idx) = interface_config.interface_index {
-        // 尝试绑定到接口索引
         if !bind_to_interface_index(&sock, idx, addr.ip()) {
             return None;
         }

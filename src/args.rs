@@ -10,12 +10,9 @@ use std::sync::OnceLock;
 #[cfg(target_os = "windows")]
 pub(crate) static OUTPUT_HANDLE: OnceLock<std::fs::File> = OnceLock::new();
 
-// 非TLS端口数组
 const NON_TLS_PORTS: [u16; 7] = [80, 8080, 8880, 2052, 2082, 2086, 2095];
-// TLS端口数组
 const TLS_PORTS: [u16; 6] = [443, 2053, 2083, 2087, 2096, 8443];
 
-/// 命令行参数配置结构体
 #[derive(Clone)]
 pub(crate) struct Args {
     // 网络测试参数
@@ -32,7 +29,7 @@ pub(crate) struct Args {
     pub(crate) max_loss_rate: f32,                 // 最大丢包率阈值
     pub(crate) test_count: usize,                  // 所需达到下载速度下限的IP数量
     pub(crate) timeout_duration: Option<Duration>, // 单次下载测速的持续时间
-    pub(crate) min_speed: f32,                     // 最低下载速度要求(MB/s)
+    pub(crate) min_speed_bps: f32,                 // 最低下载速度要求(B/s)，解析时由 MB/s 转换
     pub(crate) disable_download: bool,             // 是否禁用下载测试
 
     // 结果处理参数
@@ -54,7 +51,6 @@ pub(crate) struct Args {
 }
 
 impl Args {
-    /// 创建默认参数配置
     pub(crate) fn new() -> Self {
         Self {
             #[cfg(feature = "icmp")]
@@ -70,7 +66,7 @@ impl Args {
             max_loss_rate: 1.0,
             test_count: 10,
             timeout_duration: Some(Duration::from_secs(10)),
-            min_speed: 0.0,
+            min_speed_bps: 0.0,
             disable_download: false,
             target_num: None,
             print_num: 10,
@@ -86,33 +82,31 @@ impl Args {
         }
     }
 
-    // 字符串转换为数字
-    fn parse_or<T>(value_opt: Option<String>, default: T) -> T
-    where
-        T: std::str::FromStr + Copy,
-    {
-        value_opt.map_or(default, |s| s.parse().unwrap_or(default))
+    fn parse_or_exit<T: std::str::FromStr>(s: &str, arg_name: &str) -> T {
+        s.parse().unwrap_or_else(|_|
+            error_and_exit(format_args!("参数 -{arg_name} 的值 '{s}' 无效"))
+        )
     }
 
-    // 赋值字符串
+    fn parse_or<T: std::str::FromStr>(value_opt: Option<String>, default: T, arg_name: &str) -> T {
+        value_opt.map_or(default, |s| Self::parse_or_exit(&s, arg_name))
+    }
+
     fn assign_string(target: &mut String, value_opt: Option<String>) {
         if let Some(v) = value_opt {
             *target = v;
         }
     }
 
-    /// 解析命令行参数
     pub(crate) fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
         let mut parsed = Self::new();
         let vec = Self::parse_args_to_vec(&args);
 
-        // 标记是否使用了 -tp 参数
         let mut use_tp = false;
 
         for (k, v_opt) in vec {
             match k.as_str() {
-                // 布尔参数
                 "h" | "help" => parsed.help = true,
                 "httping" => if let Some(v) = v_opt { parsed.httping = Some(v); } else { parsed.httping = Some("http://cp.cloudflare.com/cdn-cgi/trace".to_string()); },
                 "dd" => parsed.disable_download = true,
@@ -121,49 +115,50 @@ impl Args {
                 #[cfg(feature = "icmp")]
                 "ping" => parsed.icmp_ping = true,
 
-                // 数值参数
                 "t" => {
-                    parsed.ping_times = Self::parse_or(v_opt, parsed.ping_times).clamp(1, u16::MAX);
+                    parsed.ping_times = Self::parse_or(v_opt, parsed.ping_times, &k).clamp(1, u16::MAX);
                 }
                 "dn" => {
-                    parsed.test_count = Self::parse_or(v_opt, parsed.test_count).clamp(1, usize::MAX);
+                    parsed.test_count = Self::parse_or(v_opt, parsed.test_count, &k).clamp(1, usize::MAX);
                 }
                 "tp" => {
                     use_tp = true;
-                    parsed.tcp_port = Self::parse_or(v_opt, parsed.tcp_port).clamp(1, u16::MAX);
+                    parsed.tcp_port = Self::parse_or(v_opt, parsed.tcp_port, &k).clamp(1, u16::MAX);
                 }
                 "p" => {
-                    parsed.print_num = Self::parse_or(v_opt, parsed.print_num).clamp(1, u16::MAX);
+                    parsed.print_num = Self::parse_or(v_opt, parsed.print_num, &k).clamp(1, u16::MAX);
                 }
                 "tlr" => {
-                    parsed.max_loss_rate = Self::parse_or(v_opt, parsed.max_loss_rate).clamp(0.0, 1.0);
+                    parsed.max_loss_rate = Self::parse_or(v_opt, parsed.max_loss_rate, &k).clamp(0.0, 1.0);
                 }
                 "sl" => {
-                    parsed.min_speed = Self::parse_or(v_opt, parsed.min_speed).clamp(0.0, f32::MAX);
+                    let mbps = Self::parse_or(v_opt, parsed.min_speed_bps / crate::common::BYTES_PER_MB, &k).clamp(0.0, f32::MAX);
+                    parsed.min_speed_bps = mbps * crate::common::BYTES_PER_MB;
                 }
-                "tn" => parsed.target_num = v_opt.and_then(|s| s.parse().ok()),
+                "tn" => {
+                    parsed.target_num = v_opt.map(|s| Self::parse_or_exit(&s, &k));
+                }
                 "n" => {
-                    parsed.max_threads = Self::parse_or(v_opt, parsed.max_threads).clamp(1, 1024);
+                    parsed.max_threads = Self::parse_or(v_opt, parsed.max_threads, &k).clamp(1, 1024);
                 }
-                // 时间参数
                 "dt" => {
-                    let seconds = Self::parse_or(v_opt, parsed.timeout_duration.map(|d| d.as_secs()).unwrap());
+                    let seconds = Self::parse_or(v_opt, parsed.timeout_duration.map(|d| d.as_secs()).unwrap(), &k);
                     parsed.timeout_duration = Some(Duration::from_secs(seconds.clamp(1, 120)));
                 }
                 "timeout" => {
-                    parsed.global_timeout_duration = v_opt
-                        .and_then(|v| v.parse::<u64>().ok())
-                        .map(|s| Duration::from_secs(s.clamp(1, 36000)));
+                    parsed.global_timeout_duration = v_opt.map(|v| {
+                        let s: u64 = Self::parse_or_exit(&v, &k);
+                        Duration::from_secs(s.clamp(1, 36000))
+                    });
                 }
                 "tl" => {
-                    let ms = Self::parse_or::<u64>(v_opt, parsed.max_delay.as_millis().try_into().unwrap());
+                    let ms = Self::parse_or::<u64>(v_opt, parsed.max_delay.as_millis().try_into().unwrap(), &k);
                     parsed.max_delay = Duration::from_millis(ms.clamp(0, 2000));
                 }
                 "tll" => {
                     let max_allowed = parsed.max_delay.as_millis().try_into().unwrap();
-                    parsed.min_delay = Duration::from_millis(Self::parse_or::<u64>(v_opt, parsed.min_delay.as_millis().try_into().unwrap()).clamp(0, max_allowed));
+                    parsed.min_delay = Duration::from_millis(Self::parse_or::<u64>(v_opt, parsed.min_delay.as_millis().try_into().unwrap(), &k).clamp(0, max_allowed));
                 }
-                // 字符串参数
                 "url" => Self::assign_string(&mut parsed.url, v_opt),
                 "hc" => Self::assign_string(&mut parsed.httping_code, v_opt),
                 "colo" => Self::assign_string(&mut parsed.httping_cf_colo, v_opt),
@@ -172,17 +167,14 @@ impl Args {
                 "o" => parsed.output = v_opt,
                 "intf" => {
                     if let Some(ref interface) = v_opt {
-                        // 调用 interface.rs 中的函数处理接口参数
                         parsed.interface_config = Arc::new(process_interface_param(interface));
 
-                        // 检查参数是否有效（既不是IP也不是有效的接口名）
                         if !parsed.interface_config.is_valid_interface {
                             error_and_exit(format_args!("无效的绑定: {interface}"));
                         }
                     }
                 }
 
-                // 无效参数：打印错误并退出
                 _ => {
                     print_help();
                     error_and_exit(format_args!("无效的参数: {k}"));
@@ -196,7 +188,6 @@ impl Args {
         parsed
     }
 
-    // 解析命令行
     fn parse_args_to_vec(args: &[String]) -> Vec<(String, Option<String>)> {
         let mut iter = args.iter().skip(1).peekable();
         let mut result = Vec::new();
@@ -218,7 +209,6 @@ impl Args {
     }
 }
 
-/// 解析并验证参数
 pub(crate) fn parse_args() -> Args {
     let args = Args::parse();
 
@@ -252,7 +242,6 @@ pub(crate) fn parse_args() -> Args {
         warning_println(format_args!("使用了 -dd 参数，但仍设置了 -url 参数"));
     }
 
-    // 验证URL格式并检查端口匹配
     let mut active_checks = Vec::new();
     if let Some(ref url) = args.httping {
         active_checks.push((url.as_str(), "延迟测速"));
@@ -271,6 +260,10 @@ pub(crate) fn parse_args() -> Args {
             error_and_exit(format_args!("{scene}使用的 URL 必须以协议前缀开头"));
         }
 
+        if crate::hyper::parse_url_to_uri(url).is_none() {
+            error_and_exit(format_args!("{scene}使用的 URL '{url}' 无效：缺少 host"));
+        }
+
         if (is_https && NON_TLS_PORTS.contains(&args.tcp_port)) ||
            (is_http && TLS_PORTS.contains(&args.tcp_port)) {
             is_mismatch = true;
@@ -284,7 +277,6 @@ pub(crate) fn parse_args() -> Args {
     args
 }
 
-// 计算显示宽度
 fn approximate_display_width_no_color(s: &str) -> usize {
     let mut width = 0;
     let mut in_escape = false; 
@@ -306,21 +298,17 @@ fn approximate_display_width_no_color(s: &str) -> usize {
 }
 
 fn format_help_line(name: &str, desc: &str, default: &str) -> String {
-    // 1. 格式化参数名：绿色 (\x1b[32m)
     let name_colored = format!("\x1b[32m{}\x1b[0m", name);
     let name_display_width = approximate_display_width_no_color(&name_colored);
     let name_padding = " ".repeat(11usize.saturating_sub(name_display_width));
-    
-    // 2. 格式化描述 (默认颜色)
+
     let desc_display_width = approximate_display_width_no_color(desc);
     let desc_padding = " ".repeat(45usize.saturating_sub(desc_display_width));
 
-    // 3. 格式化默认值：暗淡色 (\x1b[2m)
     let default_colored = format!("\x1b[2m{}\x1b[0m", default);
     let default_display_width = approximate_display_width_no_color(&default_colored);
     let default_padding = " ".repeat(15usize.saturating_sub(default_display_width));
 
-    // 4. 构建完整的参数行并添加到帮助文本
     format!(
         " {}{}{}{}{}{}\n",
         name_colored,
@@ -375,14 +363,11 @@ pub(crate) fn print_help() {
         ("-o", "输出结果文件（文件名或文件路径）", "result.csv"),
     ];
     
-    // 构建完整的帮助信息
     let mut help_text = String::new();
-    
+
     for (name, desc, default) in HELP_ARGS.iter() {
         if name.is_empty() {
-            // 标题行
             help_text.push('\n');
-            // 添加加粗洋红的标题
             help_text.push_str(&format!("\x1b[1;35m{}\x1b[0m\n", desc));
         } else {
             help_text.push_str(&format_help_line(name, desc, default));

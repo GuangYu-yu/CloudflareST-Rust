@@ -14,7 +14,6 @@ use crate::interface::{InterfaceParamResult, bind_socket_to_interface};
 pub(crate) const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// TCP/TLS 流的动态分发 trait
 pub(crate) trait IoBox: AsyncRead + AsyncWrite + Send + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> IoBox for T {}
 
@@ -76,7 +75,6 @@ pub(crate) fn build_tls_connector() -> std::io::Result<Arc<TlsConnector>> {
     Ok(Arc::new(TlsConnector::from(Arc::new(config))))
 }
 
-/// 请求上下文，包装重复的配置参数
 #[derive(Clone)]
 pub(crate) struct RequestContext {
     pub interface_config: Arc<InterfaceParamResult>,
@@ -183,9 +181,9 @@ pub(crate) async fn connect(
     let stream = timeout(remaining, socket.connect(addr)).await.ok()?.ok()?;
     stream.set_nodelay(true).ok();
 
-    // TLS 握手（仅 HTTPS）
     let stream: Box<dyn IoBox> = if uri.scheme_str() == Some("https") {
-        let server_name = rustls_pki_types::ServerName::try_from(host.to_string()).unwrap();
+        let host = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
+        let server_name = rustls_pki_types::ServerName::try_from(host.to_string()).ok()?;
         let remaining = deadline.checked_duration_since(Instant::now())?;
         let tls_stream = timeout(remaining, tls_connector.connect(server_name, stream))
             .await.ok()?.ok()?;
@@ -194,7 +192,6 @@ pub(crate) async fn connect(
         Box::new(stream)
     };
 
-    // HTTP/1.1 握手
     let io = TokioIo::new(stream);
     let (sender, conn) = hyper::client::conn::http1::Builder::new()
         .handshake(io)
